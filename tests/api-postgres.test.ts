@@ -455,6 +455,13 @@ test('authenticated end-to-end workflow persists a synthetic TPS scenario in Pos
       url:'/api/v1/import/batch/rooms/preview?'+scope,
       headers:{cookie:session,'content-type':'text/csv'},payload:Buffer.from(safeCsv)});
     assert.equal(noCSRFImport.statusCode,403);
+    const printable=await app.inject({url:'/api/v1/scenarios/'+created.id+'/print',
+      headers:{cookie:session}});
+    assert.equal(printable.statusCode,200,printable.body);
+    assert.match(String(printable.headers['content-type']),/text\/html/);
+    assert.match(printable.body,/طباعة أو حفظ PDF/);
+    assert.match(printable.body,/حالة السيناريو/);
+    assert.ok(!printable.body.includes('access_token'),'No API secrets in report');
     const xlsxTemplate=await app.inject({
       url:'/api/v1/import/batch/instructors/template.xlsx',headers:{cookie:session}});
     assert.equal(xlsxTemplate.statusCode,200,xlsxTemplate.body);
