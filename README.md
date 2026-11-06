@@ -132,3 +132,7 @@ cd solver && mvn -B -ntp clean package
 
 من الواجهة المحلية: **تحميل قالب Excel** ← إدخال الطلب المتوقع ← **رفع ملف Excel/CSV** ← **قراءة وتحقق**.
 يتطلب تشغيل الخادم Python 3 مع `openpyxl` لاستيراد XLSX. الاستيراد لا يعتمد الجدول ولا ينشره إلى رايات ولا يستورد المدربين أو القاعات؛ اقرأ `docs/importing-data.md`.
+
+## Original mandate phase 10/11 implementation
+
+See [Phase 10/11 traceability](docs/PHASE_10_11_CLOSEOUT.md). The app includes all five scoped CSV/XLSX import templates, a reviewed batch commit flow and independent course-mode approvals. The four-view weekly timetable supports session selection, record-linked constraints and staged drag/drop backed by audited API checks. It offers detailed Arabic RTL Excel and a printable summary that the browser can save as PDF. These are local planning tools, **not Rayat integration or official college approvals**.

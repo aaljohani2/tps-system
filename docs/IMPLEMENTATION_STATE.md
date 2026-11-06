@@ -2,6 +2,14 @@
 
 Branch: `feat/full-stack-tps-v1`. Base commit: `3a1d84c` from the previously tested `feat/web-excel-import-v0.3`.
 
+## Phase 10 & 11 engineering closeout — original mandate (§28–32)
+
+See `docs/PHASE_10_11_CLOSEOUT.md` for the complete 26-point traceability matrix, exact source files, API routes and corresponding synthetic tests.
+
+Phase 10 adds complete course and instructor department template columns, independently governed delivery proposals, five protected CSV/XLSX batch kinds, detailed Arabic RTL Excel exports and browser print-to-PDF. Phase 11 adds four weekly timetable views, click-through details, guarded drag/drop, role-aware editor and Arabic actionable record-linked warnings. Backend now permits only strictly improving edits to repair an existing collision without creating new blockers.
+
+**Scope distinction:** these stages can be marked engineering-complete only with HEAD-matching green CI, not locally accepted on Windows until Codex later performs the final installation/tests. Other stages of the original 15-stage mandate remain independently open.
+
 ## Engineering increment — preview-based bulk imports and richer reports (2026-11-06)
 
 - New forward-only migration **0009** adds `import_jobs`: 30-minute creator/scope-bound previews, SHA-256 exact-file check, one-time transaction commit and audit. No uploaded file contents or personal trainee records are persisted in this table.

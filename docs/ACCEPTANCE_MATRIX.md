@@ -45,6 +45,16 @@
 | A36 | Import linked cohort blocks with unknown course or mismatched level | Preview fails; no orphan/mismatched course assignments | Referential integrity |
 | A37 | Export Excel with 2 saved scenarios and readiness issues | RTL trainer/room/level/block/conflict/compare sheets reflect persisted data | Reports |
 
+| A38 | Import nine-field course CSV, check department + suggested optional modes | Course saved ONSITE; proposed modes retained separately, never auto-approved | Phase 10 |
+| A39 | Import seven-field instructor template with department | Correct scope accepted; other department rejected before commit | Phase 10 |
+| A40 | Run actual XLSX import preview/commit against PostgreSQL | File converted by bounded parser, one-time hash-matched transaction | Phase 10 |
+| A41 | Inspect weekly grid and switch trainer/room/level/block views | Five weekdays, half-hour rows, complete session details, mode colors | Phase 11 |
+| A42 | Click a warning attached to a section | Navigates to the section's timetable details; shows cause and suggestion | Phase 11 |
+| A43 | Drag a session to another half-hour slot without confirming | No API mutation; proposed day/start shown in manual editor | Phase 11 |
+| A44 | Attempt invalid move or edit as VIEWER | API forbids invalid move and UI disables editing; original plan unchanged | Phase 11 |
+| A45 | Repair an existing room/trainer collision without new blockers | Strictly decreasing blockers accepted; unchanged/worse constraints rejected | Phase 11 |
+| A46 | Print Arabic abbreviated report or save PDF in Chromium | Report reflects stored metrics, includes warnings, escaped text, no external service | Phase 10 |
+
 ## Inputs
 
 Use only synthetic: course TEST-101, cohort BLK-1, instructor I-1, room R-1; term dates should fall inside a fictional year/term. For a fork, increase demand enough to create two sections and supply two distinct block IDs.
