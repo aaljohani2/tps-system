@@ -178,7 +178,7 @@ test('authenticated end-to-end workflow persists a synthetic TPS scenario in Pos
     // Manual rescheduling must be transactional, versioned and fail closed.
     const existingSession=solve.result.sessions[0];
     const originalStart=existingSession.start;
-    const editBody={editVersion:0,day:'TUE',start:9.5,roomId:'R-1',
+    const editBody={editVersion:0,day:'SUN',start:9.5,roomId:'R-1',
       instructorId:'INS-1',reason:'Synthetic timetable adjustment with audit'};
     const withoutCsrf=await app.inject({method:'PATCH',
       url:'/api/v1/scenarios/'+created.id+'/sessions/'+encodeURIComponent(existingSession.id),
@@ -188,6 +188,14 @@ test('authenticated end-to-end workflow persists a synthetic TPS scenario in Pos
       url:'/api/v1/scenarios/'+created.id+'/sessions/'+encodeURIComponent(existingSession.id),
       headers:{cookie:session,'x-csrf-token':csrf},payload:{...editBody,start:10.25}});
     assert.equal(invalidManual.statusCode,400,'Quarter-hour schedules are not allowed');
+    const absentTrainer=await app.inject({method:'PATCH',
+      url:'/api/v1/scenarios/'+created.id+'/sessions/'+encodeURIComponent(existingSession.id),
+      headers:{cookie:session,'x-csrf-token':csrf},payload:{...editBody,instructorId:'UNKNOWN'}});
+    assert.equal(absentTrainer.statusCode,409,'Unknown trainer must be rejected without writing');
+    const wrongAvailability=await app.inject({method:'PATCH',
+      url:'/api/v1/scenarios/'+created.id+'/sessions/'+encodeURIComponent(existingSession.id),
+      headers:{cookie:session,'x-csrf-token':csrf},payload:{...editBody,day:'MON'}});
+    assert.equal(wrongAvailability.statusCode,409,'Trainer availability must block manual move');
     const validManual=await app.inject({method:'PATCH',
       url:'/api/v1/scenarios/'+created.id+'/sessions/'+encodeURIComponent(existingSession.id),
       headers:{cookie:session,'x-csrf-token':csrf},payload:editBody});
