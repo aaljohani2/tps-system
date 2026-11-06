@@ -299,6 +299,16 @@ test('authenticated end-to-end workflow persists a synthetic TPS scenario in Pos
       headers:{cookie:session,'x-csrf-token':csrf},
       payload:{courseId:advanced.id,level:1,isRequired:true}});
     assert.equal(mutateActivatedPlan.statusCode,409,'Activated plan content is immutable');
+    const cannotDeleteActivePrerequisite=await app.inject({method:'DELETE',
+      url:'/api/v1/prerequisites/'+prerequisite.id,
+      headers:{cookie:session,'x-csrf-token':csrf}});
+    assert.equal(cannotDeleteActivePrerequisite.statusCode,409,
+      'Removing an active plan prerequisite must be forbidden');
+    const cannotUpsertActivePrerequisite=await app.inject({method:'POST',
+      url:'/api/v1/prerequisites',headers:{cookie:session,'x-csrf-token':csrf},
+      payload:{courseId:advanced.id,prerequisiteCourseId:course.id}});
+    assert.equal(cannotUpsertActivePrerequisite.statusCode,409,
+      'Active plan relationships are immutable even for existing prerequisite links');
     const duplicateActivation=await app.inject({method:'POST',
       url:'/api/v1/plans/'+plan.id+'/activate',headers:{cookie:session,'x-csrf-token':csrf},
       payload:{reason:'Already activated earlier'}});
