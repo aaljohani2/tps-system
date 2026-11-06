@@ -53,7 +53,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - run: npm install --prefix frontend --ignore-scripts --no-audit
+      - run: cd frontend && npm install --ignore-scripts --no-audit
       - run: npm run web:build
   api-postgres-integration:
     runs-on: ubuntu-latest
@@ -107,7 +107,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - run: npm install --prefix frontend --ignore-scripts --no-audit
+      - run: cd frontend && npm install --ignore-scripts --no-audit
       - run: cd frontend && npx playwright install --with-deps chromium
       - run: npm run web:build
       - run: nohup npm run dev --prefix frontend -- --port 5173 > /tmp/tps-vite.log 2>&1 &
@@ -157,7 +157,7 @@ jobs:
         with:
           python-version: '3.12'
       - run: npm install --ignore-scripts --no-audit
-      - run: npm install --prefix frontend --ignore-scripts --no-audit
+      - run: cd frontend && npm install --ignore-scripts --no-audit
       - run: python -m pip install openpyxl==3.1.5
       - run: cd frontend && npx playwright install --with-deps chromium
       - run: npm run build && npm run web:build && npm run solver:build
@@ -180,4 +180,40 @@ jobs:
           done
           tail -n 70 /tmp/tps-e2e-real.log
           exit 1
-      - run: npm run e2e --prefix frontend -- real-api-journey.spec.ts
+      - run: npm run e2e --prefix frontend -- real-api-journey.spec.ts login.spec.ts
+
+  windows-regressions:
+    runs-on: windows-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install openpyxl==3.1.5
+      - run: npm install --ignore-scripts --no-audit
+      - run: npm run build
+      - name: Decode Arabic bulk XLSX with simulated legacy Windows code page
+        run: node --test dist/tests/bulk-xlsx-unicode.test.js
+      - name: Python XLSX reader direct on Windows without PYTHONUTF8 workaround
+        run: python -m unittest discover -s scripts -p test_bulk_xlsx.py -v
+      - name: Verify PowerShell 5.1 installation stops on a native command failure
+        shell: powershell
+        run: |
+          $sandbox = Join-Path $env:RUNNER_TEMP "tps-failfast-synthetic"
+          New-Item -ItemType Directory -Force -Path (Join-Path $sandbox "scripts") | Out-Null
+          Copy-Item "scripts/local.ps1" (Join-Path $sandbox "scripts/local.ps1")
+          Set-Content (Join-Path $sandbox ".env") "CI_SYNTHETIC_ONLY=1"
+          Set-Content (Join-Path $sandbox "docker.cmd") "@echo off`r`nexit /b 37"
+          $oldPath = $env:PATH
+          try {
+            $env:PATH = "$sandbox;$oldPath"
+            & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $sandbox "scripts/local.ps1") start
+            if ($LASTEXITCODE -eq 0) { throw "local.ps1 hid a failing docker exit code" }
+            Write-Output "PowerShell 5.1 correctly propagated failed docker exit code"
+          } finally {
+            $env:PATH = $oldPath
+          }
