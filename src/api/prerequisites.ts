@@ -90,8 +90,6 @@ export async function registerPrerequisites(app:FastifyInstance){
         JOIN course_prerequisites pre ON pre.course_id=ci.course_id
         WHERE ci.plan_id=$1`,[id]);
       for(const requirement of missing.rows){
-        const courseLevel=items.rows.find(x=>x.course_id===undefined)?.level;
-        void courseLevel; // Actual course-level comparison is resolved below using the course code mapping.
         if(!levels.has(requirement.prerequisite_id))
           throw fail('Prerequisite missing from plan for course '+requirement.code,409);
       }
