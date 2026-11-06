@@ -2,6 +2,10 @@
 
 > **Important: In progress, not ready for institutional use or Rayat.** This branch is separate from `main`; historical prototype notes are retained below.
 
+## Primary deployment target: Windows local production
+
+The FIRST operational target is a **dedicated, persistent, single-workstation production profile**, not a cloud server or the old synthetic browser database. Read [Windows local production](docs/LOCAL_PRODUCTION_WINDOWS.md). Once the existing `.env` is left untouched and the pinned application is built, run `npm run local:production:init`, create the one-time initial admin with `npm run local:production:bootstrap`, and launch `npm run local:production:start`. `/health` must report `mode: local-production`. The operational PostgreSQL database `tps_operational_local` is separate from all old test databases and is never automatically seeded. Use `local:production:backup` (not the original test `db:backup`) to protect that database. A user-logon auto-start task is available in `scripts/local-production.ps1`. No external hosting required. Institutional personal data still require the necessary operator authorization and protections.
+
 ## Real local workflow
 
 Sign in → select institution, college, department and term → import courses (CSV/XLSX with preview/commit) → enter demand, instructors, rooms and blocks → generate draft sections → run Java Timefold → optionally move verified draft sessions with an audit reason → inspect readiness, sessions, loads and uncovered work → fork and compare scenarios → review/approve if eligible → export CSV/Excel. Record Timefold run history and explicitly approve trainer overloads before they can affect newly generated scenarios.
