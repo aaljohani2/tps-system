@@ -10,7 +10,7 @@ from openpyxl.utils import get_column_letter
 
 HEADERS = {
     "courses": ["code", "title", "level", "department", "theoryHours", "practicalHours", "demand", "proposedMode", "eligibleModes"],
-    "instructors": ["code", "name", "maxLoad", "eligibleCourseCodes", "allowedModes", "available"],
+    "instructors": ["code", "name", "department", "maxLoad", "eligibleCourseCodes", "allowedModes", "available"],
     "rooms": ["code", "name", "type", "capacity", "building", "available"],
     "blocks": ["cohortCode", "level", "code", "name", "size", "courseCodes"],
     "demand": ["courseCode", "level", "baseStudents", "repeatRate", "source", "confidence"],
@@ -24,7 +24,7 @@ NOTES = {
         "الأهلية المقترحة لا تُمنح تلقائياً، وتتطلب اعتماداً مستقلاً قبل تفعيل أنماط غير حضورية."
     ],
     "instructors": [
-        "code: رمز المدرب، name: الاسم، maxLoad: النصاب الأساسي",
+        "code: رمز المدرب، name: الاسم، department: القسم، maxLoad: النصاب الأساسي",
         "eligibleCourseCodes: رموز المقررات مفصولة بعلامة |، فارغ = غير مقيد",
         "allowedModes: ONSITE|REMOTE|SELF_PACED|HYBRID حسب الأهلية",
         'available: JSON اختياري مثل [{"day":"SUN","from":8.5,"to":12}]',

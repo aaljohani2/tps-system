@@ -5,7 +5,7 @@ export const kinds=['courses','instructors','rooms','blocks','demand'] as const;
 export type BulkKind=typeof kinds[number];
 export const columns:Record<BulkKind,string[]>={
   courses:['code','title','level','department','theoryHours','practicalHours','demand','proposedMode','eligibleModes'],
-  instructors:['code','name','maxLoad','eligibleCourseCodes','allowedModes','available'],
+  instructors:['code','name','department','maxLoad','eligibleCourseCodes','allowedModes','available'],
   rooms:['code','name','type','capacity','building','available'],
   blocks:['cohortCode','level','code','name','size','courseCodes'],
   demand:['courseCode','level','baseStudents','repeatRate','source','confidence']
@@ -48,7 +48,7 @@ function availability(raw:unknown){
 export type CourseBulk={code:string;title:string;level:number;department:string;theoryHours:number;
   practicalHours:number;demand:number;proposedMode:'ONSITE'|'REMOTE'|'SELF_PACED'|'HYBRID';
   eligibleModes:string[]};
-export type TrainerBulk={code:string;name:string;maxLoad:number;eligibleCourseCodes:string[]|null;
+export type TrainerBulk={code:string;name:string;department:string;maxLoad:number;eligibleCourseCodes:string[]|null;
   allowedModes:string[];available:ReturnType<typeof availability>};
 export type RoomBulk={code:string;name:string;type:'CLASSROOM'|'LAB'|'MULTI';capacity:number;
   building:string|null;available:ReturnType<typeof availability>};
@@ -80,7 +80,7 @@ function normalize(kind:BulkKind,cell:Record<string,string>):BulkRow{
   if(kind==='instructors'){
     const allowedModes=list(cell.allowedModes,['ONSITE','REMOTE','SELF_PACED','HYBRID']);
     if(!allowedModes.length)throw new Error('Trainer requires at least one allowed mode');
-    return {code:code(cell.code),name:text(cell.name),maxLoad:number(cell.maxLoad,60),
+    return {code:code(cell.code),name:text(cell.name),department:text(cell.department),maxLoad:number(cell.maxLoad,60),
       eligibleCourseCodes:list(cell.eligibleCourseCodes).length?list(cell.eligibleCourseCodes):null,
       allowedModes,available:availability(cell.available)};
   }

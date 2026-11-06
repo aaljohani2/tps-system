@@ -56,6 +56,10 @@ async function preflight(client:PoolClient,kind:BulkKind,rows:BulkRow[],ctx:Scop
     for(const row of rows as CourseBulk[])if(row.department!==actual)
       throw fail('Course '+row.code+' belongs to department "'+row.department+'" but selected department is "'+actual+'"',409);
   }else if(kind==='instructors'){
+    const dept=await client.query<{name:string}>('SELECT name FROM departments WHERE id=$1',[ctx.departmentId]);
+    if(!dept.rows[0])throw fail('Department not found',404);
+    for(const row of rows as TrainerBulk[])if(row.department!==dept.rows[0].name)
+      throw fail('Trainer '+row.code+' does not belong to the selected department',409);
     const codes=[...new Set(rows.flatMap(v=>(v as TrainerBulk).eligibleCourseCodes??[]))];
     if(codes.length){
       const found=await client.query<{code:string}>(`SELECT code FROM courses

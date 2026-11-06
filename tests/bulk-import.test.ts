@@ -14,8 +14,8 @@ test('CSV resource rows validate without mutating the database',()=>{
 });
 test('all rows are checked and duplicate instructor codes reject commit',()=>{
   const table=[columns.instructors,
-    ['I-1','Trainer 1','18','','ONSITE|REMOTE',''],
-    ['I-1','Trainer 2','20','','ONSITE','']];
+    ['I-1','Trainer 1','قسم اصطناعي','18','','ONSITE|REMOTE',''],
+    ['I-1','Trainer 2','قسم اصطناعي','20','','ONSITE','']];
   const p=previewBulk('instructors',table);
   assert.equal(p.ready,false);
   assert.equal(p.validRows,1);

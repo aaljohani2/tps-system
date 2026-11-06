@@ -106,7 +106,8 @@ export default function BulkImportsPage({ctx,user,notify}:{
           onChange={e=>setApprovalReason(e.target.value)}/></label>
         <div className="table-wrap"><table><thead><tr><th>المقرر</th><th>النمط المقترح</th>
           <th>الأهلية المطلوبة</th><th>المعتمدة الآن</th><th>الإجراء</th></tr></thead>
-          <tbody>{(proposals.data??[]).filter(p=>p.requires_approval).map(p=><tr key={p.id}>
+          <tbody>{(proposals.data??[]).filter(p=>p.requires_approval &&
+            p.requested_eligible_modes.some(m=>!p.approved_eligible_modes.includes(m))).map(p=><tr key={p.id}>
             <td>{p.code} — {p.title}</td><td>{p.requested_mode}</td>
             <td>{p.requested_eligible_modes.join('، ')}</td><td>{p.approved_eligible_modes.join('، ')}</td>
             <td><button disabled={working||approvalReason.trim().length<8}

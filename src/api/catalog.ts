@@ -224,15 +224,10 @@ export async function registerCatalog(app:FastifyInstance){
     throw Object.assign(new Error('Legacy direct import is disabled. Use /import/batch/courses/preview and commit with the exact reviewed file.'),{statusCode:410});
   });
   app.get('/api/v1/import/courses/template.csv',async(_req,reply)=>{
-    reply.header('content-type','text/csv; charset=utf-8');
-    reply.header('content-disposition','attachment; filename="tps-courses.csv"');
-    return '\uFEFF'+'المقرر,اسم المقرر,الفصل التدريبي,مح,عم,تم,س\r\n';
+    return reply.redirect('/api/v1/import/batch/courses/template.csv',308);
   });
   app.get('/api/v1/import/courses/template.xlsx',async(_req,reply)=>{
-    const bytes=await readFile(resolve('web/templates/TPS_Course_Demand_144720.xlsx'));
-    reply.header('content-type','application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    reply.header('content-disposition','attachment; filename="tps-courses-template.xlsx"');
-    return reply.send(bytes);
+    return reply.redirect('/api/v1/import/batch/courses/template.xlsx',308);
   });
   app.post('/api/v1/import/courses/preview-xlsx',async(req)=>{
     requireEditor(req);

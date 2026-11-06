@@ -466,8 +466,8 @@ test('authenticated end-to-end workflow persists a synthetic TPS scenario in Pos
       url:'/api/v1/import/batch/instructors/template.xlsx',headers:{cookie:session}});
     assert.equal(xlsxTemplate.statusCode,200,xlsxTemplate.body);
     assert.equal(xlsxTemplate.rawPayload.subarray(0,2).toString('ascii'),'PK');
-    const trainerCsv='code,name,maxLoad,eligibleCourseCodes,allowedModes,available\nI-IMP-'+uniq+
-      ',مدرب اصطناعي للدفعة,18,TEST-101,ONSITE,\n';
+    const trainerCsv='code,name,department,maxLoad,eligibleCourseCodes,allowedModes,available\nI-IMP-'+uniq+
+      ',مدرب اصطناعي للدفعة,قسم اصطناعي,18,TEST-101,ONSITE,\n';
     const trainerPreview=await csvUpload('instructors','preview',trainerCsv);
     assert.equal(trainerPreview.statusCode,200,trainerPreview.body);
     const trainerCommit=await csvUpload('instructors','commit',trainerCsv,
