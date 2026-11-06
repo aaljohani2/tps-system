@@ -1,0 +1,70 @@
+import type {Day,PlanRequest,PlanResult,Room,Session} from './types.js';
+import {assessReadiness} from './api/readiness.js';
+
+const bad=(message:string)=>Object.assign(new Error(message),{statusCode:409});
+export type ManualMove={sessionId:string;day:Day;start:number;roomId:string|null;instructorId:string};
+function compatible(room:Room,session:Session,students:number):boolean{
+  return room.capacity>=students &&
+    (room.type==='MULTI'||(session.component==='THEORY'?room.type==='CLASSROOM':room.type==='LAB'));
+}
+function number3(n:number){return Math.round(n*1000)/1000;}
+
+/** Modify a complete Timefold result in memory, never touching an approved snapshot.
+ * Full-section instructor reassignment preserves the theory/practical 1:1 pairing.
+ * No implicit room, trainer, cohort or course selection is ever fabricated.
+ */
+export function moveScheduledSession(input:PlanRequest,original:PlanResult,move:ManualMove):PlanResult{
+  const before=assessReadiness(input,original,'COMPLETED');
+  if(!before.technicalReady)throw bad('Resolve all existing timetable and cohort blockers before manual rescheduling');
+  const result:PlanResult=structuredClone(original);
+  const target=result.sessions.find(s=>s.id===move.sessionId);
+  if(!target)throw bad('Session not found');
+  const section=result.sections.find(s=>s.id===target.sectionId);
+  if(!section||section.state!=='SCHEDULED')throw bad('Only a scheduled section may be moved');
+  const course=input.courses.find(c=>c.code===section.courseCode);
+  const trainer=input.instructors.find(i=>i.id===move.instructorId);
+  if(!course||!trainer)throw bad('Course or trainer does not exist in the immutable scenario snapshot');
+  if(course.assignedInstructorId && course.assignedInstructorId!==trainer.id)
+    throw bad('Instructor is locked by the original course assignment');
+  if(!trainer.allowedModes.includes(course.mode)||
+    (course.mode==='HYBRID'&&(!trainer.allowedModes.includes('ONSITE')||!trainer.allowedModes.includes('REMOTE')))||
+    (trainer.eligibleCourseCodes&&!trainer.eligibleCourseCodes.includes(course.code))||
+    (trainer.exclusiveCourseCodes&&!trainer.exclusiveCourseCodes.includes(course.code)))
+    throw bad('Selected instructor is not eligible for the course or delivery mode');
+  const oldTeacher=section.instructorId;
+  if(!oldTeacher)throw bad('Section has no current instructor');
+  const duration=target.end-target.start,end=number3(move.start+duration);
+  if(!Number.isFinite(move.start)||!Number.isInteger(move.start*2)||!Number.isInteger(end*2)||
+    move.start<0||end>24)throw bad('Start and end must be valid 30-minute time points');
+  if(target.mode==='REMOTE'&&move.roomId!==null)throw bad('Remote session cannot use a physical room');
+  if(target.mode==='ONSITE'){
+    const room=input.rooms.find(r=>r.id===move.roomId);
+    if(!room||!compatible(room,target,section.students))throw bad('Room capacity or component compatibility is invalid');
+  }
+  if(course.exclusiveInstructor && result.sections.some(s=>s.courseCode===course.code &&
+    s.id!==section.id && s.state!=='UNASSIGNED' && s.instructorId!==trainer.id))
+    throw bad('Course requires one instructor for all of its assigned sections');
+  for(const meeting of result.sessions.filter(s=>s.sectionId===section.id))
+    meeting.instructorId=trainer.id;
+  section.instructorId=trainer.id;
+  target.day=move.day;
+  target.start=move.start;
+  target.end=end;
+  target.roomId=move.roomId;
+  // Rebuild weighted loads from sections, not sessions: paired component meetings
+  // must NOT multiply the trainer's credited weekly load.
+  result.instructorLoads=input.instructors.map(i=>{
+    const owned=result.sections.filter(s=>s.state!=='UNASSIGNED'&&s.instructorId===i.id);
+    const credited=number3(owned.reduce((n,s)=>n+s.creditedLoad,0));
+    const contact=number3(owned.filter(s=>s.state==='SCHEDULED').reduce((n,s)=>n+s.contactHours,0));
+    const exception=i.overload?.additionalHours??0;
+    return {id:i.id,baseLimit:i.maxLoad,approvedException:exception,credited,contact,
+      remaining:number3(i.maxLoad+exception-credited)};
+  });
+  const readiness=assessReadiness(input,result,'COMPLETED');
+  if(!readiness.technicalReady)
+    throw bad('Move violates scheduling constraints: '+readiness.issues.map(x=>x.code).join(', '));
+  if(!result.notices.some(n=>n.includes('Manual edits after Timefold')))
+    result.notices.push('Manual edits after Timefold: all hard constraints rechecked; not a new Timefold optimization.');
+  return result;
+}
