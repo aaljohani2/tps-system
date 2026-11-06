@@ -1,12 +1,12 @@
 import {useState} from 'react';
 import {useQuery,useQueryClient} from '@tanstack/react-query';
-import {api,post,type Context,type Entity} from './api';
+import {api,post,type Auth,type Context,type Entity} from './api';
 type Row=Entity&{size?:number;cohort_code?:string;course_code?:string;block_code?:string;level?:number};
 const select=(label:string,rows:Entity[],value:string,set:(v:string)=>void)=><label>{label}
   <select value={value} onChange={e=>set(e.target.value)}><option value="">اختر</option>
     {rows.map(x=><option value={x.id} key={x.id}>{String(x.name??x.title??x.code??x.id)}</option>)}
   </select></label>;
-export default function AcademicPage({ctx,notify}:{ctx:Context;notify:(s:string)=>void}){
+export default function AcademicPage({ctx,user,notify}:{ctx:Context;user:Auth;notify:(s:string)=>void}){
   const qc=useQueryClient();
   const [programId,setProgramId]=useState(''),[planId,setPlanId]=useState(''),[cohortId,setCohortId]=useState('');
   const [prog,setProg]=useState({code:'',name:''});
@@ -15,7 +15,12 @@ export default function AcademicPage({ctx,notify}:{ctx:Context;notify:(s:string)
   const [cohort,setCohort]=useState({code:'',name:'',level:1,programId:''});
   const [block,setBlock]=useState({code:'',name:'',size:30});
   const [assignment,setAssignment]=useState({blockId:'',courseId:''});
+  const [prerequisite,setPrerequisite]=useState({courseId:'',prerequisiteCourseId:''}),
+    [activationReason,setActivationReason]=useState('');
   const [busy,setBusy]=useState(false);
+  const predecessors=useQuery({queryKey:['prerequisites',ctx.departmentId],
+    queryFn:()=>api<Row[]>('/prerequisites?departmentId='+ctx.departmentId)});
+  const canApprove=['SYSTEM_ADMIN','COLLEGE_ADMIN','APPROVER'].includes(user.role);
   const programs=useQuery({queryKey:['programs',ctx.departmentId],queryFn:()=>api<Row[]>('/programs?departmentId='+ctx.departmentId)});
   const plans=useQuery({queryKey:['plans',programId],queryFn:()=>api<Row[]>('/plans?programId='+programId),enabled:!!programId});
   const items=useQuery({queryKey:['plan-items',planId],queryFn:()=>api<Row[]>('/plans/'+planId+'/items'),enabled:!!planId});
@@ -43,14 +48,34 @@ export default function AcademicPage({ctx,notify}:{ctx:Context;notify:(s:string)
         <button disabled={busy||!programId} onClick={()=>run(()=>post('/plans',{programId,...plan}))}>إضافة إصدار</button>
       </div>
       {select('الخطة',plans.data??[],planId,setPlanId)}
-      {planId&&<><h3>مقررات الخطة والمستويات</h3><div className="form-grid">
+      {planId&&<><p className="hint">حالة الخطة: {String(plans.data?.find(x=>x.id===planId)?.state??'DRAFT')} — التنشيط إجراء داخلي ضمن TPS، وليس اعتمادًا رسميًا للمؤسسة.</p>
+        {canApprove&&plans.data?.find(x=>x.id===planId)?.state==='DRAFT'&&
+          <div className="form-grid"><label>مبرر تنشيط هذا الإصدار<input value={activationReason}
+            onChange={e=>setActivationReason(e.target.value)}/></label>
+            <button disabled={busy||activationReason.trim().length<8}
+              onClick={()=>run(()=>post('/plans/'+planId+'/activate',{reason:activationReason}))}>تنشيط الإصدار بعد فحص المتطلبات</button>
+          </div>}
+        <h3>مقررات الخطة والمستويات</h3><div className="form-grid">
         {select('المقرر',courses.data??[],item.courseId,v=>setItem({...item,courseId:v}))}
         <label>المستوى<input type="number" min="1" max="12" value={item.level}
           onChange={e=>setItem({...item,level:Number(e.target.value)})}/></label>
         <button disabled={busy||!item.courseId} onClick={()=>run(()=>post('/plans/'+planId+'/items',item))}>إضافة المقرر للخطة</button>
       </div><div className="table-wrap"><table><thead><tr><th>المقرر</th><th>المستوى</th><th>إلزامي</th></tr></thead><tbody>
         {(items.data??[]).map(x=><tr key={x.id}><td>{String(x.code)} — {String(x.title)}</td><td>{String(x.level)}</td><td>{x.is_required?'نعم':'لا'}</td></tr>)}
-      </tbody></table></div></>}</section>
+      </tbody></table></div></>}
+      <h3>المتطلبات السابقة للمقررات</h3>
+      <p className="hint">لا يُقبل ربط مقرر بنفسه أو إنشاء دورة متطلبات مغلقة. يجب أن يكون المتطلب في مستوى أسبق داخل الخطة قبل تنشيطها.</p>
+      <div className="form-grid">
+        {select('المقرر اللاحق',courses.data??[],prerequisite.courseId,v=>setPrerequisite(p=>({...p,courseId:v})))}
+        {select('المتطلب السابق',courses.data??[],prerequisite.prerequisiteCourseId,v=>setPrerequisite(p=>({...p,prerequisiteCourseId:v})))}
+        <button disabled={busy||!prerequisite.courseId||!prerequisite.prerequisiteCourseId}
+          onClick={()=>run(()=>post('/prerequisites',prerequisite))}>إضافة متطلب سابق</button>
+      </div>
+      <div className="table-wrap"><table><thead><tr><th>المقرر</th><th>المتطلب السابق</th><th>إجراء</th></tr></thead><tbody>
+        {(predecessors.data??[]).map(p=><tr key={p.id}><td>{String(p.course_code)}</td>
+          <td>{String(p.prerequisite_code)}</td>
+          <td><button disabled={busy} onClick={()=>run(()=>api('/prerequisites/'+p.id,{method:'DELETE'}))}>إلغاء</button></td></tr>)}
+      </tbody></table></div></section>
       <section><h3>الأفواج التدريبية</h3><div className="form-grid">
         <label>رمز الفوج<input value={cohort.code} onChange={e=>setCohort({...cohort,code:e.target.value})}/></label>
         <label>اسم الفوج<input value={cohort.name} onChange={e=>setCohort({...cohort,name:e.target.value})}/></label>

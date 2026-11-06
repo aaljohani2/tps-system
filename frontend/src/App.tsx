@@ -326,7 +326,7 @@ export default function App(){
     <Route path="/courses" element={ctx.departmentId?<CoursePage ctx={ctx} user={user} notify={notify}/>:<NeedContext/>}/>
     <Route path="/dashboard" element={ctx.departmentId&&ctx.termId?<DashboardPage ctx={ctx}/>:<NeedContext/>}/>
     <Route path="/users" element={["SYSTEM_ADMIN","COLLEGE_ADMIN"].includes(user.role)?<UsersPage auth={user} notify={notify}/>:<Navigate to="/context" replace/>}/>
-    <Route path="/academic" element={ctx.departmentId&&ctx.termId?<AcademicPage ctx={ctx} notify={notify}/>:<NeedContext/>}/>
+    <Route path="/academic" element={ctx.departmentId&&ctx.termId?<AcademicPage ctx={ctx} user={user} notify={notify}/>:<NeedContext/>}/>
     <Route path="/demand" element={ctx.departmentId&&ctx.termId?<DemandPage ctx={ctx} notify={notify}/>:<NeedContext/>}/>
     <Route path="/resources" element={ctx.departmentId?<ResourcesEditor ctx={ctx} user={user} notify={notify}/>:<NeedContext/>}/>
     <Route path="/policy" element={ctx.termId&&ctx.departmentId?<PolicyPage ctx={ctx} user={user} notify={notify}/>:<NeedContext/>}/>
