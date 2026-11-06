@@ -199,6 +199,7 @@ function ScenarioPage({ctx,notify,user}:{ctx:Context;notify:Message;user:Auth}){
   const qc=useQueryClient(),list=useQuery({queryKey:['scenarios',ctx.departmentId,ctx.termId],
     queryFn:()=>api<Scenario[]>('/scenarios?departmentId='+ctx.departmentId+'&termId='+ctx.termId),enabled:!!ctx.departmentId&&!!ctx.termId});
   const [name,setName]=useState('السيناريو الحضوري'),[selected,setSelected]=useState(''),[working,setWorking]=useState(false),[second,setSecond]=useState('');
+  const [solverSeconds,setSolverSeconds]=useState(5),[candidateBreadth,setCandidateBreadth]=useState(6);
   const [gridProposal,setGridProposal]=useState<GridProposal|null>(null);
   const [focusSection,setFocusSection]=useState<string|null>(null);
   const [forkName,setForkName]=useState('سيناريو بديل'),[forkDemand,setForkDemand]=useState<Record<string,number>>({}),
@@ -237,7 +238,14 @@ function ScenarioPage({ctx,notify,user}:{ctx:Context;notify:Message;user:Auth}){
     <div className="actions"><Select label="السيناريو الحالي" items={rows.map(s=>({id:s.id,name:s.name+' — '+s.state+' / '+s.solver_status}))}
       value={selected} onChange={setSelected}/></div>
     {current&&p&&<><div className="actions"><span className="status">الحالة: {current.state} — المحرك: {current.solver_status}</span>
-      <button disabled={working||!canEdit||current.state!=='DRAFT'} onClick={()=>run(()=>post('/scenarios/'+selected+'/solve',{}))}>تشغيل Timefold</button>
+      <label>مدة تحسين Timefold (ثوانٍ 1–30)<input type="number" min="1" max="30" step="1"
+         value={solverSeconds} onChange={e=>setSolverSeconds(Number(e.target.value))}/></label>
+       <label>البدائل لكل مدرب (1–24)<input type="number" min="1" max="24" step="1"
+         value={candidateBreadth} onChange={e=>setCandidateBreadth(Number(e.target.value))}/></label>
+       <button disabled={working||!canEdit||current.state!=='DRAFT'||!['NOT_RUN','FAILED'].includes(current.solver_status)||
+         !Number.isInteger(solverSeconds)||solverSeconds<1||solverSeconds>30||
+         !Number.isInteger(candidateBreadth)||candidateBreadth<1||candidateBreadth>24}
+         onClick={()=>run(()=>post('/scenarios/'+selected+'/solve',{seconds:solverSeconds,candidatesPerInstructor:candidateBreadth}))}>تشغيل Timefold</button>
       <button disabled={working||!canEdit||current.state!=='DRAFT'||current.solver_status!=='COMPLETED'} onClick={()=>run(()=>post('/scenarios/'+selected+'/review',{}))}>إرسال للمراجعة</button>
       <button disabled={working||!canApprove||current.state!=='UNDER_REVIEW'} onClick={()=>run(()=>post('/scenarios/'+selected+'/approve',{}))}>اعتماد السيناريو</button>
       <button disabled={working||!canEdit} onClick={()=>run(async()=>{const s=await post<{id:string}>('/scenarios/'+selected+'/revise',{});setSelected(s.id);})}>إنشاء مراجعة جديدة</button>
