@@ -1,5 +1,6 @@
 import type {Component, Course, Day, DeliveryMode, Gap, Instructor, PlanRequest, PlanResult, Room, Section, Session, TimeWindow, TimedMode} from './types.js';
 import {validateRequest} from './validation.js';
+import {trainerQualified,roomQualified} from './eligibility.js';
 
 const round = (n: number) => Math.round((n + Number.EPSILON) * 1000) / 1000;
 const days: Day[] = ['SUN', 'MON', 'TUE', 'WED', 'THU'];
@@ -38,14 +39,7 @@ function jobs(course: Course): Array<{component: Component; mode: TimedMode; hou
     {component: 'PRACTICAL' as const, mode: course.mode, hours: course.practicalHours}
   ].filter(s => s.hours > 0);
 }
-function canTeach(i: Instructor, c: Course): boolean {
-  if (!i.allowedModes.includes(c.mode)) return false;
-  if (c.mode === 'HYBRID' && (!i.allowedModes.includes('ONSITE') || !i.allowedModes.includes('REMOTE'))) return false;
-  if (i.eligibleCourseCodes && !i.eligibleCourseCodes.includes(c.code)) return false;
-  if (i.exclusiveCourseCodes && !i.exclusiveCourseCodes.includes(c.code)) return false;
-  if (c.assignedInstructorId && c.assignedInstructorId !== i.id) return false;
-  return true;
-}
+function canTeach(i: Instructor, c: Course): boolean {return trainerQualified(i,c);}
 function effectiveLimit(i: Instructor): number { return i.maxLoad + (i.overload?.additionalHours ?? 0); }
 function findSchedule(
   s: Section, c: Course, instructor: Instructor, allSessions: Session[], rooms: Room[], input: PlanRequest
@@ -75,8 +69,7 @@ function findSchedule(
                  (s.blockId !== null && existing.blockId === s.blockId) ||
                  existing.sectionId === s.id))) continue;
               const eligibleRooms = job.mode === 'REMOTE' ? [null] : rooms.filter(r =>
-                r.capacity >= s.students &&
-                (job.component === 'PRACTICAL' ? (r.type === 'LAB' || r.type === 'MULTI') : (r.type === 'CLASSROOM' || r.type === 'MULTI')) &&
+                roomQualified(r,c,job.component,s.students) &&
                 inAvailability(r.available, day, start, end) &&
                 !all().some(x => x.roomId === r.id && x.day === day && overlap({start, end}, x))
               );
