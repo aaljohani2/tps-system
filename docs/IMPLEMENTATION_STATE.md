@@ -1,3 +1,11 @@
+## Resource qualification and equipment milestone — 0013 (CI pending)
+
+- Migration `0013_specialties_and_equipment.sql` adds explicit course required specialties and equipment, instructor specialties, and room equipment as JSONB arrays defaulting to empty (no destructive data rewrite).
+- A shared strict eligibility rule now governs Greedy, Timefold candidate generation and result validation, manual timetable edits and approval readiness. Missing capabilities are never guessed.
+- Course/room/instructor Fastify validation and editable Arabic forms expose exact requirement codes. Locked instructor assignments revalidate required qualifications.
+- Synthetic unit, PostgreSQL API/scoping and real Java restrictive scheduling tests have been added. **Seven-job CI on final HEAD must pass before declaring engineering closeout.**
+- Still open: verified institutional qualification approvals, full resource lifecycle, complete E2E matrix, independent restart-safe jobs and Windows acceptance.
+
 # TPS V1 — Implementation state (2026-11-06)
 
 Branch: `feat/full-stack-tps-v1`. Base commit: `3a1d84c` from the previously tested `feat/web-excel-import-v0.3`.
