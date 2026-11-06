@@ -138,6 +138,21 @@ test('authenticated end-to-end workflow persists a synthetic TPS scenario in Pos
     assert.equal(Number(updatedTrainer.maxLoad),20);
     const updatedRoom=await patch('/rooms/'+room.id,{capacity:50,building:'T1'});
     assert.equal(updatedRoom.capacity,50);
+    const specialist=await patch('/instructors/'+trainer.id,{specialties:['ERP']});
+    assert.deepEqual(specialist.specialties,['ERP']);
+    const equipped=await patch('/rooms/'+room.id,{equipmentCodes:['PC']});
+    assert.deepEqual(equipped.equipmentCodes,['PC']);
+    const qualifiedCourse=await patch('/courses/'+course.id,
+      {requiredSpecialties:['ERP'],requiredEquipment:['PC']});
+    assert.deepEqual(qualifiedCourse.requiredSpecialties,['ERP']);
+    assert.deepEqual(qualifiedCourse.requiredEquipment,['PC']);
+    const invalidEquipment=await app.inject({method:'PATCH',url:'/api/v1/courses/'+course.id,
+      headers:{cookie:session,'x-csrf-token':csrf},payload:{requiredEquipment:['PC','PC']}});
+    assert.equal(invalidEquipment.statusCode,400,'Duplicate equipment codes must fail validation');
+    const unauthorizedEquip=await app.inject({method:'PATCH',url:'/api/v1/rooms/'+room.id,
+      headers:{cookie:limitedCookie,'x-csrf-token':limitedCsrf},payload:{equipmentCodes:[]}});
+    assert.equal(unauthorizedEquip.statusCode,403,'A department role must not remove shared room equipment');
+
     const manual=await patch('/courses/'+course.id,{assignedInstructorId:'INS-1',exclusiveInstructor:true});
     assert.equal(manual.assignedInstructorId,'INS-1');
     assert.equal(manual.exclusiveInstructor,true);
