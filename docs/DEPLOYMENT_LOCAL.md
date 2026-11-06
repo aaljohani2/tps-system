@@ -69,3 +69,9 @@ Remove-Item Env:\\TPS_ALLOW_SYNTHETIC_SEED
 ```
 
 The command is idempotent; it does **not** create passwords, trainer identities of real people, or learner records.
+
+## Tested, reproducible dependencies and first-production gates
+
+Node dependency lockfiles are tracked. Use npm ci at root and npm run web:install (runs npm ci in frontend). Back up untracked lockfiles created by a previous local npm install before updating an existing checkout; never force overwrite local files. PowerShell local.ps1 now propagates any failing native command. Python XLSX subprocesses explicitly output UTF-8 JSON, with no PYTHONUTF8 workaround required. Both require a fresh Windows acceptance report; see docs/CODEX_LOCAL_HANDOFF.md.
+
+Do not turn loopback deployment into public/LAN access without a separately approved host, TLS, secure session-cookie settings, backups with tested restore, security review, institutional data approvals and a deployment signoff. Follow docs/PRODUCTION_READINESS.md. A synthetic local pilot and real-data production are different authorization boundaries.
