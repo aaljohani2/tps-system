@@ -2,6 +2,15 @@
 
 Branch: `feat/full-stack-tps-v1`. Base commit: `3a1d84c` from the previously tested `feat/web-excel-import-v0.3`.
 
+## P0-07 incremental closeout — live local Timefold control (pending HEAD-matching CI)
+
+- `POST /api/v1/scenarios/:id/solve` now accepts independently bounded `seconds` (1–30; default 5) and `candidatesPerInstructor` (1–24; default 6), records selections in run audit/details, and prevents more than two local Java solver claims at once.
+- `POST /api/v1/scenarios/:id/runs/cancel` is a scope/role/CSRF-protected route. It uses a PostgreSQL transaction to mark the active run `CANCELLED`, returns the scenario to `FAILED` (retriable DRAFT), records `CANCEL_SOLVER` audit and aborts the attached Java child process. Cancellation cannot overwrite a result already committed.
+- Migration `0011_solver_cancellation.sql` extends the solver-run status check. The user interface displays a guarded cancel action and configurable run settings while polling in-progress work.
+- Tests added: pre-aborted input, settings bounds, reject invalid/idle/CSRF cancellation, and actual Java-process abortion when the assembled JAR is available in CI.
+- **Not closed:** globally shared concurrency limits across multiple API instances, asynchronous HTTP-independent worker queue, live progress percentage or incremental scoring, free-form search over the complete schedule space, complete P0–P2 scope, Windows acceptance, and 20-step real-API E2E. This work remains on Draft PR #8; no merge/deployment. CI is pending verification against the final HEAD.
+- Historical progress paragraphs below describe earlier checkpoints; any contradictory "not implemented" language there is historical, not a current-head assertion. Use this section and the live source plus final CI for recent behavior.
+
 ## Phase 10 & 11 engineering closeout — original mandate (§28–32)
 
 See `docs/PHASE_10_11_CLOSEOUT.md` for the complete 26-point traceability matrix, exact source files, API routes and corresponding synthetic tests.
