@@ -24,7 +24,7 @@ You are Codex on the user's Windows computer. **Your only tasks are to install a
 7. Include programs/plan versions, normalized blocks, source-based demand, half-hour slots, manual trainer locks, hybrid split, dashboard and user scope checks; never infer completion of the full mandate from the limited matrix.
 7. Validate `docs/ACCEPTANCE_MATRIX.md` A01–A20 locally, including mode-policy draft/approval, instructor/room editing, scenario forks and readiness blockers.
 7. Validate the full workflow: login → institution/college/department/term → import courses → instructors and rooms → mode policy → demand/blocks → sections → Timefold → timetable/gaps → fork/compare → review/approve → CSV/XLSX.
-8. Verify that a PostgreSQL container restart does not lose the synthetic scenario, policy and users; repeat migrations 0001–0011 idempotently.
+8. Verify that a PostgreSQL container restart does not lose the synthetic scenario, policy and users; repeat migrations 0001–0012 idempotently.
 9. Produce a written report with command, environment/version, test count, pass/fail/skip, errors and exact fixes **recommended but not performed**. Mark unsupported workflow steps as incomplete.
 
 Only local installation and testing are authorized. A passing test in GitHub Actions does **not** replace Windows-specific verification.
@@ -40,3 +40,7 @@ Once the remaining original-mandate development stages are finished, Codex may r
 - Confirm a local maximum of two simultaneous Java children per API process; do not claim a distributed/multi-process limit.
 - Run the real JAR 25-course and 50-course synthetic workload tests from `tests/scenario-scale.test.ts`. Record coverage gaps, elapsed time, RSS and any differences from Linux CI. The Linux sample 25/6/20/4/20 achieved 25/25 covered on commit `eedd6c5`, but this is **not** guaranteed on the user's machine.
 - Before any local work, inspect the real checkout; **do not overwrite, force-reset, re-clone, push, change dependencies or deploy**. If source defects are found, report them for GitHub engineering to correct in a separate authorized phase.
+
+## Asynchronous solver and browser regression (development increment 0012)
+
+Only after source CI is green and development gaps are agreed closed, run local-only acceptance for HTTP 202 solve submission, realistic stage polling, cancellation, duplicate 409, and immutable result snapshots. Confirm the browser's polling still refreshes after the scenario becomes COMPLETED. Use a synthetic local DB for a real, unmocked login → schedule → approve → CSV/XLSX flow. Do not update GitHub, commit, deploy, change dependencies, replace Timefold, reset the user's worktree or delete persistent volumes. The async worker is process-local and cannot be described as a restart-surviving distributed queue.
