@@ -19,7 +19,7 @@
     "db:seed": "npm run build && node --env-file=.env dist/src/api/seed.js",
     "db:check": "npm run build && node --env-file=.env dist/src/api/check.js",
     "db:bootstrap": "npm run build && node --env-file=.env dist/src/api/bootstrap.js",
-    "web:install": "npm install --prefix frontend",
+    "web:install": "cd frontend && npm install",
     "web:build": "npm run build --prefix frontend",
     "e2e": "npm run e2e --prefix frontend"
   },
