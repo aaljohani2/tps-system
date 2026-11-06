@@ -2,6 +2,12 @@
 
 Branch: `feat/full-stack-tps-v1`. Base commit: `3a1d84c` from the previously tested `feat/web-excel-import-v0.3`.
 
+## Verified larger Timefold benchmark — 50 synthetic courses
+
+GitHub Actions **42262168587** at commit `d4a7fa6d` completed **SUCCESS** on all six jobs. The Java integration benchmark measured **25/25 sections with 0 gaps in 3985 ms** (25 courses/6 trainers/20 rooms/4 levels/20 blocks) and **50/50 sections with 0 gaps in 4155 ms** (50 courses/12 trainers/30 rooms/6 levels/30 blocks). Node RSS was 64 MB and 69 MB respectively; this excludes a complete accounting of Java child memory. The larger synthetic test is now present in `tests/scenario-scale.test.ts` and CI.
+
+**This does not close all Phase 8 or Phase 12 requirements:** the engine still chooses among bounded candidates without live progress or an HTTP-independent job queue; the 20-step real-API browser flow, adversarial performance and Windows acceptance remain pending. Draft PR #8 must remain unmerged.
+
 ## New verified engineering checkpoint — candidate diversity and documentation
 
 - Timefold source fix `ddc8afc` diversifies room placements per instructor, preventing multiple valid trainers from artificially sharing one room candidate even when 20 rooms are available.
