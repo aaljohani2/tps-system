@@ -16,3 +16,6 @@ solver/target/
 __pycache__/
 *.pyc
 .venv/
+
+frontend/playwright-report/
+frontend/test-results/

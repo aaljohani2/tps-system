@@ -51,6 +51,9 @@ test('authenticated end-to-end workflow persists a synthetic TPS scenario in Pos
     const exportCsv=await app.inject({url:'/api/v1/scenarios/'+created.id+'/export.csv',headers:{cookie:session}});
     assert.equal(exportCsv.statusCode,200,exportCsv.body);
     assert.match(exportCsv.body,/TEST-101/);
+    const exportXlsx=await app.inject({url:'/api/v1/scenarios/'+created.id+'/export.xlsx',headers:{cookie:session}});
+    assert.equal(exportXlsx.statusCode,200,exportXlsx.body);
+    assert.equal(exportXlsx.rawPayload.subarray(0,2).toString('ascii'),'PK');
     const next=await write('/scenarios/'+created.id+'/revise',{});
     assert.equal(next.revision,2);
     const compare=await app.inject({url:'/api/v1/scenarios/compare?ids='+created.id+','+next.id,headers:{cookie:session}});
