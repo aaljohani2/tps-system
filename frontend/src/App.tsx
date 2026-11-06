@@ -9,6 +9,7 @@ import DemandPage from './DemandPage';
 
 const labels:Record<string,string>={ONSITE:'حضوري',REMOTE:'عن بُعد',SELF_PACED:'ذاتي',HYBRID:'مدمج'};
 const days:Record<string,string>={SUN:'الأحد',MON:'الإثنين',TUE:'الثلاثاء',WED:'الأربعاء',THU:'الخميس'};
+const clock=(n:number)=>String(Math.floor(n)).padStart(2,'0')+':'+(n%1===0.5?'30':'00');
 type Message=(s:string)=>void;
 function useStore<T>(key:string,initial:T):[T,(v:T)=>void]{
   const [value,set]=useState<T>(()=>{try{return JSON.parse(localStorage.getItem(key)??'null')??initial;}catch{return initial;}});
@@ -184,7 +185,7 @@ function Timetable({p}:{p:Plan}){
       {options.map(o=><option key={o} value={o}>{o}</option>)}</select>
   </div><div className="table-wrap"><table><thead><tr><th>اليوم</th><th>الوقت</th><th>المقرر/الشعبة</th><th>المدرب</th><th>القاعة</th><th>النمط</th><th>البلوك</th></tr></thead>
     <tbody>{[...shown].sort((a,b)=>['SUN','MON','TUE','WED','THU'].indexOf(a.day)-['SUN','MON','TUE','WED','THU'].indexOf(b.day)||a.start-b.start)
-      .map(s=><tr key={s.id}><td>{days[s.day]}</td><td dir="ltr">{s.start}:00 — {s.end}:00</td><td>{s.courseCode}<small>{s.sectionId}</small></td>
+      .map(s=><tr key={s.id}><td>{days[s.day]}</td><td dir="ltr">{clock(s.start)} — {clock(s.end)}</td><td>{s.courseCode}<small>{s.sectionId}</small></td>
       <td>{s.instructorId}</td><td>{s.roomId??'عن بُعد'}</td><td><span className="tag">{labels[s.mode]}</span></td><td>{s.blockId??'غير محدد'}</td></tr>)}</tbody></table></div>
   </div>;
 }

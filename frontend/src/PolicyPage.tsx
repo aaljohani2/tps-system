@@ -65,7 +65,7 @@ export default function PolicyPage({ctx,user,notify}:{ctx:Context;user:Auth;noti
       <div className="table-wrap"><table><thead><tr><th>اليوم</th><th>البداية</th><th>النهاية</th><th>الإجراء</th></tr></thead><tbody>
         {draft.slots.map((slot,index)=><tr key={index}><td><select value={slot.day} onChange={e=>patch({slots:draft.slots.map((x,i)=>i===index?{...x,day:e.target.value as Day}:x)})}>
           {days.map(d=><option key={d} value={d}>{dayNames[d]}</option>)}</select></td>
-          {(['from','to'] as const).map(k=><td key={k}><input type="number" min="0" max="24" value={slot[k]}
+          {(['from','to'] as const).map(k=><td key={k}><input type="number" min="0" max="24" step="0.5" value={slot[k]}
             onChange={e=>patch({slots:draft.slots.map((x,i)=>i===index?{...x,[k]:Number(e.target.value)}:x)})}/></td>)}
           <td><button type="button" onClick={()=>patch({slots:draft.slots.filter((_,i)=>i!==index)})}>حذف</button></td>
         </tr>)}</tbody></table></div>

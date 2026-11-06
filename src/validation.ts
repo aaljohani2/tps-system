@@ -4,7 +4,7 @@ import type {Course, PlanRequest, Policy, TimeWindow} from './types.js';
 const positiveInt = (v: number) => Number.isInteger(v) && v > 0;
 const hours = (v: number) => Number.isInteger(v) && v >= 0;
 function validWindow(w: TimeWindow): boolean {
-  return DAYS.includes(w.day) && Number.isInteger(w.from) && Number.isInteger(w.to)
+  return DAYS.includes(w.day) && Number.isInteger(w.from*2) && Number.isInteger(w.to*2)
     && w.from >= 0 && w.to <= 24 && w.from < w.to
     && !(w.day === 'THU' && w.to > 10);
 }

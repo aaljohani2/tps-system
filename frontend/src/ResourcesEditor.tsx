@@ -14,7 +14,7 @@ type Window={day:'SUN'|'MON'|'TUE'|'WED'|'THU';from:number;to:number};
 function Windows({value,change}:{value:Window[]|undefined;change:(v:Window[]|undefined)=>void}){
   const [text,setText]=useState(value?JSON.stringify(value):'');
   const [error,setError]=useState('');
-  return <label>نوافذ الإتاحة (JSON، فارغ = لا قيود إضافية)<textarea style={{minHeight:60}} dir="ltr"
+  return <label>نوافذ الإتاحة (JSON، تقبل 8.5 = 08:30، فارغ = لا قيود إضافية)<textarea style={{minHeight:60}} dir="ltr"
     value={text} onChange={e=>{setText(e.target.value);setError('');
       try{change(e.target.value.trim()?JSON.parse(e.target.value) as Window[]:undefined);}catch{setError('صيغة JSON غير صحيحة');}}}/>
     {error&&<small className="error">{error}</small>}</label>;

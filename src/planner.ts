@@ -58,13 +58,13 @@ function findSchedule(
     while (remaining > 0) {
       // Split 3 hours as 2 + 1, rather than reserving one artificially long continuous block.
       let placed = false;
-      for (const duration of [Math.min(remaining, input.policy.sessionMaxHours), 1]) {
+      for (const duration of [...new Set([Math.min(remaining, input.policy.sessionMaxHours), Math.min(remaining, 1), 0.5])]) {
         if (placed) break;
         for (const day of days) {
           if (placed) break;
           for (const w of input.policy.slots.filter(w => w.day === day)) {
             if (placed) break;
-            for (let start = w.from; start + duration <= w.to; start++) {
+            for (let start = w.from; start + duration <= w.to; start += 0.5) {
               const end = start + duration;
               if (day === 'THU' && end > 10) continue;
               if (c.mode === 'HYBRID' && job.mode === 'ONSITE' && end > 12) continue;

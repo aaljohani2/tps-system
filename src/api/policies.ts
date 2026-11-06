@@ -22,7 +22,7 @@ const policySchema=z.object({
   remotePracticalLoadFactor:z.number().positive().max(4),
   onsitePracticalLoadFactor:z.number().positive().max(4),
   selfPacedLoadPerOffering:z.number().nonnegative().max(100).nullable(),
-  slots:z.array(z.object({day,from:z.number().int().min(0).max(23),to:z.number().int().min(1).max(24)})
+  slots:z.array(z.object({day,from:z.number().multipleOf(0.5).min(0).max(23.5),to:z.number().multipleOf(0.5).min(0.5).max(24)})
     .refine(w=>w.to>w.from,'Invalid time window')).min(1).max(40),
   sessionMaxHours:z.number().int().min(1).max(8)
 }).strict();

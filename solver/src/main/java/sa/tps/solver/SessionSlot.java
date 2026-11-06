@@ -1,7 +1,7 @@
 package sa.tps.solver;
 
 public record SessionSlot(String id, String sectionId, String courseCode, String component,
-        String mode, String day, int start, int end, String roomId,
+        String mode, String day, double start, double end, String roomId,
         String instructorId, String blockId) {
     public boolean overlaps(SessionSlot other) {
         return day.equals(other.day) && start < other.end && other.start < end;

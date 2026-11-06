@@ -12,7 +12,7 @@ const name=z.string().trim().min(1).max(240);
 const code=z.string().trim().min(1).max(60);
 const mode=z.enum(['ONSITE','REMOTE','SELF_PACED','HYBRID']);
 const windows=z.array(z.object({day:z.enum(['SUN','MON','TUE','WED','THU']),
-  from:z.number().int().min(0).max(23),to:z.number().int().min(1).max(24)})
+  from:z.number().multipleOf(0.5).min(0).max(23.5),to:z.number().multipleOf(0.5).min(0.5).max(24)})
   .refine(w=>w.to>w.from && (w.day!=='THU'||w.to<=10),'Invalid availability time')).max(30).optional();
 const courseBase=z.object({
  departmentId:uuid,code,title:name,level:z.number().int().min(1).max(12),theoryHours:z.number().int().min(0),

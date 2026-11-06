@@ -72,7 +72,7 @@ function makeSessions(c: Course, sec: Section, inst: Instructor, input: PlanRequ
   for (const job of jobs(c)) {
     let hours = job.hours;
     while (hours > 0) {
-      const durationOptions = [...new Set([Math.min(hours, input.policy.sessionMaxHours), 1])];
+      const durationOptions = [...new Set([Math.min(hours, input.policy.sessionMaxHours), Math.min(hours,1), 0.5])];
       let found = false;
       for (const duration of durationOptions) {
         if (found) break;
@@ -81,7 +81,7 @@ function makeSessions(c: Course, sec: Section, inst: Instructor, input: PlanRequ
           const windows = input.policy.slots.filter(w => w.day === day);
           for (const window of windows) {
             if (found) break;
-            const starts = Array.from({length: Math.max(0, window.to - window.from - duration + 1)}, (_, i) => window.from + i);
+            const starts = Array.from({length: Math.max(0, Math.floor((window.to-window.from-duration)*2)+1)}, (_, i) => window.from+i/2);
             const rotatedStarts = [...starts.slice(seed % (starts.length || 1)), ...starts.slice(0, seed % (starts.length || 1))];
             for (const start of rotatedStarts) {
               const end = start + duration;
