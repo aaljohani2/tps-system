@@ -128,7 +128,7 @@ export async function registerCatalog(app:FastifyInstance){
       'SELECT department_id,mode FROM courses WHERE id=$1',[id]);
     if(!old.rows[0])throw Object.assign(new Error('Course not found'),{statusCode:404});
     await assertDepartment(req,old.rows[0].department_id);
-    if(!v.eligibleModes.includes(old.rows[0].mode))
+    if(!v.eligibleModes.some(value=>value===old.rows[0].mode))
       throw Object.assign(new Error('The current course delivery mode must remain eligible'),{statusCode:409});
     const changed=await pool.query('UPDATE courses SET eligible_modes=$2::jsonb,updated_at=now() WHERE id=$1 RETURNING id,code,eligible_modes',[id,JSON.stringify(v.eligibleModes)]);
     await audit(req.principal!.id,'APPROVE_COURSE_MODES','COURSE',id,{eligibleModes:v.eligibleModes,reason:v.reason});
