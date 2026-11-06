@@ -9,6 +9,6 @@ test('local admin login and navigation',async({page})=>{
   await page.getByLabel('كلمة المرور').fill(password!);
   await page.getByRole('button',{name:'دخول النظام'}).click();
   await expect(page.getByRole('heading',{name:'إدارة الجداول التدريبية'})).toBeVisible();
-  await page.getByRole('link',{name:/المقررات والطلب/}).click();
+  await page.getByRole('link',{name:/المقررات/,exact:true}).click();
   await expect(page.getByRole('heading',{name:/النطاق غير مكتمل|استيراد وإدارة المقررات/})).toBeVisible();
 });
