@@ -13,6 +13,12 @@ Codex's Windows local acceptance report, supplied 2026-11-06, verified React/Fas
 - Both root and frontend package-lock v3 files are committed. Local Codex must preserve and back up **pre-existing untracked** lockfiles before updating the checkout and re-run A01–A59 without an environment workaround.
 - **Current decision:** GO for **synthetic loopback local pilot only** after safe pull and smoke test; **NO-GO for real institutional production** without the remaining evidence and approvals below.
 
+## Second Windows report and backup engineering status
+
+- User-supplied `TPS_LOCAL_ACCEPTANCE_REPORT_V2.md` (2026-11-06, Windows 11, commit `f1d76aa75aafcba12bfa81a496d004c94c730de3`) recorded **A01–A59: 59/59 passed**, 80 unique tests, real Chromium/PostgreSQL/Java Timefold, Arabic XLSX with no workaround and persistence after restart. That is a verified *report of local test execution*, not official approval to process institutional personal information.
+- The test PC remains loopback-only and operates against `tps_browser_test` synthetic data. **No full encrypted independent database restore, off-device redundant copy, security pentest or institutional authorizations** were supplied with that report.
+- The development branch now includes `scripts/backup-restore.mjs`, offering encrypted pg_dump and **restore-test to a new database only**. Source CI `backup-restore-drill` validates operation; only mark it verified when the latest job succeeds. See `docs/BACKUP_RESTORE.md`. This is not an automatic backup service, operational offsite replication or certified disaster-recovery program.
+
 ## Release gates (all must be evidenced)
 1. **Code and dependencies:** latest GitHub `TPS checks` including **Windows regression** and unmocked Chromium/Timefold pass; `TPS production dependency security gate` passes with zero reported high/critical advisories. Record both workflow IDs and commit SHA. No force upgrades or suppressed failures.
 2. **Reproducibility:** tracked, reviewed `package-lock.json` and `frontend/package-lock.json`; `npm ci` succeeds on Node 22/24 without changing manifests. Capture tested Java/Python/Docker versions and dependency integrity.
