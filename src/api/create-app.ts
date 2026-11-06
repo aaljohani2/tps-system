@@ -21,11 +21,13 @@ export async function createApp(){
   const app=Fastify({logger:{redact:['req.headers.cookie','req.headers.authorization','req.body.password']},
     bodyLimit:Number(process.env.MAX_REQUEST_BYTES??'5242880')});
   app.setErrorHandler((error,req,reply)=>{
-    const status=(error as {statusCode?:number}).statusCode;
+    const known=error as {statusCode?:number;message?:unknown;details?:unknown};
+    const status=known.statusCode;
     const code=error instanceof ZodError?400:status&&status>=400&&status<500?status:500;
     if(code===500)req.log.error(error);
-    reply.code(code).send({error:code===500?'Internal server error':error.message,
-      ...(code===400&&'details' in error?{details:(error as Error&{details?:unknown}).details}:{})});
+    reply.code(code).send({error:code===500?'Internal server error':
+      typeof known.message==='string'?known.message:'Invalid request',
+      ...(code===400&&known.details!==undefined?{details:known.details}:{})});
   });
   await app.register(swagger,{openapi:{info:{title:'TPS Local API',version:'1.0.0-dev'},
     servers:[{url:'http://127.0.0.1:8787'}]}});
