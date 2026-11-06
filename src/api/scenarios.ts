@@ -93,6 +93,7 @@ async function fromDatabase(departmentId:string,termId:string,name:string,policy
     return {
       code:c.code,title:c.title,level:c.level,demand,theoryHours:c.theory_hours,
       practicalHours:c.practical_hours,mode:c.mode,eligibleModes:c.eligible_modes,
+       requiredSpecialties:c.required_specialties??[],requiredEquipment:c.required_equipment??[],
       blocks:links.length?links.map(b=>b.ref):(c.blocks.length?c.blocks:undefined),
       blockSizes:links.length?links.map(b=>b.size):undefined,
       hybridSplit:c.hybrid_split??undefined,
@@ -105,11 +106,11 @@ async function fromDatabase(departmentId:string,termId:string,name:string,policy
   );
   const instructors:Instructor[]=instructorsRaw.rows.map(i=>({
     id:i.code,name:i.name,maxLoad:Number(i.max_load),allowedModes:i.allowed_modes,
-    eligibleCourseCodes:i.eligible_course_codes??undefined,available:i.available??undefined,
+    eligibleCourseCodes:i.eligible_course_codes??undefined,specialties:i.specialties??[],available:i.available??undefined,
     overload:approvedExtra.get(i.code)
   }));
   const rooms:Room[]=roomsRaw.rows.map(r=>({
-    id:r.code,name:r.name,type:r.type,capacity:r.capacity,available:r.available??undefined
+    id:r.code,name:r.name,type:r.type,capacity:r.capacity,equipmentCodes:r.equipment_codes??[],available:r.available??undefined
   }));
   return {scenarioName:name,termId,courses,instructors,rooms,policy};
 }
