@@ -26,6 +26,9 @@
     "local:production:check": "node --env-file=.env scripts/local-production.mjs check",
     "local:production:bootstrap": "node --env-file=.env scripts/local-production.mjs bootstrap",
     "local:production:start": "node --env-file=.env scripts/local-production.mjs start",
+    "local:production:backup": "node --env-file=.env scripts/local-production.mjs backup",
+    "local:production:backup:verify": "node --env-file=.env scripts/local-production.mjs backup:verify",
+    "local:production:restore:test": "node --env-file=.env scripts/local-production.mjs restore:test",
     "web:install": "cd frontend && npm ci",
     "web:build": "npm run build --prefix frontend",
     "e2e": "npm run e2e --prefix frontend"
