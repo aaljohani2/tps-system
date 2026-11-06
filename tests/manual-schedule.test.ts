@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {defaultPolicy} from '../src/policy.js';
 import {buildDraftPlan} from '../src/planner.js';
 import {moveScheduledSession} from '../src/manual-schedule.js';
+import {assessReadiness} from '../src/api/readiness.js';
 import type {PlanRequest} from '../src/types.js';
 
 function fixture():PlanRequest{
@@ -43,4 +44,26 @@ test('manual changes never bypass a locked course instructor',()=>{
   const plan=buildDraftPlan(input);
   assert.throws(()=>moveScheduledSession(input,plan,{sessionId:plan.sessions[0]!.id,
     day:'MON',start:10,roomId:'R-1',instructorId:'I-2'}),/locked/);
+});
+
+test('an operator can repair a pre-existing trainer/room/cohort collision but cannot make it worse',()=>{
+  const input=fixture();
+  input.courses.push({code:'A-2',title:'Course two',level:1,demand:20,
+    theoryHours:2,practicalHours:0,mode:'ONSITE',eligibleModes:['ONSITE'],blocks:['B-1']});
+  const plan=buildDraftPlan(input);
+  assert.equal(plan.sessions.length,2);
+  const first=plan.sessions[0]!,second=plan.sessions[1]!;
+  second.day=first.day;second.start=first.start;second.end=first.end;
+  second.roomId=first.roomId;second.instructorId=first.instructorId;
+  const original=assessReadiness(input,plan,'COMPLETED');
+  assert.equal(original.technicalReady,false);
+  assert.ok(original.issues.some(i=>i.code==='TRAINER_COLLISION'));
+  const repaired=moveScheduledSession(input,plan,{
+    sessionId:second.id,day:'TUE',start:10,roomId:'R-1',instructorId:'I-1'});
+  const after=assessReadiness(input,repaired,'COMPLETED');
+  assert.equal(after.technicalReady,true,JSON.stringify(after.issues));
+  assert.equal(plan.sessions[1]!.day,first.day,'Input scenario remains unchanged');
+  assert.throws(()=>moveScheduledSession(input,plan,{
+    sessionId:second.id,day:first.day,start:first.start,roomId:'R-1',instructorId:'I-1'}),
+    /strictly reduce existing blockers/);
 });

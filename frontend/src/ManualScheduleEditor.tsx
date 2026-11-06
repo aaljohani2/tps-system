@@ -58,7 +58,7 @@ export default function ManualScheduleEditor({scenario,notify,proposal,canEdit:a
   }
   if(!editable)return <div className="hint">تعديل الجلسات يدويًا متاح لمسودات Timefold المكتملة فقط. الجداول المعتمدة لا تتغير؛ أنشئ مراجعة جديدة لتعديلها.</div>;
   return <details className="panel" id="manual-schedule-editor" open={!!proposal}><summary>تعديل جلسة أسبوعية مع التحقق من التعارضات</summary>
-    <p className="hint">النقل اليدوي لا يعيد تشغيل Timefold، لكنه يخضع لفحص القاعات والبلوكات والأنصبة والإتاحة. تغيير المدرب ينطبق على جميع جلسات الشعبة، حفاظًا على ارتباط النظري والعملي. لا يمكن الحفظ عند وجود موانع جاهزية قائمة.</p>
+    <p className="hint">النقل اليدوي لا يعيد تشغيل Timefold، لكنه يخضع لفحص القاعات والبلوكات والأنصبة والإتاحة. تغيير المدرب ينطبق على جميع جلسات الشعبة، حفاظًا على ارتباط النظري والعملي. عند وجود تعارض قائم، يُسمح بالتعديل الذي يقلّل الموانع دون إضافة أي مانع جديد. ولا يجوز تجاوز قيود الاعتماد.</p>
     <div className="form-grid">
       <label>الجلسة<select value={chosen} onChange={e=>selectSession(e.target.value)}>
         {sessions.map(s=><option key={s.id} value={s.id}>{s.courseCode} | {s.sectionId} | {names[s.day]} {clock(s.start)}–{clock(s.end)}</option>)}
