@@ -22,7 +22,7 @@ Scenario `input_snapshot` and `result_snapshot` are JSONB snapshots tied to the 
 - Foreign keys/uniques/checks exist for core entities. Examples: one active plan per program, one approved instructor load exception per instructor+term, positive block size, and no self-dependency in a course prerequisite.
 - Further cycle checks and authorization are enforced by API logic; database FK checks alone do not cover all domain rules.
 - `schema_migrations` stores an SHA-256 checksum for each applied SQL script. `npm run db:migrate` uses a transaction and advisory lock. **Never edit an applied migration**; add a forward-only migration.
-- `npm run db:check` requires migrations 0001–0011 and checks database reachability.
+- `npm run db:check` requires migrations 0001–0013 and checks database reachability.
 - Migration 0011 adds `CANCELLED` to `solver_runs.status`; the scenario itself returns to `FAILED` after a cancellation so a DRAFT may be retried.
 - An import commit must match the preview's SHA-256, scope, creator and expiry. No orphan records or silent partial writes may be introduced.
 - `npm run db:seed` is opt-in only (`TPS_ALLOW_SYNTHETIC_SEED=1`) and **only for an isolated synthetic test DB**. Do not run it against operational data.
@@ -38,3 +38,7 @@ Scenario `input_snapshot` and `result_snapshot` are JSONB snapshots tied to the 
 ## Explicit gaps
 
 The full normalized model named in the original mandate is **not** represented by one table for every requested noun. Course components/section pairs are currently represented inside course and scenario structures, not complete normalized relational entities. Granular instructor specializations, equipment/restriction models, uniform soft deletion/archiving and broader concurrency controls still require work. Do not mark the schema 100% complete based on migration count.
+
+### Migration 0013: resource qualifications
+
+Courses store `required_specialties` and `required_equipment`; instructors store `specialties` and rooms store `equipment_codes`. All are JSONB arrays defaulting to `[]`. A missing required code blocks scheduling, regardless of room capacity or instructor load. Resource claims are internal planning data, not institutional certification.
