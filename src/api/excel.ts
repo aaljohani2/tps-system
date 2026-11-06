@@ -2,7 +2,9 @@ import {spawn} from 'node:child_process';
 import {resolve} from 'node:path';
 import type {PlanResult} from '../types.js';
 
-export async function exportScenarioXlsx(result:PlanResult,metadata?:{state:string;scenarioName:string;termId:string;policyRevision:number}):Promise<Buffer>{
+export async function exportScenarioXlsx(result:PlanResult,metadata?:{state:string;scenarioName:string;termId:string;policyRevision:number;
+  readiness?:{technicalReady:boolean;issues:Array<{code:string;severity:string;message:string;sectionId?:string;courseCode?:string}>};
+  comparisonRows?:Array<[string,string|number,string|number]>}):Promise<Buffer>{
   const executable=process.env.TPS_PYTHON??(process.platform==='win32'?'python':'python3');
   const script=resolve('scripts/export_scenario.py');
   return new Promise<Buffer>((resolveResult,reject)=>{

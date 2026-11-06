@@ -347,8 +347,35 @@ export async function registerScenarios(app:FastifyInstance):Promise<void>{
   app.get('/api/v1/scenarios/:id/export.xlsx',async(req,reply)=>{
     const scenario=await find(req,params(req));
     const state=scenario.state==='APPROVED'?'APPROVED':'NOT_APPROVED';
+    const readiness=assessReadiness(scenario.input_snapshot,scenario.result_snapshot,scenario.solver_status);
+    const compareId=(req.query as {compareId?:string}).compareId;
+    let comparisonRows:Array<[string,string|number,string|number]>|undefined;
+    if(compareId){
+      const other=await find(req,uuid.parse(compareId));
+      if(other.id===scenario.id||other.department_id!==scenario.department_id||other.term_id!==scenario.term_id)
+        throw invalid('Comparison requires a different scenario in the same department and term');
+      const metrics=(v:Stored)=>({
+        sections:v.result_snapshot.metrics.sectionCount,
+        uncovered:v.result_snapshot.metrics.uncoveredSectionCount,
+        requiredHours:v.result_snapshot.metrics.requiredContactHours,
+        coveredHours:v.result_snapshot.metrics.assignedContactHours,
+        load:v.result_snapshot.instructorLoads.reduce((n,i)=>n+i.credited,0)
+      });
+      const a=metrics(scenario),b=metrics(other);
+      comparisonRows=[
+        ['السيناريو',scenario.name,other.name],
+        ['حالة الاعتماد',scenario.state,other.state],
+        ['إصدار السياسة',scenario.policy_revision,other.policy_revision],
+        ['الشعب',a.sections,b.sections],
+        ['الشعب غير المغطاة',a.uncovered,b.uncovered],
+        ['الساعات المطلوبة',a.requiredHours,b.requiredHours],
+        ['الساعات المسندة',a.coveredHours,b.coveredHours],
+        ['النصاب المكافئ',a.load,b.load]
+      ];
+    }
     const bytes=await exportScenarioXlsx(scenario.result_snapshot,{
-      state,scenarioName:scenario.name,termId:scenario.term_id,policyRevision:scenario.policy_revision
+      state,scenarioName:scenario.name,termId:scenario.term_id,policyRevision:scenario.policy_revision,
+      readiness,comparisonRows
     });
     reply.header('content-type','application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     reply.header('content-disposition','attachment; filename="tps-schedule-'+state+'.xlsx"');
