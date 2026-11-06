@@ -11,7 +11,9 @@ const uuid=z.string().uuid();
 const name=z.string().trim().min(1).max(240);
 const code=z.string().trim().min(1).max(60);
 const mode=z.enum(['ONSITE','REMOTE','SELF_PACED','HYBRID']);
-const windows=z.array(z.object({day:z.enum(['SUN','MON','TUE','WED','THU']),from:z.number().min(0).max(24),to:z.number().min(0).max(24)})).optional();
+const windows=z.array(z.object({day:z.enum(['SUN','MON','TUE','WED','THU']),
+  from:z.number().int().min(0).max(23),to:z.number().int().min(1).max(24)})
+  .refine(w=>w.to>w.from && (w.day!=='THU'||w.to<=10),'Invalid availability time')).max(30).optional();
 const courseBase=z.object({
  departmentId:uuid,code,title:name,level:z.number().int().min(1).max(12),theoryHours:z.number().int().min(0),
  practicalHours:z.number().int().min(0),demand:z.number().int().min(0),mode:mode.default('ONSITE'),
@@ -112,14 +114,43 @@ export async function registerCatalog(app:FastifyInstance){
     const rows=await db.insert(instructors).values({...v,maxLoad:String(v.maxLoad),eligibleCourseCodes:v.eligibleCourseCodes??null,available:v.available??null,overload:v.overload??null}).returning();
     await audit(req.principal!.id,'CREATE','INSTRUCTOR',rows[0]!.id);return rows[0];
   });
+  app.patch('/api/v1/instructors/:id',async(req)=>{
+    requireEditor(req);
+    const id=uuid.parse((req.params as {id:string}).id);
+    const found=await pool.query<{department_id:string}>('SELECT department_id FROM instructors WHERE id=$1',[id]);
+    if(!found.rows[0])throw Object.assign(new Error('Instructor not found'),{statusCode:404});
+    await assertDepartment(req,found.rows[0].department_id);
+    const v=parse(instructor.omit({departmentId:true}).partial().strict(),req.body);
+    if(!Object.keys(v).length)throw Object.assign(new Error('No changes supplied'),{statusCode:400});
+    const values={...v,maxLoad:v.maxLoad===undefined?undefined:String(v.maxLoad)};
+    const updated=await db.update(instructors).set(values).where(eq(instructors.id,id)).returning();
+    await audit(req.principal!.id,'UPDATE','INSTRUCTOR',id,{fields:Object.keys(v)});
+    return updated[0];
+  });
   app.get('/api/v1/rooms',async(req)=>{
     const collegeId=uuid.parse(query(req,'collegeId'));await assertCollege(req,collegeId);
     return db.select().from(rooms).where(eq(rooms.collegeId,collegeId));
   });
   app.post('/api/v1/rooms',async(req)=>{
-    requireEditor(req);const v=parse(room,req.body);await assertCollege(req,v.collegeId);
+    requireEditor(req);
+    if(req.principal!.departmentId && req.principal!.role!=='SYSTEM_ADMIN')forbidden();
+    const v=parse(room,req.body);await assertCollege(req,v.collegeId);
     const rows=await db.insert(rooms).values({...v,available:v.available??null,building:v.building??null}).returning();
     await audit(req.principal!.id,'CREATE','ROOM',rows[0]!.id);return rows[0];
+  });
+  app.patch('/api/v1/rooms/:id',async(req)=>{
+    requireEditor(req);
+    // Rooms are shared college-wide. A department-only account cannot mutate their master records.
+    if(req.principal!.departmentId && req.principal!.role!=='SYSTEM_ADMIN')forbidden();
+    const id=uuid.parse((req.params as {id:string}).id);
+    const found=await pool.query<{college_id:string}>('SELECT college_id FROM rooms WHERE id=$1',[id]);
+    if(!found.rows[0])throw Object.assign(new Error('Room not found'),{statusCode:404});
+    await assertCollege(req,found.rows[0].college_id);
+    const v=parse(room.omit({collegeId:true}).partial().strict(),req.body);
+    if(!Object.keys(v).length)throw Object.assign(new Error('No changes supplied'),{statusCode:400});
+    const updated=await db.update(rooms).set(v).where(eq(rooms.id,id)).returning();
+    await audit(req.principal!.id,'UPDATE','ROOM',id,{fields:Object.keys(v)});
+    return updated[0];
   });
   app.post('/api/v1/import/courses/preview',async(req)=>{
     requireEditor(req);
