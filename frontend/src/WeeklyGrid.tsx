@@ -1,4 +1,4 @@
-import {useMemo,useState} from 'react';
+import {useEffect,useMemo,useState} from 'react';
 import type {Plan,Scenario} from './api';
 
 type Session=Plan['sessions'][number];
@@ -10,8 +10,8 @@ const modeLabel:Record<string,string>={ONSITE:'حضوري',REMOTE:'متزامن 
 const clock=(v:number)=>String(Math.floor(v)).padStart(2,'0')+':'+(v%1===0.5?'30':'00');
 const half=(value:number)=>Math.round(value*2)/2;
 const dayOrder=(day:string)=>weekdays.findIndex(([v])=>v===day);
-export default function WeeklyGrid({scenario,issues,onPropose}:{
- scenario:Scenario;issues:Issue[];onPropose:(m:GridProposal)=>void;
+export default function WeeklyGrid({scenario,issues,onPropose,focusSection}:{
+ scenario:Scenario;issues:Issue[];onPropose:(m:GridProposal)=>void;focusSection?:string|null;
 }){
   const plan=scenario.result_snapshot;
   const data=scenario.input_snapshot as Input|undefined;
@@ -39,6 +39,11 @@ export default function WeeklyGrid({scenario,issues,onPropose}:{
     for(let h=Math.max(0,half(Math.floor(min*2)/2));h<Math.min(24,half(Math.ceil(max*2)/2));h+=.5)arr.push(h);
     return arr;
   },[shown]);
+  useEffect(()=>{
+    if(!focusSection)return;
+    const meeting=plan.sessions.find(s=>s.sectionId===focusSection||s.courseCode===focusSection);
+    if(meeting)setFocus(meeting.id);
+  },[focusSection,plan]);
   const selected=plan.sessions.find(s=>s.id===focus);
   const selectedIssues=issues.filter(i=>selected&&(i.sectionId===selected.sectionId||
     (!i.sectionId&&i.courseCode===selected.courseCode)));
@@ -52,7 +57,7 @@ export default function WeeklyGrid({scenario,issues,onPropose}:{
     setHint('نُقل المقترح إلى نموذج تعديل الجلسة. لم يتم حفظ أي تغيير بعد؛ يلزم إدخال السبب واجتياز فحص Backend.');
     document.getElementById('manual-schedule-editor')?.scrollIntoView({behavior:'smooth',block:'start'});
   };
-  return <section className="weekly-section" aria-label="شبكة الجداول الأسبوعية">
+  return <section id="weekly-grid" className="weekly-section" aria-label="شبكة الجداول الأسبوعية">
     <div className="actions"><label>نوع العرض<select value={view} onChange={e=>{setView(e.target.value as typeof view);setEntity('');}}>
       <option value="instructor">جداول المدربين</option><option value="room">جداول القاعات</option>
       <option value="level">جداول المستويات</option><option value="block">جداول البلوكات</option></select></label>

@@ -11,6 +11,7 @@ import UsersPage from './UsersPage';
 import ManualScheduleEditor from './ManualScheduleEditor';
 import SolverRunsPanel from './SolverRunsPanel';
 import WeeklyGrid,{type GridProposal} from './WeeklyGrid';
+import IssuePanel from './IssuePanel';
 import BulkImportsPage from './BulkImportsPage';
 
 const labels:Record<string,string>={ONSITE:'حضوري',REMOTE:'عن بُعد',SELF_PACED:'ذاتي',HYBRID:'مدمج'};
@@ -199,6 +200,7 @@ function ScenarioPage({ctx,notify}:{ctx:Context;notify:Message}){
     queryFn:()=>api<Scenario[]>('/scenarios?departmentId='+ctx.departmentId+'&termId='+ctx.termId),enabled:!!ctx.departmentId&&!!ctx.termId});
   const [name,setName]=useState('السيناريو الحضوري'),[selected,setSelected]=useState(''),[working,setWorking]=useState(false),[second,setSecond]=useState('');
   const [gridProposal,setGridProposal]=useState<GridProposal|null>(null);
+  const [focusSection,setFocusSection]=useState<string|null>(null);
   const [forkName,setForkName]=useState('سيناريو بديل'),[forkDemand,setForkDemand]=useState<Record<string,number>>({}),
     [forkBlocks,setForkBlocks]=useState<Record<string,string>>({}),
     [forkBlockSizes,setForkBlockSizes]=useState<Record<string,string>>({});
@@ -245,13 +247,13 @@ function ScenarioPage({ctx,notify}:{ctx:Context;notify:Message}){
           'لم يكتمل التحقق الفني؛ تعالج موانع الاعتماد أدناه قبل إصدار جدول معتمد.'}
         {readiness.isError?' | تعذر تحميل فحص الجاهزية':''}
       </div>
-      {readiness.data?.issues.length? <div className="table-wrap"><table><thead><tr><th>النوع</th><th>المشكلة</th><th>الشعبة</th><th>المقرر</th></tr></thead><tbody>
-        {readiness.data.issues.map((i,index)=><tr key={index}><td>{i.severity==='BLOCKER'?'مانع اعتماد':'تنبيه'}</td>
-          <td>{i.code} — {i.message}</td><td>{i.sectionId??'—'}</td><td>{i.courseCode??'—'}</td></tr>)}
-      </tbody></table></div>:null}
+      <IssuePanel issues={readiness.data?.issues??[]} focus={issue=>{
+        setFocusSection(issue.sectionId??issue.courseCode??null);
+        document.getElementById('weekly-grid')?.scrollIntoView({behavior:'smooth'});
+      }}/>
       <SolverRunsPanel scenario={current} notify={notify}/>
       <div className="subhead"><h3>الجداول الأسبوعية التفاعلية</h3></div>
-      <WeeklyGrid scenario={current} issues={readiness.data?.issues??[]} onPropose={setGridProposal}/>
+      <WeeklyGrid scenario={current} issues={readiness.data?.issues??[]} onPropose={setGridProposal} focusSection={focusSection}/>
       <details><summary>عرض تفصيلي إضافي — قائمة جميع الجلسات</summary><Timetable p={p}/></details>
       <ManualScheduleEditor scenario={current} notify={notify} proposal={gridProposal}/>
       <h3>كشف العجز</h3>{p.gaps.length?<div className="table-wrap"><table><thead><tr><th>الشعبة</th><th>المقرر</th><th>السبب</th><th>ساعات التدريب</th><th>النصاب المطلوب</th></tr></thead>
