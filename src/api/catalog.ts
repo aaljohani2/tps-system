@@ -4,6 +4,9 @@ import {eq} from 'drizzle-orm';
 import {db,pool,institutions,colleges,departments,terms,courses,instructors,rooms} from './database.js';
 import {audit,allowedCollege,allowedDepartment,requireEditor} from './security.js';
 import {importCurriculumCsv} from '../importer.js';
+import {importCatalogXlsx} from '../xlsx-import.js';
+import {readFile} from 'node:fs/promises';
+import {resolve} from 'node:path';
 const uuid=z.string().uuid();
 const name=z.string().trim().min(1).max(240);
 const code=z.string().trim().min(1).max(60);
@@ -144,4 +147,43 @@ export async function registerCatalog(app:FastifyInstance){
       return {imported:preview.courses.length,ignored:preview.ignored,warnings:preview.warnings};
     }catch(error){await client.query('ROLLBACK');throw error;}finally{client.release();}
   });
+  app.get('/api/v1/import/courses/template.csv',async(_req,reply)=>{
+    reply.header('content-type','text/csv; charset=utf-8');
+    reply.header('content-disposition','attachment; filename="tps-courses.csv"');
+    return '\uFEFF'+'المقرر,اسم المقرر,الفصل التدريبي,مح,عم,تم,س\r\n';
+  });
+  app.get('/api/v1/import/courses/template.xlsx',async(_req,reply)=>{
+    const bytes=await readFile(resolve('web/templates/TPS_Course_Demand_144720.xlsx'));
+    reply.header('content-type','application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    reply.header('content-disposition','attachment; filename="tps-courses-template.xlsx"');
+    return reply.send(bytes);
+  });
+  app.post('/api/v1/import/courses/preview-xlsx',async(req)=>{
+    requireEditor(req);
+    const departmentId=uuid.parse(query(req,'departmentId'));
+    await assertDepartment(req,departmentId);
+    return importCatalogXlsx(req.body as Buffer);
+  });
+  app.post('/api/v1/import/courses/commit-xlsx',async(req)=>{
+    requireEditor(req);
+    const departmentId=uuid.parse(query(req,'departmentId'));
+    await assertDepartment(req,departmentId);
+    const preview=await importCatalogXlsx(req.body as Buffer);
+    const client=await pool.connect();
+    const statement='INSERT INTO courses(department_id,code,title,level,theory_hours,practical_hours,demand,mode,eligible_modes) '+
+      'VALUES($1,$2,$3,$4,$5,$6,0,\'ONSITE\',\'["ONSITE"]\') '+
+      'ON CONFLICT(department_id,code) DO UPDATE SET title=EXCLUDED.title,level=EXCLUDED.level, '+
+      'theory_hours=EXCLUDED.theory_hours,practical_hours=EXCLUDED.practical_hours,updated_at=now()';
+    try{
+      await client.query('BEGIN');
+      for(const c of preview.courses){
+        await client.query(statement,[departmentId,c.code,c.title,c.level,c.theoryHours,c.practicalHours]);
+      }
+      await client.query('INSERT INTO audit_logs(user_id,action,entity_type,entity_id,details) VALUES($1,$2,$3,$4,$5)',
+        [req.principal!.id,'IMPORT_XLSX','COURSES',departmentId,JSON.stringify({count:preview.courses.length})]);
+      await client.query('COMMIT');
+      return {imported:preview.courses.length,ignored:preview.ignored,warnings:preview.warnings};
+    }catch(e){await client.query('ROLLBACK');throw e;}finally{client.release();}
+  });
+
 }
