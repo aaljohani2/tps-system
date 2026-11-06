@@ -8,6 +8,7 @@ import {registerSecurity} from './security.js';
 import {registerCatalog} from './catalog.js';
 import {registerScenarios} from './scenarios.js';
 import {registerPolicies} from './policies.js';
+import {registerAcademic} from './academic.js';
 import {ZodError} from 'zod';
 
 export async function createApp(){
@@ -25,6 +26,7 @@ export async function createApp(){
   app.addContentTypeParser('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',{parseAs:'buffer'},(_req,body,done)=>done(null,body));
   await registerSecurity(app);
   await registerCatalog(app);
+  await registerAcademic(app);
   await registerPolicies(app);
   await registerScenarios(app);
   app.get('/health',async()=>{

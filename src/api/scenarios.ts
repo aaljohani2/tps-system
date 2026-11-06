@@ -53,17 +53,40 @@ async function fromDatabase(departmentId:string,termId:string,name:string,policy
   if(!collegeId)throw invalid('Department not found',404);
   const term=await pool.query('SELECT id FROM academic_terms WHERE id=$1 AND college_id=$2',[termId,collegeId]);
   if(!term.rowCount)throw invalid('Term does not belong to selected college');
-  const [coursesRaw,instructorsRaw,roomsRaw]=await Promise.all([
+  const [coursesRaw,instructorsRaw,roomsRaw,demandRaw,blocksRaw]=await Promise.all([
     pool.query('SELECT * FROM courses WHERE department_id=$1 ORDER BY code',[departmentId]),
     pool.query('SELECT * FROM instructors WHERE department_id=$1 ORDER BY code',[departmentId]),
-    pool.query('SELECT * FROM rooms WHERE college_id=$1 ORDER BY code',[collegeId])
+    pool.query('SELECT * FROM rooms WHERE college_id=$1 ORDER BY code',[collegeId]),
+    pool.query('SELECT de.course_id,de.projected_students FROM demand_estimates de JOIN courses c ON c.id=de.course_id WHERE c.department_id=$1 AND de.term_id=$2',[departmentId,termId]),
+    pool.query(`SELECT a.course_id,b.size,(co.code || '::' || b.code) AS block_ref
+      FROM block_course_assignments a JOIN courses c ON c.id=a.course_id
+      JOIN student_blocks b ON b.id=a.block_id JOIN cohorts co ON co.id=b.cohort_id
+      WHERE c.department_id=$1 AND a.term_id=$2 ORDER BY co.code,b.code`,[departmentId,termId])
   ]);
-  const courses:Course[]=coursesRaw.rows.map(c=>({
-    code:c.code,title:c.title,level:c.level,demand:c.demand,theoryHours:c.theory_hours,
-    practicalHours:c.practical_hours,mode:c.mode,eligibleModes:c.eligible_modes,
-    blocks:c.blocks.length?c.blocks:undefined,hybridSplit:c.hybrid_split??undefined,
-    assignedInstructorId:c.assigned_instructor_id??undefined,exclusiveInstructor:c.exclusive_instructor
-  }));
+  const estimateByCourse=new Map<string,number>(demandRaw.rows.map(v=>[v.course_id,Number(v.projected_students)]));
+  const assignedByCourse=new Map<string,Array<{ref:string;size:number}>>();
+  for(const row of blocksRaw.rows){
+    const items=assignedByCourse.get(row.course_id)??[];
+    items.push({ref:row.block_ref,size:Number(row.size)});
+    assignedByCourse.set(row.course_id,items);
+  }
+  const courses:Course[]=coursesRaw.rows.map(c=>{
+    const links=assignedByCourse.get(c.id)??[];
+    const blockTotal=links.reduce((sum,b)=>sum+b.size,0);
+    const projected=estimateByCourse.get(c.id);
+    const demand=projected??(c.demand>0?c.demand:blockTotal);
+    if(links.length && blockTotal!==demand)
+      throw invalid(`Block sizes for ${c.code} total ${blockTotal} while approved planning demand is ${demand}; reconcile before scheduling`,409);
+    return {
+      code:c.code,title:c.title,level:c.level,demand,theoryHours:c.theory_hours,
+      practicalHours:c.practical_hours,mode:c.mode,eligibleModes:c.eligible_modes,
+      blocks:links.length?links.map(b=>b.ref):(c.blocks.length?c.blocks:undefined),
+      blockSizes:links.length?links.map(b=>b.size):undefined,
+      hybridSplit:c.hybrid_split??undefined,
+      assignedInstructorId:c.assigned_instructor_id??undefined,
+      exclusiveInstructor:c.exclusive_instructor
+    };
+  });
   const instructors:Instructor[]=instructorsRaw.rows.map(i=>({
     id:i.code,name:i.name,maxLoad:Number(i.max_load),allowedModes:i.allowed_modes,
     eligibleCourseCodes:i.eligible_course_codes??undefined,available:i.available??undefined,

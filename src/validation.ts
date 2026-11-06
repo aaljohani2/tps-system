@@ -41,6 +41,18 @@ function validateCourse(c: Course, p: Policy, errors: string[]): void {
   }
   if (c.mode === 'SELF_PACED' && p.selfPacedLoadPerOffering === null) errors.push(`SELF_PACED ${c.code} needs an approved load policy.`);
   if (c.blocks && (c.blocks.length === 0 || c.blocks.some(x => !x))) errors.push(`Invalid block identifiers for ${c.code}`);
+  if(c.blocks && new Set(c.blocks).size!==c.blocks.length)errors.push(`Duplicate block assignments for ${c.code}`);
+  if(c.blockSizes){
+    if(!c.blocks || c.blockSizes.length!==c.blocks.length || !c.blockSizes.length ||
+      c.blockSizes.some(s=>!positiveInt(s)) ||
+      c.blockSizes.reduce((sum,n)=>sum+n,0)!==c.demand)
+      errors.push(`Normalized blocks must sum to the exact demand of ${c.code}`);
+    const capacity=c.mode==='SELF_PACED'?null:c.theoryHours&&c.practicalHours?
+      Math.min(p.capacities[c.mode].theory!,p.capacities[c.mode].practical!):
+      c.theoryHours?p.capacities[c.mode].theory:p.capacities[c.mode].practical;
+    if(capacity!==null && c.blockSizes.some(s=>s>capacity!))
+      errors.push(`Block size exceeds course section capacity for ${c.code}`);
+  }
 }
 export function validateRequest(input: PlanRequest): void {
   const errors: string[] = [];

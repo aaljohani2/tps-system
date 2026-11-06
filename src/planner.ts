@@ -115,9 +115,9 @@ export function buildDraftPlan(input: PlanRequest): PlanResult {
   for (const c of courses) {
     if (c.demand === 0) continue;
     const cap = capacity(c, input);
-    const count = cap === null ? 1 : Math.ceil(c.demand / cap);
+    const count = c.blockSizes?.length ?? (cap === null ? 1 : Math.ceil(c.demand / cap));
     for (let n = 0; n < count; n++) {
-      const students = cap === null ? c.demand : Math.min(cap, c.demand - n * cap);
+      const students = c.blockSizes?.[n] ?? (cap === null ? c.demand : Math.min(cap, c.demand - n * cap));
       const sec: Section = {
         id: `${c.code}-${String(n + 1).padStart(3, '0')}`,
         courseCode: c.code, level: c.level, index: n + 1, mode: c.mode,

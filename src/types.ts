@@ -25,6 +25,8 @@ export interface Course {
   exclusiveInstructor?: boolean;
   /** Existing cohort/group identifiers; missing values are not inferred. */
   blocks?: string[];
+  /** Cohort sizes from normalized block assignments, one scheduled section per assigned block. */
+  blockSizes?: number[];
   hybridSplit?: HybridSplit;
   departmentId?: string;
 }
