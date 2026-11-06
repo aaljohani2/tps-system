@@ -2,6 +2,16 @@
 
 Branch: `feat/full-stack-tps-v1`. Base commit: `3a1d84c` from the previously tested `feat/web-excel-import-v0.3`.
 
+## Development increment — HTTP-independent local solver and real browser acceptance (2026-11-06)
+
+- Migration **0012** adds truthful persisted solver stages (QUEUED, VALIDATING, PREPARING, SOLVING, VERIFYING, SAVING, and terminal states), timestamps and requested settings, without asserting a percentage complete.
+- A new `POST /api/v1/scenarios/:id/solve/async` commits the scenario claim and solver run before returning HTTP **202**. Execution then continues within the current local Fastify process. The existing synchronous endpoint remains compatible.
+- Cancellation and recovery cannot overwrite an already finished run or approved scenario. Stage polling is wired to the Arabic React UI and refetches run records when the scenario transitions to a terminal state.
+- Isolated PostgreSQL integration now covers 202 acceptance, duplicate conflict, persistent completion and cancellation without partial-snapshot mutation. The 6-job run **42263941126** passed before the browser CI job was introduced.
+- A seventh CI job `web-e2e-real` now brings up a disposable PostgreSQL database, actual Fastify/React/Java and ephemeral masked credentials, and drives browser login → scoped resources → scenario → Timefold → review → approval → real exports. **Do not claim this job passed until the HEAD-matching run succeeds.**
+- The synthetic impossible-room test confirms one of eight sections scheduled with seven explicit gaps. On run **42264700428**, the PostgreSQL/Timefold job passed.
+- Still open: process-independent durable task queues/restart recovery automation, truly incremental solver percent/score, full cross-instance concurrency, complete 20-step institutional journey, resource equipment/qualification constraints, CRUD/archiving, security approval, Windows acceptance. PR remains Draft and unmerged.
+
 ## Verified larger Timefold benchmark — 50 synthetic courses
 
 GitHub Actions **42262168587** at commit `d4a7fa6d` completed **SUCCESS** on all six jobs. The Java integration benchmark measured **25/25 sections with 0 gaps in 3985 ms** (25 courses/6 trainers/20 rooms/4 levels/20 blocks) and **50/50 sections with 0 gaps in 4155 ms** (50 courses/12 trainers/30 rooms/6 levels/30 blocks). Node RSS was 64 MB and 69 MB respectively; this excludes a complete accounting of Java child memory. The larger synthetic test is now present in `tests/scenario-scale.test.ts` and CI.
