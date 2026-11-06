@@ -5,7 +5,7 @@
 | ID | Action | Expected local result | Category |
 |---|---|---|---|
 | A01 | Install Node/React/Python/Java dependencies | No missing package; backend/frontend/Java compile | Environment |
-| A02 | Start loopback PostgreSQL and run all SQL migrations twice | 0001–0003 installed; second run idempotent | DB |
+| A02 | Start loopback PostgreSQL and run all SQL migrations twice | 0001–0007 installed; second run idempotent | DB |
 | A03 | Create first admin and login/logout | Argon2id hash; session cookie; no default password | Auth |
 | A04 | Make request without CSRF | 403, nothing changed | Security |
 | A05 | Create two colleges/departments; sign in as scoped head | Other departments inaccessible; shared college objects not modifiable | Tenant scope |
@@ -24,6 +24,13 @@
 | A18 | Restart local PostgreSQL (without volume deletion) | Saved scenarios, users, policy revisions remain | Persistence |
 | A19 | Open React RTL flow on Chromium locally | No client errors; screens connect to API | Browser |
 | A20 | Try creating scenario with request-supplied unapproved policy | HTTP 400; no bypass | Security |
+
+| A21 | Move a solved draft session by 30 minutes, change instructor and verify audit | Whole-section credit recomputed, no collision, version increments | Manual scheduling |
+| A22 | Submit stale edit version or edit under-review/approved schedule | 409; approved snapshot untouched | Immutability |
+| A23 | Request a term-specific instructor overload | Pending has no effect; only approved record appears in new snapshot | Governance |
+| A24 | Create prerequisite cycle and activate incomplete plan | Circular prerequisites and missing earlier-level course block activation | Curriculum |
+| A25 | Modify activated plan item | HTTP 409 and prior curriculum remains unchanged | Curriculum |
+| A26 | Fork normalized cohort with new demand and no block sizes | Rejected; explicit matching block sizes accepted | Cohort integrity |
 
 ## Inputs
 

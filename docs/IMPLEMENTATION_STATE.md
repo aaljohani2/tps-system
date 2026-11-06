@@ -2,6 +2,19 @@
 
 Branch: `feat/full-stack-tps-v1`. Base commit: `3a1d84c` from the previously tested `feat/web-excel-import-v0.3`.
 
+## Engineering increment — manual scheduling, governed loads and plan lifecycle (2026-11-06)
+
+- Migrations **0005–0007** are additive to PostgreSQL: scenario edit revisions + before/after audit, instructor load exception decision records, curriculum prerequisites and activation metadata.
+- Only a **solved DRAFT** may receive a manual session move. Backend validates full instructor/room/cohort/time/load constraints, preserves the existing Timefold result provenance, never edits approved or under-review scenarios, and uses row locks plus edit-version conflict detection.
+- A trainer change for one session moves the whole section's instructor assignment and **recomputes weighted instructor loads per section**, avoiding multiplied theory/practical credit. The Arabic RTL session editor requires a reason and displays change history. The manual workflow does **not** replace Timefold, optimize other sections, or bypass pre-existing readiness blockers.
+- Instructor load exceptions are requested **per term**, pending until an authorized approver explicitly decides. Unapproved or legacy freeform `instructors.overload` is excluded from every *new* scenario's credit calculation; existing approved scenario snapshots remain immutable.
+- Curriculum prerequisites cannot self-reference or form cycles. Activating a plan requires an explicit authorized decision with a reason, all prerequisites present in earlier levels, and only one active version per program. Activated plan items are read-only in the API. This is an **internal TPS planning state**, not institutional curriculum approval.
+- The alternative-scenario workflow now requires exact new block sizes when normalized cohort demand changes, preventing silent reuse of stale group totals.
+- Failed authentication attempts are audit-logged by one-way username hash without storing submitted credentials.
+- Synthetic Node/PostgreSQL integration tests exercise CSRF, optimistic edit conflicts, prohibited edits on approved schedules, exception approval and immutability, prerequisite cycles and plan activation, and forked block sizes.
+
+**Still not full mandate:** free-form Timefold search and persistent progress/cancellation, safe per-section auto re-optimization after manual edits, trainer specializations/equipment constraints, comprehensive Excel bulk imports, full reports and realistic performance, multi-stage governance, and 20-step Playwright running on Windows. Do not ask Codex to claim final acceptance yet.
+
 ## Engineering increment — structured academic model (2026-11-06)
 
 Implemented in the codebase since the earlier checkpoint:
@@ -18,7 +31,7 @@ Implemented in the codebase since the earlier checkpoint:
 
 ## Implemented in code (verification scope described below)
 
-- Local-only PostgreSQL Compose and non-destructive migrations 0001–0004; user sessions, audit log, institutions, colleges, departments, terms, courses, instructors, rooms, scenarios.
+- Local-only PostgreSQL Compose and non-destructive migrations 0001–0007; user sessions, audit log, institutions, colleges, departments, terms, courses, instructors, rooms, scenarios.
 - Node 22 / Fastify API with Argon2id login, scoped roles, CSRF tokens, rate limit and cookies.
 - Institution, college, department, term creation; course creation, demand and block editing; independent institutional-level course-mode eligibility approval; instructor/room creation and PATCH editing. Shared college records have stricter RBAC than department resources.
 - Department+term planning policies with pending and approved revisions; mode, capacity, load factors and time windows are validated. Scenario creation uses only approved policy (or ONSITE default), never unapproved client overrides.
