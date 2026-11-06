@@ -146,6 +146,44 @@ export async function registerScenarios(app:FastifyInstance):Promise<void>{
     const sc=await find(req,params(req));
     return assessReadiness(sc.input_snapshot,sc.result_snapshot,sc.solver_status);
   });
+  app.get('/api/v1/scenarios/:id/runs',async(req)=>{
+    const sc=await find(req,params(req));
+    return (await pool.query(`SELECT id,scenario_id,requested_by,status,started_at,
+      finished_at,elapsed_ms,result_metrics,score,error_message
+      FROM solver_runs WHERE scenario_id=$1 ORDER BY started_at DESC LIMIT 100`,[sc.id])).rows;
+  });
+  app.post('/api/v1/scenarios/:id/runs/recover',async(req)=>{
+    requireEditor(req);
+    const id=params(req);
+    await find(req,id); // scope and existence check
+    const client=await pool.connect();
+    try{
+      await client.query('BEGIN');
+      const locked=await client.query<{state:string;solver_status:string}>(`
+        SELECT state,solver_status FROM scenarios WHERE id=$1 FOR UPDATE`,[id]);
+      if(locked.rows[0]?.state!=='DRAFT'||locked.rows[0].solver_status!=='RUNNING')
+        throw invalid('No running draft solver to recover',409);
+      // Never interrupt a live Java process; only mark a run abandoned after
+      // twice the maximum permitted process timeout has elapsed.
+      const stale=await client.query<{id:string}>(`
+        SELECT id FROM solver_runs
+        WHERE scenario_id=$1 AND status='RUNNING'
+        AND started_at<now()-interval '2 minutes' FOR UPDATE`,[id]);
+      if(!stale.rows.length)throw invalid('Solver run is active or not old enough for recovery',409);
+      await client.query(`UPDATE solver_runs SET status='FAILED',finished_at=now(),
+        error_message='Recovered abandoned solver after >2 minutes'
+        WHERE id=$1`,[stale.rows[0]!.id]);
+      await client.query(`UPDATE scenarios SET solver_status='FAILED' WHERE id=$1
+        AND state='DRAFT' AND solver_status='RUNNING'`,[id]);
+      await client.query(`INSERT INTO audit_logs(user_id,action,entity_type,entity_id,details)
+        VALUES($1,'RECOVER_SOLVER','SCENARIO',$2,$3::jsonb)`,[
+        req.principal!.id,id,JSON.stringify({runId:stale.rows[0]!.id})
+      ]);
+      await client.query('COMMIT');
+      return {id,status:'FAILED',recovered:true};
+    }catch(e){await client.query('ROLLBACK');throw e;}
+    finally{client.release();}
+  });
   app.post('/api/v1/scenarios/:id/solve',async(req)=>{
     requireEditor(req);
     const id=params(req),sc=await find(req,id);
@@ -155,17 +193,45 @@ export async function registerScenarios(app:FastifyInstance):Promise<void>{
       WHERE id=$1 AND state='DRAFT' AND solver_status IN ('NOT_RUN','FAILED')
       RETURNING id`,[id]);
     if(!claim.rowCount)throw invalid('Solver already running or scenario already solved',409);
+    let runId:string|null=null;
+    const began=Date.now();
     try {
+      const run=await pool.query<{id:string}>(`INSERT INTO solver_runs
+        (scenario_id,requested_by) VALUES($1,$2) RETURNING id`,[id,req.principal!.id]);
+      runId=run.rows[0]!.id;
       validateRequest(sc.input_snapshot);
       const result=await optimizeWithTimefold(sc.input_snapshot);
-      const saved=await pool.query(`UPDATE scenarios SET result_snapshot=$2,solver_status='COMPLETED',
-        solver_details=$3 WHERE id=$1 AND state='DRAFT' AND solver_status='RUNNING' RETURNING id`,[
-        id,JSON.stringify(result),JSON.stringify({mode:'Timefold',at:new Date().toISOString()})
-      ]);
-      if(!saved.rowCount)throw invalid('Scenario state changed while solving',409);
-      await audit(req.principal!.id,'SOLVE','SCENARIO',id,{gaps:result.gaps.length});
-      return {id,result,solverStatus:'COMPLETED'};
+      const elapsed=Date.now()-began;
+      const scoreText=result.notices.find(n=>n.startsWith('Solver score: '))??'';
+      const groups=/hard=([-]?[0-9]+), soft=([-]?[0-9]+)/.exec(scoreText);
+      const score=groups?{hard:Number(groups[1]),soft:Number(groups[2])}:null;
+      const client=await pool.connect();
+      try{
+        await client.query('BEGIN');
+        const saved=await client.query(`UPDATE scenarios SET result_snapshot=$2,solver_status='COMPLETED',
+          solver_details=$3 WHERE id=$1 AND state='DRAFT' AND solver_status='RUNNING' RETURNING id`,[
+          id,JSON.stringify(result),JSON.stringify({mode:'Timefold',runId,elapsedMs:elapsed,score,at:new Date().toISOString()})
+        ]);
+        if(!saved.rowCount)throw invalid('Scenario state changed while solving',409);
+        await client.query(`UPDATE solver_runs SET status='COMPLETED',finished_at=now(),
+          elapsed_ms=$2,result_metrics=$3::jsonb,score=$4::jsonb
+          WHERE id=$1 AND status='RUNNING'`,[
+          runId,elapsed,JSON.stringify(result.metrics),JSON.stringify(score)
+        ]);
+        await client.query(`INSERT INTO audit_logs(user_id,action,entity_type,entity_id,details)
+          VALUES($1,'SOLVE','SCENARIO',$2,$3::jsonb)`,[
+          req.principal!.id,id,JSON.stringify({runId,gaps:result.gaps.length,elapsedMs:elapsed})
+        ]);
+        await client.query('COMMIT');
+      }catch(e){await client.query('ROLLBACK');throw e;}
+      finally{client.release();}
+      return {id,result,solverStatus:'COMPLETED',runId,elapsedMs:elapsed};
     } catch(e){
+      const elapsed=Date.now()-began;
+      if(runId)await pool.query(`UPDATE solver_runs SET status='FAILED',finished_at=now(),
+        elapsed_ms=$2,error_message=$3 WHERE id=$1 AND status='RUNNING'`,[
+        runId,elapsed,String(e instanceof Error?e.message:e).slice(0,1000)
+      ]);
       await pool.query(`UPDATE scenarios SET solver_status='FAILED'
         WHERE id=$1 AND state='DRAFT' AND solver_status='RUNNING'`,[id]);
       throw e;
