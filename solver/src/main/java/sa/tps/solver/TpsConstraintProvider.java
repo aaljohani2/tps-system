@@ -24,10 +24,10 @@ public class TpsConstraintProvider implements ConstraintProvider {
         return f.forEach(PlanningTask.class)
                 .filter(t -> !t.getSelected().uncovered())
                 .groupBy(t -> t.getSelected().instructorId(),
-                        ConstraintCollectors.sumLong(t -> (long) t.getSelected().creditedMilli()),
-                        ConstraintCollectors.max(t -> (long) t.getSelected().effectiveLimitMilli()))
-                .filter((id, total, limit) -> total > limit)
-                .penalizeLong(HardSoftScore.ONE_HARD, (id, total, limit) -> total - limit)
+                        t -> t.getSelected().effectiveLimitMilli(),
+                        ConstraintCollectors.sum(t -> t.getSelected().creditedMilli()))
+                .filter((id, limit, total) -> total > limit)
+                .penalize(HardSoftScore.ONE_HARD, (id, limit, total) -> total - limit)
                 .asConstraint("Approved trainer credit limit");
     }
     private Constraint exclusiveCourse(ConstraintFactory f) {
