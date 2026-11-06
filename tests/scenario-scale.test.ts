@@ -33,6 +33,11 @@ test('25 courses / 6 trainers / 20 rooms / 4 levels / 20 block codes can produce
   assert.equal(payload.tasks.length,25);
   assert.ok(payload.tasks.every(t=>t.choices.some(c=>c.uncovered)));
   assert.ok(payload.tasks.every(t=>t.choices.some(c=>!c.uncovered)));
+  const first=payload.tasks[0]!;
+  const roomSet=new Set(first.choices.filter(c=>!c.uncovered&&c.id.endsWith(':0'))
+    .flatMap(c=>c.sessions.map(s=>s.roomId)).filter(Boolean));
+  assert.ok(roomSet.size>=4,
+    'different trainers must not be forced into one room for identical candidate seeds');
   assert.ok(performance.now()-start<12000,'candidate generation takes unexpectedly long in CI');
 });
 
