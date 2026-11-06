@@ -16,6 +16,11 @@ const uuid=z.string().uuid();
 // A single local API process owns each live Java child. Abandoned runs use
 // guarded recovery and cannot be mistaken for cancellable live processes.
 const activeSolverControllers=new Map<string,AbortController>();
+let pendingSolverClaims=0; // Count claims awaiting PostgreSQL to bound local Java processes.
+const solveSettings=z.object({
+  seconds:z.number().int().min(1).max(30).default(5),
+  candidatesPerInstructor:z.number().int().min(1).max(24).default(6)
+}).strict();
 /** Bound work before invoking either the greedy baseline or the candidate-limited Java optimizer. */
 export function projectedSectionCount(input:PlanRequest):number{
   return input.courses.reduce((total,c)=>{
@@ -225,12 +230,19 @@ export async function registerScenarios(app:FastifyInstance):Promise<void>{
     requireEditor(req);
     const id=params(req),sc=await find(req,id);
     if(sc.state!=='DRAFT')throw invalid('Only a DRAFT may be solved',409);
-    // A cancelled run may release the DB claim before its previous Java child exits.
+    const options=solveSettings.parse(req.body??{});
+    // A cancelled run may release its DB claim before its previous Java child exits.
     if(activeSolverControllers.has(id))throw invalid('Previous local solver is still terminating',409);
-    // Claim the scenario atomically. Duplicate requests must not start parallel Java solvers.
-    const claim=await pool.query(`UPDATE scenarios SET solver_status='RUNNING'
-      WHERE id=$1 AND state='DRAFT' AND solver_status IN ('NOT_RUN','FAILED')
-      RETURNING id`,[id]);
+    if(activeSolverControllers.size+pendingSolverClaims>=2)
+      throw invalid('At most two local Java solver processes may run concurrently',429);
+    pendingSolverClaims++;
+    // Claim the scenario atomically; the pending counter covers asynchronous DB claim races.
+    let claim;
+    try{
+      claim=await pool.query(`UPDATE scenarios SET solver_status='RUNNING'
+        WHERE id=$1 AND state='DRAFT' AND solver_status IN ('NOT_RUN','FAILED')
+        RETURNING id`,[id]);
+    }finally{pendingSolverClaims--;}
     if(!claim.rowCount)throw invalid('Solver already running or scenario already solved',409);
     let runId:string|null=null;
     const controller=new AbortController();
@@ -241,7 +253,7 @@ export async function registerScenarios(app:FastifyInstance):Promise<void>{
         (scenario_id,requested_by) VALUES($1,$2) RETURNING id`,[id,req.principal!.id]);
       runId=run.rows[0]!.id;
       validateRequest(sc.input_snapshot);
-      const result=await optimizeWithTimefold(sc.input_snapshot,{signal:controller.signal});
+      const result=await optimizeWithTimefold(sc.input_snapshot,{signal:controller.signal,...options});
       if(controller.signal.aborted)throw invalid('Solver cancelled by operator',409);
       const elapsed=Date.now()-began;
       const scoreText=result.notices.find(n=>n.startsWith('Solver score: '))??'';
@@ -252,7 +264,7 @@ export async function registerScenarios(app:FastifyInstance):Promise<void>{
         await client.query('BEGIN');
         const saved=await client.query(`UPDATE scenarios SET result_snapshot=$2,solver_status='COMPLETED',
           solver_details=$3 WHERE id=$1 AND state='DRAFT' AND solver_status='RUNNING' RETURNING id`,[
-          id,JSON.stringify(result),JSON.stringify({mode:'Timefold',runId,elapsedMs:elapsed,score,at:new Date().toISOString()})
+          id,JSON.stringify(result),JSON.stringify({mode:'Timefold',runId,elapsedMs:elapsed,score,settings:options,at:new Date().toISOString()})
         ]);
         if(!saved.rowCount)throw invalid('Scenario state changed while solving',409);
         await client.query(`UPDATE solver_runs SET status='COMPLETED',finished_at=now(),
@@ -262,7 +274,7 @@ export async function registerScenarios(app:FastifyInstance):Promise<void>{
         ]);
         await client.query(`INSERT INTO audit_logs(user_id,action,entity_type,entity_id,details)
           VALUES($1,'SOLVE','SCENARIO',$2,$3::jsonb)`,[
-          req.principal!.id,id,JSON.stringify({runId,gaps:result.gaps.length,elapsedMs:elapsed})
+          req.principal!.id,id,JSON.stringify({runId,gaps:result.gaps.length,elapsedMs:elapsed,settings:options})
         ]);
         await client.query('COMMIT');
       }catch(e){await client.query('ROLLBACK');throw e;}
