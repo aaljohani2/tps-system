@@ -7,17 +7,17 @@ import {buildDraftPlan} from '../src/planner.js';
 import {prepareSolverPayload,optimizeWithTimefold} from '../src/optimizer.js';
 import type {PlanRequest} from '../src/types.js';
 
-function fixture():PlanRequest{
-  const courses=Array.from({length:25},(_,i)=>{
-    const level=i%4+1,group=i%20+1;
+function fixture(courseCount=25,trainerCount=6,roomCount=20,levelCount=4,blockCount=20):PlanRequest{
+  const courses=Array.from({length:courseCount},(_,i)=>{
+    const level=i%levelCount+1,group=i%blockCount+1;
     return {code:'C'+String(i+1).padStart(2,'0'),title:'Synthetic '+i,level,demand:20,
       theoryHours:2,practicalHours:0,mode:'ONSITE' as const,eligibleModes:['ONSITE' as const],
       blocks:['L'+level+'::B'+group],blockSizes:[20]};
   });
   return {scenarioName:'25 course synthetic acceptance smoke',termId:'TERM-SCALE',policy:defaultPolicy(),courses,
-    instructors:Array.from({length:6},(_,i)=>({
+    instructors:Array.from({length:trainerCount},(_,i)=>({
       id:'I'+(i+1),name:'Instructor '+i,maxLoad:18,allowedModes:['ONSITE' as const]})),
-    rooms:Array.from({length:20},(_,i)=>({
+    rooms:Array.from({length:roomCount},(_,i)=>({
       id:'R'+(i+1),name:'Classroom '+i,type:'CLASSROOM' as const,capacity:30}))
   };
 }
@@ -55,5 +55,20 @@ test('real Timefold scale smoke: 25 courses / 6 trainers / 20 rooms / 4 levels /
   assert.ok(result.sessions.every(s=>s.start*2===Math.floor(s.start*2)));
   assert.ok(elapsedMs<25000,'Timefold exceeds the bounded test process budget');
   console.log(JSON.stringify({scale:'25/6/20/4/20',elapsedMs,sections:result.sections.length,
+    sessions:result.sessions.length,gaps:result.gaps.length,memoryRssMB:Math.round(process.memoryUsage().rss/1048576)}));
+});
+
+test('larger synthetic Timefold workload records coverage, runtime and resource limits', {
+  skip:!existsSync(solverJar)
+},async()=>{
+  const input=fixture(50,12,30,6,30),start=performance.now();
+  const result=await optimizeWithTimefold(input,{jar:solverJar,seconds:3,candidatesPerInstructor:6,timeoutMs:30000});
+  const elapsedMs=Math.round(performance.now()-start);
+  assert.equal(result.sections.length,50);
+  assert.equal(result.metrics.sectionCount,50);
+  assert.equal(result.metrics.assignedContactHours+result.metrics.uncoveredContactHours,result.metrics.requiredContactHours);
+  assert.equal(result.gaps.length,result.metrics.uncoveredSectionCount);
+  assert.ok(elapsedMs<30000,'50-course test exceeded the bounded runtime');
+  console.log(JSON.stringify({scale:'50/12/30/6/30',elapsedMs,sections:result.sections.length,
     sessions:result.sessions.length,gaps:result.gaps.length,memoryRssMB:Math.round(process.memoryUsage().rss/1048576)}));
 });
