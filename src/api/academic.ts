@@ -71,17 +71,30 @@ export async function registerAcademic(app:FastifyInstance){
   });
   app.post('/api/v1/plans/:id/items',async(req)=>{
     requireEditor(req);
-    const id=idParam(req),v=z.object({courseId:uid,level,isRequired:z.boolean().default(true)}).strict().parse(req.body);
+    const id=idParam(req);
+    const v=z.object({courseId:uid,level,isRequired:z.boolean().default(true)}).strict().parse(req.body);
     const owner=await pool.query<{department_id:string}>(`SELECT p.department_id FROM curriculum_plans cp
       JOIN training_programs p ON p.id=cp.program_id WHERE cp.id=$1`,[id]);
     if(!owner.rows[0])throw fail('Plan not found',404);
     await department(req,owner.rows[0].department_id);
-    if(await courseDepartment(v.courseId)!==owner.rows[0].department_id)throw fail('Course and plan must belong to same department');
-    const r=await pool.query(`INSERT INTO curriculum_items(plan_id,course_id,level,is_required)
-       VALUES($1,$2,$3,$4) ON CONFLICT(plan_id,course_id) DO UPDATE SET
-       level=EXCLUDED.level,is_required=EXCLUDED.is_required RETURNING *`,[id,v.courseId,v.level,v.isRequired]);
-    await audit(req.principal!.id,'UPSERT','CURRICULUM_ITEM',r.rows[0].id,{planId:id});
-    return r.rows[0];
+    if(await courseDepartment(v.courseId)!==owner.rows[0].department_id)
+      throw fail('Course and plan must belong to same department');
+    const client=await pool.connect();
+    try{
+      await client.query('BEGIN');
+      const current=await client.query<{state:string}>(`SELECT state FROM curriculum_plans WHERE id=$1 FOR UPDATE`,[id]);
+      if(current.rows[0]?.state!=='DRAFT')
+        throw fail('Activated or archived plan versions are immutable. Create a draft version.',409);
+      const r=await client.query(`INSERT INTO curriculum_items(plan_id,course_id,level,is_required)
+        VALUES($1,$2,$3,$4) ON CONFLICT(plan_id,course_id) DO UPDATE SET
+        level=EXCLUDED.level,is_required=EXCLUDED.is_required RETURNING *`,[id,v.courseId,v.level,v.isRequired]);
+      await client.query(`INSERT INTO audit_logs(user_id,action,entity_type,entity_id,details)
+        VALUES($1,'UPSERT','CURRICULUM_ITEM',$2,$3::jsonb)`,[
+        req.principal!.id,r.rows[0]!.id,JSON.stringify({planId:id})
+      ]);
+      await client.query('COMMIT');
+      return r.rows[0];
+    }catch(e){await client.query('ROLLBACK');throw e;}finally{client.release();}
   });
   app.get('/api/v1/cohorts',async(req)=>{
     const v=z.object({departmentId:uid}).parse(values(req));
