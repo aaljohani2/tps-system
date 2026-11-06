@@ -53,7 +53,7 @@ async function assertLockedTrainerQualified(departmentId:string,courseCode:strin
   if(!trainerCode)return;
   const trainer=await pool.query<{allowed_modes:string[];eligible_course_codes:string[]|null;specialties:string[]}>(`
     SELECT allowed_modes,eligible_course_codes,specialties FROM instructors
-    WHERE department_id=$1 AND code=$2`,[departmentId,trainerCode]);
+    WHERE department_id=$1 AND code=$2 AND is_active=true`,[departmentId,trainerCode]);
   const found=trainer.rows[0];
   if(!found)throw Object.assign(new Error('Assigned instructor not found in department'),{statusCode:409});
   if(!found.allowed_modes.includes(deliveryMode) ||
@@ -231,48 +231,41 @@ export async function registerCatalog(app:FastifyInstance){
     return updated[0];
   });
 
-  // Reversible lifecycle operations; never delete records referenced by past snapshots,
-  // curricula, saved edits or approved schedules. Only future scenario inputs change.
+  // Reversible lifecycle operations. Read scope and prior state, update and
+  // insert the audit event in the SAME transaction to avoid an unaudited
+  // archive or restore if any part of the operation fails.
   const lifecycle=z.object({active:z.boolean(),reason:z.string().trim().min(8).max(1000)}).strict();
-  app.patch('/api/v1/courses/:id/lifecycle',async(req)=>{
-    requireEditor(req);
+  async function resourceLifecycle(req:FastifyRequest,kind:'courses'|'instructors'|'rooms'){
+    if(kind==='rooms')requireCollegeEditor(req);else requireEditor(req);
     const id=uuid.parse((req.params as {id:string}).id),v=parse(lifecycle,req.body);
-    const old=await pool.query<{department_id:string;is_active:boolean}>(
-      'SELECT department_id,is_active FROM courses WHERE id=$1',[id]);
-    if(!old.rowCount)throw Object.assign(new Error('Course not found'),{statusCode:404});
-    await assertDepartment(req,old.rows[0]!.department_id);
-    if(old.rows[0]!.is_active===v.active)
-      throw Object.assign(new Error('Course already has this lifecycle state'),{statusCode:409});
-    const updated=await pool.query('UPDATE courses SET is_active=$2,updated_at=now() WHERE id=$1 RETURNING id,is_active',[id,v.active]);
-    await audit(req.principal!.id,v.active?'RESTORE_COURSE':'ARCHIVE_COURSE','COURSE',id,{reason:v.reason});
-    return updated.rows[0];
-  });
-  app.patch('/api/v1/instructors/:id/lifecycle',async(req)=>{
-    requireEditor(req);
-    const id=uuid.parse((req.params as {id:string}).id),v=parse(lifecycle,req.body);
-    const old=await pool.query<{department_id:string;is_active:boolean}>(
-      'SELECT department_id,is_active FROM instructors WHERE id=$1',[id]);
-    if(!old.rowCount)throw Object.assign(new Error('Instructor not found'),{statusCode:404});
-    await assertDepartment(req,old.rows[0]!.department_id);
-    if(old.rows[0]!.is_active===v.active)
-      throw Object.assign(new Error('Instructor already has this lifecycle state'),{statusCode:409});
-    const updated=await pool.query('UPDATE instructors SET is_active=$2,updated_at=now() WHERE id=$1 RETURNING id,is_active',[id,v.active]);
-    await audit(req.principal!.id,v.active?'RESTORE_INSTRUCTOR':'ARCHIVE_INSTRUCTOR','INSTRUCTOR',id,{reason:v.reason});
-    return updated.rows[0];
-  });
-  app.patch('/api/v1/rooms/:id/lifecycle',async(req)=>{
-    requireCollegeEditor(req);
-    const id=uuid.parse((req.params as {id:string}).id),v=parse(lifecycle,req.body);
-    const old=await pool.query<{college_id:string;is_active:boolean}>(
-      'SELECT college_id,is_active FROM rooms WHERE id=$1',[id]);
-    if(!old.rowCount)throw Object.assign(new Error('Room not found'),{statusCode:404});
-    await assertCollege(req,old.rows[0]!.college_id);
-    if(old.rows[0]!.is_active===v.active)
-      throw Object.assign(new Error('Room already has this lifecycle state'),{statusCode:409});
-    const updated=await pool.query('UPDATE rooms SET is_active=$2,updated_at=now() WHERE id=$1 RETURNING id,is_active',[id,v.active]);
-    await audit(req.principal!.id,v.active?'RESTORE_ROOM':'ARCHIVE_ROOM','ROOM',id,{reason:v.reason});
-    return updated.rows[0];
-  });
+    const entity=kind==='courses'?'COURSE':kind==='rooms'?'ROOM':'INSTRUCTOR';
+    const scopeField=kind==='rooms'?'college_id':'department_id';
+    const client=await pool.connect();
+    try{
+      await client.query('BEGIN');
+      // kind and scopeField are internal fixed enums; never user-provided SQL.
+      const prior=await client.query<{scope_id:string;is_active:boolean}>(`
+        SELECT ${scopeField} AS scope_id,is_active FROM ${kind} WHERE id=$1 FOR UPDATE`,[id]);
+      if(!prior.rows[0])throw Object.assign(new Error('Resource not found'),{statusCode:404});
+      if(kind==='rooms')await assertCollege(req,prior.rows[0].scope_id);
+      else await assertDepartment(req,prior.rows[0].scope_id);
+      if(prior.rows[0].is_active===v.active)
+        throw Object.assign(new Error('Resource already has this lifecycle state'),{statusCode:409});
+      const updated=await client.query<{id:string;is_active:boolean}>(`
+        UPDATE ${kind} SET is_active=$2,updated_at=now() WHERE id=$1 RETURNING id,is_active`,[id,v.active]);
+      await client.query(`INSERT INTO audit_logs(user_id,action,entity_type,entity_id,details)
+        VALUES($1,$2,$3,$4,$5::jsonb)`,[
+          req.principal!.id,(v.active?'RESTORE_':'ARCHIVE_')+entity,entity,id,
+          JSON.stringify({reason:v.reason})
+        ]);
+      await client.query('COMMIT');
+      return updated.rows[0];
+    }catch(e){await client.query('ROLLBACK');throw e;}
+    finally{client.release();}
+  }
+  app.patch('/api/v1/courses/:id/lifecycle',req=>resourceLifecycle(req,'courses'));
+  app.patch('/api/v1/instructors/:id/lifecycle',req=>resourceLifecycle(req,'instructors'));
+  app.patch('/api/v1/rooms/:id/lifecycle',req=>resourceLifecycle(req,'rooms'));
   app.post('/api/v1/import/courses/preview',async(req)=>{
     requireEditor(req);
     const v=parse(z.object({departmentId:uuid,csv:z.string().max(3000000)}),req.body);
