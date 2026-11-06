@@ -64,9 +64,9 @@ async function fromDatabase(departmentId:string,termId:string,name:string,policy
   const term=await pool.query('SELECT id FROM academic_terms WHERE id=$1 AND college_id=$2',[termId,collegeId]);
   if(!term.rowCount)throw invalid('Term does not belong to selected college');
   const [coursesRaw,instructorsRaw,roomsRaw,demandRaw,blocksRaw,exceptionsRaw]=await Promise.all([
-    pool.query('SELECT * FROM courses WHERE department_id=$1 ORDER BY code',[departmentId]),
-    pool.query('SELECT * FROM instructors WHERE department_id=$1 ORDER BY code',[departmentId]),
-    pool.query('SELECT * FROM rooms WHERE college_id=$1 ORDER BY code',[collegeId]),
+    pool.query('SELECT * FROM courses WHERE department_id=$1 AND is_active=true ORDER BY code',[departmentId]),
+    pool.query('SELECT * FROM instructors WHERE department_id=$1 AND is_active=true ORDER BY code',[departmentId]),
+    pool.query('SELECT * FROM rooms WHERE college_id=$1 AND is_active=true ORDER BY code',[collegeId]),
     pool.query('SELECT de.course_id,de.projected_students FROM demand_estimates de JOIN courses c ON c.id=de.course_id WHERE c.department_id=$1 AND de.term_id=$2',[departmentId,termId]),
     pool.query(`SELECT a.course_id,b.size,(co.code || '::' || b.code) AS block_ref
       FROM block_course_assignments a JOIN courses c ON c.id=a.course_id
