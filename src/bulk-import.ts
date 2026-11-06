@@ -1,9 +1,10 @@
 /** Bounded, deterministic bulk import validation. Previews make no database mutations. */
 import {z} from 'zod';
 import {parseCsv} from './importer.js';
-export const kinds=['instructors','rooms','blocks','demand'] as const;
+export const kinds=['courses','instructors','rooms','blocks','demand'] as const;
 export type BulkKind=typeof kinds[number];
 export const columns:Record<BulkKind,string[]>={
+  courses:['code','title','level','department','theoryHours','practicalHours','demand','proposedMode','eligibleModes'],
   instructors:['code','name','maxLoad','eligibleCourseCodes','allowedModes','available'],
   rooms:['code','name','type','capacity','building','available'],
   blocks:['cohortCode','level','code','name','size','courseCodes'],
@@ -44,6 +45,9 @@ function availability(raw:unknown){
   try{parsed=JSON.parse(String(raw));}catch{throw new Error('Availability must be valid JSON');}
   return z.array(window).max(30).parse(parsed);
 }
+export type CourseBulk={code:string;title:string;level:number;department:string;theoryHours:number;
+  practicalHours:number;demand:number;proposedMode:'ONSITE'|'REMOTE'|'SELF_PACED'|'HYBRID';
+  eligibleModes:string[]};
 export type TrainerBulk={code:string;name:string;maxLoad:number;eligibleCourseCodes:string[]|null;
   allowedModes:string[];available:ReturnType<typeof availability>};
 export type RoomBulk={code:string;name:string;type:'CLASSROOM'|'LAB'|'MULTI';capacity:number;
@@ -51,7 +55,7 @@ export type RoomBulk={code:string;name:string;type:'CLASSROOM'|'LAB'|'MULTI';cap
 export type BlockBulk={cohortCode:string;level:number;code:string;name:string;size:number;courseCodes:string[]};
 export type DemandBulk={courseCode:string;level:number;baseStudents:number;repeatRate:number;
   source:string;confidence:'LOW'|'MEDIUM'|'HIGH'};
-export type BulkRow=TrainerBulk|RoomBulk|BlockBulk|DemandBulk;
+export type BulkRow=CourseBulk|TrainerBulk|RoomBulk|BlockBulk|DemandBulk;
 export type BulkPreview={schemaVersion:'tps.bulk.v1';kind:BulkKind;headers:string[];
   rows:BulkRow[];errors:Array<{row:number;message:string}>;totalRows:number;
   validRows:number;ready:boolean};
@@ -61,6 +65,18 @@ export function decodeCsv(bytes:Buffer):string[][]{
   return parseCsv(csv);
 }
 function normalize(kind:BulkKind,cell:Record<string,string>):BulkRow{
+  if(kind==='courses'){
+    const level=number(cell.level,12,true),theoryHours=number(cell.theoryHours,80,true),
+      practicalHours=number(cell.practicalHours,80,true);
+    if(level<1||theoryHours+practicalHours===0)throw new Error('Course needs level 1-12 and weekly contact hours');
+    const modes=['ONSITE','REMOTE','SELF_PACED','HYBRID'] as const;
+    const proposedMode=z.enum(modes).parse(String(cell.proposedMode??'').trim()||'ONSITE');
+    const eligibleModes=list(cell.eligibleModes,[...modes]);
+    if(!eligibleModes.length||!eligibleModes.includes(proposedMode)||!eligibleModes.includes('ONSITE'))
+      throw new Error('Eligible mode proposals must include ONSITE and the proposed mode');
+    return {code:code(cell.code),title:text(cell.title),level,department:text(cell.department),
+      theoryHours,practicalHours,demand:number(cell.demand,5000,true),proposedMode,eligibleModes};
+  }
   if(kind==='instructors'){
     const allowedModes=list(cell.allowedModes,['ONSITE','REMOTE','SELF_PACED','HYBRID']);
     if(!allowedModes.length)throw new Error('Trainer requires at least one allowed mode');
@@ -113,7 +129,7 @@ export function previewBulk(kind:BulkKind,table:unknown[][]):BulkPreview{
       const data=Object.fromEntries(headers.map((h,j)=>[h,String(raw[j]??'').trim()]));
       const value=normalize(kind,data);
       const key=kind==='blocks'?(value as BlockBulk).cohortCode+'::'+(value as BlockBulk).code:
-        kind==='demand'?(value as DemandBulk).courseCode:(value as TrainerBulk|RoomBulk).code;
+        kind==='demand'?(value as DemandBulk).courseCode:(value as CourseBulk|TrainerBulk|RoomBulk).code;
       if(seen.has(key))throw new Error('Duplicate key in uploaded file: '+key);
       seen.add(key);
       rows.push(value);

@@ -6,7 +6,7 @@ import {pool} from './database.js';
 import {requireEditor,allowedDepartment} from './security.js';
 import {columns,kinds,previewBulk,decodeCsv,
   type BulkKind,type BulkPreview,type BulkRow,type TrainerBulk,type RoomBulk,
-  type BlockBulk,type DemandBulk} from '../bulk-import.js';
+  type BlockBulk,type DemandBulk,type CourseBulk} from '../bulk-import.js';
 import {bulkReadXlsx,bulkTemplateXlsx} from '../bulk-xlsx.js';
 
 const uuid=z.string().uuid();
@@ -49,7 +49,13 @@ async function decode(kind:BulkKind,req:FastifyRequest):Promise<{bytes:Buffer;pr
   }
 }
 async function preflight(client:PoolClient,kind:BulkKind,rows:BulkRow[],ctx:Scope):Promise<void>{
-  if(kind==='instructors'){
+  if(kind==='courses'){
+    const dept=await client.query<{name:string}>('SELECT name FROM departments WHERE id=$1',[ctx.departmentId]);
+    if(!dept.rows[0])throw fail('Department not found',404);
+    const actual=dept.rows[0].name;
+    for(const row of rows as CourseBulk[])if(row.department!==actual)
+      throw fail('Course '+row.code+' belongs to department "'+row.department+'" but selected department is "'+actual+'"',409);
+  }else if(kind==='instructors'){
     const codes=[...new Set(rows.flatMap(v=>(v as TrainerBulk).eligibleCourseCodes??[]))];
     if(codes.length){
       const found=await client.query<{code:string}>(`SELECT code FROM courses
@@ -101,8 +107,28 @@ async function preflight(client:PoolClient,kind:BulkKind,rows:BulkRow[],ctx:Scop
     }
   }
 }
-async function save(client:PoolClient,kind:BulkKind,rows:BulkRow[],ctx:Scope,actor:string){
+async function save(client:PoolClient,kind:BulkKind,rows:BulkRow[],ctx:Scope,actor:string,activeImportJobId:string){
   let imported=0;
+  if(kind==='courses')for(const row of rows as CourseBulk[]){
+    // Imported eligibility and delivery mode are proposals only. Never grant privileges
+    // to optional modes by uploading a spreadsheet.
+    const result=await client.query<{id:string;mode:string;eligible_modes:string[]}>(`
+      INSERT INTO courses(department_id,code,title,level,theory_hours,practical_hours,demand,mode,eligible_modes,blocks)
+      VALUES($1,$2,$3,$4,$5,$6,$7,'ONSITE','["ONSITE"]'::jsonb,'[]'::jsonb)
+      ON CONFLICT(department_id,code) DO UPDATE SET title=EXCLUDED.title,level=EXCLUDED.level,
+        theory_hours=EXCLUDED.theory_hours,practical_hours=EXCLUDED.practical_hours,
+        demand=EXCLUDED.demand,updated_at=now()
+      RETURNING id,mode,eligible_modes`,[
+      ctx.departmentId,row.code,row.title,row.level,row.theoryHours,row.practicalHours,row.demand]);
+    const approved=result.rows[0]!;
+    await client.query(`INSERT INTO course_import_proposals
+      (course_id,import_job_id,requested_mode,requested_eligible_modes,requires_approval)
+      VALUES($1,$2,$3,$4::jsonb,$5)`,[
+      approved.id,activeImportJobId,row.proposedMode,JSON.stringify(row.eligibleModes),
+      !approved.eligible_modes.includes(row.proposedMode)||
+      row.eligibleModes.some(m=>!approved.eligible_modes.includes(m))]);
+    imported++;
+  }
   if(kind==='instructors')for(const row of rows as TrainerBulk[]){
     await client.query(`INSERT INTO instructors(department_id,code,name,max_load,
       eligible_course_codes,allowed_modes,available,overload)
@@ -210,7 +236,7 @@ export async function registerBulkImports(app:FastifyInstance):Promise<void>{
       if(job.file_sha256!==hash(bytes)||job.row_count!==preview.rows.length)
         throw fail('Uploaded file changed since its preview. Preview again.',409);
       await preflight(client,kind,preview.rows,ctx);
-      const imported=await save(client,kind,preview.rows,ctx,userId(req));
+      const imported=await save(client,kind,preview.rows,ctx,userId(req),importId);
       await client.query(`UPDATE import_jobs SET status='COMMITTED',committed_at=now() WHERE id=$1`,[importId]);
       await client.query(`INSERT INTO audit_logs(user_id,action,entity_type,entity_id,details)
         VALUES($1,'BULK_IMPORT',$2,$3,$4::jsonb)`,[

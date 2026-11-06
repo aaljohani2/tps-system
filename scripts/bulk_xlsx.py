@@ -9,12 +9,20 @@ from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
 HEADERS = {
+    "courses": ["code", "title", "level", "department", "theoryHours", "practicalHours", "demand", "proposedMode", "eligibleModes"],
     "instructors": ["code", "name", "maxLoad", "eligibleCourseCodes", "allowedModes", "available"],
     "rooms": ["code", "name", "type", "capacity", "building", "available"],
     "blocks": ["cohortCode", "level", "code", "name", "size", "courseCodes"],
     "demand": ["courseCode", "level", "baseStudents", "repeatRate", "source", "confidence"],
 }
 NOTES = {
+    "courses": [
+        "الرمز والاسم والمستوى والقسم يجب أن يتطابقوا مع نطاق الاستيراد المختار.",
+        "theoryHours, practicalHours: الساعات الأسبوعية. demand: الطلب المتوقع.",
+        "proposedMode: ONSITE أو REMOTE أو SELF_PACED أو HYBRID.",
+        "eligibleModes: الأهلية المقترحة بصيغة ONSITE|REMOTE. يجب تضمين ONSITE.",
+        "الأهلية المقترحة لا تُمنح تلقائياً، وتتطلب اعتماداً مستقلاً قبل تفعيل أنماط غير حضورية."
+    ],
     "instructors": [
         "code: رمز المدرب، name: الاسم، maxLoad: النصاب الأساسي",
         "eligibleCourseCodes: رموز المقررات مفصولة بعلامة |، فارغ = غير مقيد",

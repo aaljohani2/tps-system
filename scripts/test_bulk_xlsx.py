@@ -15,6 +15,7 @@ def invoke(*args):
 class BulkXlsxTests(unittest.TestCase):
     def test_template_headers_and_rtl(self):
         for kind,headers in {
+            "courses":["code","title","level","department","theoryHours","practicalHours","demand","proposedMode","eligibleModes"],
             "instructors":["code","name","maxLoad","eligibleCourseCodes","allowedModes","available"],
             "rooms":["code","name","type","capacity","building","available"],
             "blocks":["cohortCode","level","code","name","size","courseCodes"],

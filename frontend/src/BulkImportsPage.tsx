@@ -2,9 +2,9 @@ import {useState} from 'react';
 import {useQueryClient} from '@tanstack/react-query';
 import {api,type Auth,type Context} from './api';
 
-type Kind='instructors'|'rooms'|'blocks'|'demand';
-const kinds:Kind[]=['instructors','rooms','blocks','demand'];
-const titles:Record<Kind,string>={instructors:'المدربون',rooms:'القاعات والمعامل',
+type Kind='courses'|'instructors'|'rooms'|'blocks'|'demand';
+const kinds:Kind[]=['courses','instructors','rooms','blocks','demand'];
+const titles:Record<Kind,string>={courses:'المقررات',instructors:'المدربون',rooms:'القاعات والمعامل',
   blocks:'الأفواج والبلوكات',demand:'تقديرات الطلب'};
 type Preview={kind:Kind;schemaVersion:string;headers:string[];
   rows:Array<Record<string,unknown>>;errors:Array<{row:number;message:string}>;
@@ -63,6 +63,7 @@ export default function BulkImportsPage({ctx,user,notify}:{
       {available.map(v=><button key={v} className={category===v?'primary':''}
         onClick={()=>reset(v)} disabled={working}>{titles[v]}</button>)}
     </div>
+    {category==='courses'&&<p className="hint">عند رفع ملف المقررات تُحفظ بيانات المقرر والطلب، بينما يُسجل النمط وأهلية الأنماط المطلوبة كمقترحات فقط. لا يُفعّل أي نمط اختياري إلا بعد موافقة مستقلة من إدارة النظام.</p>}
     <div className="actions">
       <a href={base+'/template.csv'}>قالب CSV — {titles[category]}</a>
       <a href={base+'/template.xlsx'}>قالب Excel — {titles[category]}</a>
