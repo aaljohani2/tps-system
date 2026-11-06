@@ -146,6 +146,18 @@ test('authenticated end-to-end workflow persists a synthetic TPS scenario in Pos
       {requiredSpecialties:['ERP'],requiredEquipment:['PC']});
     assert.deepEqual(qualifiedCourse.requiredSpecialties,['ERP']);
     assert.deepEqual(qualifiedCourse.requiredEquipment,['PC']);
+    const wrongSpecialtyLock=await app.inject({method:'PATCH',url:'/api/v1/courses/'+course.id,
+      headers:{cookie:session,'x-csrf-token':csrf},
+      payload:{assignedInstructorId:'INS-1',requiredSpecialties:['NETWORK']}});
+    assert.equal(wrongSpecialtyLock.statusCode,409,
+      'A locked instructor cannot acquire qualifications merely through a course edit');
+    const authorizedLock=await patch('/courses/'+course.id,{assignedInstructorId:'INS-1'});
+    assert.equal(authorizedLock.assignedInstructorId,'INS-1');
+    const illegalLaterSpecialty=await app.inject({method:'PATCH',url:'/api/v1/courses/'+course.id,
+      headers:{cookie:session,'x-csrf-token':csrf},payload:{requiredSpecialties:['NETWORK']}});
+    assert.equal(illegalLaterSpecialty.statusCode,409,
+      'Changing requirements must revalidate an already-locked instructor');
+
     const invalidEquipment=await app.inject({method:'PATCH',url:'/api/v1/courses/'+course.id,
       headers:{cookie:session,'x-csrf-token':csrf},payload:{requiredEquipment:['PC','PC']}});
     assert.equal(invalidEquipment.statusCode,400,'Duplicate equipment codes must fail validation');
