@@ -6,6 +6,7 @@ import PolicyPage from './PolicyPage';
 import ResourcesEditor from './ResourcesEditor';
 import AcademicPage from './AcademicPage';
 import DemandPage from './DemandPage';
+import DashboardPage from './DashboardPage';
 
 const labels:Record<string,string>={ONSITE:'حضوري',REMOTE:'عن بُعد',SELF_PACED:'ذاتي',HYBRID:'مدمج'};
 const days:Record<string,string>={SUN:'الأحد',MON:'الإثنين',TUE:'الثلاثاء',WED:'الأربعاء',THU:'الخميس'};
@@ -295,7 +296,7 @@ function ScenarioPage({ctx,notify}:{ctx:Context;notify:Message}){
     </>}
   </section>;
 }
-const nav=[['/context','الكلية والقسم والفصل'],['/courses','المقررات والاستيراد'],['/academic','البرامج والأفواج والبلوكات'],['/demand','تقدير الطلب'],['/resources','المدربون والقاعات'],['/policy','الأنماط والأنصبة'],['/scheduling','الشعب والجدولة والاعتماد']];
+const nav=[['/context','الكلية والقسم والفصل'],['/dashboard','لوحة المؤشرات'],['/courses','المقررات والاستيراد'],['/academic','البرامج والأفواج والبلوكات'],['/demand','تقدير الطلب'],['/resources','المدربون والقاعات'],['/policy','الأنماط والأنصبة'],['/scheduling','الشعب والجدولة والاعتماد']];
 export default function App(){
   const qc=useQueryClient(),[user,setUser]=useState<Auth|null>(null),[initial,setInitial]=useState(true);
   const [ctx,setCtx]=useStore<Context>('tps-context',{collegeId:'',departmentId:'',termId:''});
@@ -314,6 +315,7 @@ export default function App(){
     <Routes><Route path="/" element={<Navigate to="/context" replace/>}/>
     <Route path="/context" element={<ContextSetup context={ctx} setContext={setCtx} notify={notify}/>}/>
     <Route path="/courses" element={ctx.departmentId?<CoursePage ctx={ctx} user={user} notify={notify}/>:<NeedContext/>}/>
+    <Route path="/dashboard" element={ctx.departmentId&&ctx.termId?<DashboardPage ctx={ctx}/>:<NeedContext/>}/>
     <Route path="/academic" element={ctx.departmentId&&ctx.termId?<AcademicPage ctx={ctx} notify={notify}/>:<NeedContext/>}/>
     <Route path="/demand" element={ctx.departmentId&&ctx.termId?<DemandPage ctx={ctx} notify={notify}/>:<NeedContext/>}/>
     <Route path="/resources" element={ctx.departmentId?<ResourcesEditor ctx={ctx} user={user} notify={notify}/>:<NeedContext/>}/>
