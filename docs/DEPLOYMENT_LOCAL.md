@@ -53,7 +53,7 @@ For browser tests, install Playwright browser binaries locally and configure `TP
 
 ## Recovery and persistence
 
-Restart PostgreSQL container without removing its named volume and verify that the same scenario record remains. Re-running `npm run db:migrate` must not modify existing records. The three tracked migrations are 0001–0008. Document pass/fail explicitly. Do not perform destructive recovery tests on user data.
+Restart PostgreSQL container without removing its named volume and verify that the same scenario record remains. Re-running `npm run db:migrate` must not modify existing records. The three tracked migrations are 0001–0009. Document pass/fail explicitly. Do not perform destructive recovery tests on user data.
 
 ## Optional synthetic fixture — separate local TEST DB only
 

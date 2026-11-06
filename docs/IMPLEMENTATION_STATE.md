@@ -2,6 +2,18 @@
 
 Branch: `feat/full-stack-tps-v1`. Base commit: `3a1d84c` from the previously tested `feat/web-excel-import-v0.3`.
 
+## Engineering increment — preview-based bulk imports and richer reports (2026-11-06)
+
+- New forward-only migration **0009** adds `import_jobs`: 30-minute creator/scope-bound previews, SHA-256 exact-file check, one-time transaction commit and audit. No uploaded file contents or personal trainee records are persisted in this table.
+- **Four bulk import kinds:** trainers, college rooms, cohort blocks with term course links, and term-specific evidenced demand forecasts. Templates are available as CSV and styled right-to-left XLSX. Resource upserts preserve distinct instructor overload approval; rooms require shared college permissions.
+- Previews parse up to **500 rows** and return row-level validation, duplicate and formula-like text errors; source/cohort/course/level links are checked against PostgreSQL. Commit rechecks source references and locks the approved preview in a single transaction. Existing course/block links are never silently deleted.
+- Arabic React page `/imports` connects downloads, file upload, row preview, errors and explicit commit. A failed validation saves nothing; changed files or replayed tokens are rejected.
+- Python XLSX converter enforces zip decompression/entry bounds, forbids formulas/macros, includes Arabic instruction sheet and does not execute workbook expressions.
+- Excel export now includes saved schedules by trainer, room, curriculum level and cohort block, plus the independently calculated readiness issues; optional same-department/term comparison adds a comparison worksheet. All sheets are RTL, formula-injection guarded, and reflect saved scenario snapshots rather than sample numbers.
+- Synthetic Node, Python/XLSX and PostgreSQL integration tests verify these behaviors. **They are not user Windows acceptance tests.**
+
+**Remaining:** fully responsive interactive timetable grid, persistent asynchronous Timefold jobs with cancellation/progress, additional specialization/equipment/administrative load constraints, richer decision reporting, comprehensive Playwright E2E, real-world scale tests and Windows local verification. Keep the draft PR unmerged and Codex restricted to local installation/testing.
+
 ## Engineering increment — synthetic seed and persistent solver runs (2026-11-06)
 
 - `npm run db:seed` is implemented as an **opt-in** idempotent fixture requiring `TPS_ALLOW_SYNTHETIC_SEED=1`. It creates one fictional college, department, program, plan, term, instructor, two rooms, one course and one block; no passwords or learner-level records. CI runs it twice against disposable PostgreSQL.
@@ -38,7 +50,7 @@ Implemented in the codebase since the earlier checkpoint:
 
 ## Implemented in code (verification scope described below)
 
-- Local-only PostgreSQL Compose and non-destructive migrations 0001–0008; user sessions, audit log, institutions, colleges, departments, terms, courses, instructors, rooms, scenarios.
+- Local-only PostgreSQL Compose and non-destructive migrations 0001–0009; user sessions, audit log, institutions, colleges, departments, terms, courses, instructors, rooms, scenarios.
 - Node 22 / Fastify API with Argon2id login, scoped roles, CSRF tokens, rate limit and cookies.
 - Institution, college, department, term creation; course creation, demand and block editing; independent institutional-level course-mode eligibility approval; instructor/room creation and PATCH editing. Shared college records have stricter RBAC than department resources.
 - Department+term planning policies with pending and approved revisions; mode, capacity, load factors and time windows are validated. Scenario creation uses only approved policy (or ONSITE default), never unapproved client overrides.

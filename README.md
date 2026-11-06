@@ -6,6 +6,8 @@
 
 Sign in → select institution, college, department and term → import courses (CSV/XLSX with preview/commit) → enter demand, instructors, rooms and blocks → generate draft sections → run Java Timefold → optionally move verified draft sessions with an audit reason → inspect readiness, sessions, loads and uncovered work → fork and compare scenarios → review/approve if eligible → export CSV/Excel. Record Timefold run history and explicitly approve trainer overloads before they can affect newly generated scenarios.
 
+This release also includes a scoped CSV/XLSX bulk import page for instructors, rooms, blocks and demand (preview → explicit commit), and additional saved-scenario Excel reports grouped by trainer, room, level and student cohort.
+ 
 This release includes a React RTL frontend, Fastify API, PostgreSQL persistence, Argon2id session authentication, scoped routes, audit records and a Java Timefold bridge reused from the tested prototype. **Greedy output is explicitly a draft, never an optimized/approved result.**
 
 ### Local prerequisites

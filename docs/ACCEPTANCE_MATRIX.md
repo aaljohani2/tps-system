@@ -5,7 +5,7 @@
 | ID | Action | Expected local result | Category |
 |---|---|---|---|
 | A01 | Install Node/React/Python/Java dependencies | No missing package; backend/frontend/Java compile | Environment |
-| A02 | Start loopback PostgreSQL and run all SQL migrations twice | 0001–0008 installed; second run idempotent | DB |
+| A02 | Start loopback PostgreSQL and run all SQL migrations twice | 0001–0009 installed; second run idempotent | DB |
 | A03 | Create first admin and login/logout | Argon2id hash; session cookie; no default password | Auth |
 | A04 | Make request without CSRF | 403, nothing changed | Security |
 | A05 | Create two colleges/departments; sign in as scoped head | Other departments inaccessible; shared college objects not modifiable | Tenant scope |
@@ -36,6 +36,14 @@
 | A28 | Try recovering a healthy run, and recover an abandoned run aged >2 minutes | Healthy run 409; abandoned run moves to FAILED with audit | Solver recovery |
 | A29 | Invoke seed without explicit opt-in; then run twice in isolated test DB with opt-in | No execution by default; exactly one consistent synthetic fixture after both runs | Safe seed |
 | A30 | Attempt failed local login | Audit event stored with hashed user identifier; no raw password | Authentication |
+
+| A31 | Download CSV/XLSX templates for trainers, rooms, blocks, and demand | Arabic RTL XLSX, correct schemas; formulas/macros rejected | Bulk import |
+| A32 | Preview an invalid CSV with duplicate keys and wrong room capacity | Row-level errors; no database rows created | Import validation |
+| A33 | Commit a successfully previewed file exactly once | All rows upserted in one PostgreSQL transaction; audit + import-job state recorded | Import commit |
+| A34 | Modify the file between preview and commit or replay same importId | HTTP 409; no partial writes | Import integrity |
+| A35 | Try importing shared college rooms as a department-scoped user | 403; no college resources modified | Tenant authorization |
+| A36 | Import linked cohort blocks with unknown course or mismatched level | Preview fails; no orphan/mismatched course assignments | Referential integrity |
+| A37 | Export Excel with 2 saved scenarios and readiness issues | RTL trainer/room/level/block/conflict/compare sheets reflect persisted data | Reports |
 
 ## Inputs
 

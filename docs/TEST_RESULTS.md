@@ -32,3 +32,10 @@ After commit `28f64044`, development continued with schema 0004, academic UI, de
 - On run **42222182839**, all five jobs passed: `api-postgres-integration`, `web-build`, `node-tests`, `java-timefold` and `xlsx-import-tests`.
 - Verification includes SQL migrations **0001–0008**, opt-in synthetic seed twice, scope/CSRF checks, manual timetable edit history/optimistic concurrency, Timefold run history, term load exception approval, prerequisites and active-plan immutability, and normalized block fork constraints. These are CI synthetic checks, not institution or Windows signoff.
 - **Not performed:** local Windows installation, browser-driven end-to-end journey on user's PC, real student dataset evaluation, throughput benchmarks for production-size terms, and official curriculum/security approval.
+
+## Bulk import and export increment
+
+- Commit `69c5f49c`: both GitHub Actions runs **42229164272** and **42229174188** completed successfully, including Fastify/PostgreSQL bulk preview/commit tests (four entity types, scope, CSRF and token replay), and Node/React/Timefold/Python verification.
+- Commit `a9b9b9a2`: both GitHub Actions runs **42229654190** and **42229664267** completed successfully, including RTL Excel report worksheets, cross-scenario comparison fixtures, and XLSX-formula rejection.
+- Subsequent updates add the comparison download link and supporting integration test. Confirm the **final HEAD** matches a completed green GitHub run before reporting completion.
+- Windows local installation, full browser E2E and real institutional data verification remain untested.
