@@ -17,7 +17,7 @@ function Invoke-Checked {
 
 switch ($Action) {
   "setup" {
-    Invoke-Checked "npm" @("install")
+    Invoke-Checked "npm" @("ci")
     Invoke-Checked "python" @("-m","pip","install","-r","scripts/requirements.txt")
     Invoke-Checked "docker" @("compose","up","-d","postgres")
     Invoke-Checked "npm" @("run","db:migrate")
