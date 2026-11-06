@@ -30,6 +30,27 @@ test('authenticated end-to-end workflow persists a synthetic TPS scenario in Pos
     const college=await write('/colleges',{institutionId:institution.id,name:'كلية اختبار '+uniq});
     const department=await write('/departments',{collegeId:college.id,name:'قسم اصطناعي'});
     const term=await write('/terms',{collegeId:college.id,code:'T-'+uniq,label:'فصل تجريبي',startsOn:'2027-01-17',endsOn:'2027-06-24'});
+    const sibling=await write('/departments',{collegeId:college.id,name:'Sibling department '+uniq});
+    const scopedLogin='head_'+uniq;
+    await pool.query('INSERT INTO users(username,password_hash,role,college_id,department_id) VALUES($1,$2,$3,$4,$5)',
+      [scopedLogin,await argon2.hash(password,{type:argon2.argon2id}),'DEPARTMENT_HEAD',college.id,department.id]);
+    const scopedSession=await app.inject({method:'POST',url:'/api/v1/auth/login',payload:{username:scopedLogin,password}});
+    assert.equal(scopedSession.statusCode,200,scopedSession.body);
+    const limitedCookie=String(scopedSession.headers['set-cookie']).split(';')[0];
+    const limitedMe=await app.inject({url:'/api/v1/auth/me',headers:{cookie:limitedCookie}});
+    const limitedCsrf=limitedMe.json().csrfToken as string;
+    const noCrossDept=await app.inject({url:'/api/v1/courses?departmentId='+sibling.id,
+      headers:{cookie:limitedCookie}});
+    assert.equal(noCrossDept.statusCode,403,'Department head must not read another department');
+    const noNewShared=await app.inject({method:'POST',url:'/api/v1/departments',
+      headers:{cookie:limitedCookie,'x-csrf-token':limitedCsrf},
+      payload:{collegeId:college.id,name:'Unauthorized shared master'}});
+    assert.equal(noNewShared.statusCode,403,'Department role must not mutate shared college structures');
+    const noPolicyApprove=await app.inject({method:'POST',url:'/api/v1/policies/approve',
+      headers:{cookie:limitedCookie,'x-csrf-token':limitedCsrf},
+      payload:{departmentId:department.id,termId:term.id}});
+    assert.equal(noPolicyApprove.statusCode,403,'Department head cannot approve policies');
+
     const policyUrl='/api/v1/policies?departmentId='+department.id+'&termId='+term.id;
     const policyInitial=await app.inject({url:policyUrl,headers:{cookie:session}});
     assert.equal(policyInitial.statusCode,200,policyInitial.body);
