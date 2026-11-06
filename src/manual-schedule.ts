@@ -1,12 +1,9 @@
 import type {Day,PlanRequest,PlanResult,Room,Session} from './types.js';
 import {assessReadiness} from './api/readiness.js';
+import {trainerQualified,roomQualified} from './eligibility.js';
 
 const bad=(message:string)=>Object.assign(new Error(message),{statusCode:409});
 export type ManualMove={sessionId:string;day:Day;start:number;roomId:string|null;instructorId:string};
-function compatible(room:Room,session:Session,students:number):boolean{
-  return room.capacity>=students &&
-    (room.type==='MULTI'||(session.component==='THEORY'?room.type==='CLASSROOM':room.type==='LAB'));
-}
 function number3(n:number){return Math.round(n*1000)/1000;}
 
 /** Modify a complete Timefold result in memory, never touching an approved snapshot.
@@ -26,13 +23,8 @@ export function moveScheduledSession(input:PlanRequest,original:PlanResult,move:
   const course=input.courses.find(c=>c.code===section.courseCode);
   const trainer=input.instructors.find(i=>i.id===move.instructorId);
   if(!course||!trainer)throw bad('Course or trainer does not exist in the immutable scenario snapshot');
-  if(course.assignedInstructorId && course.assignedInstructorId!==trainer.id)
-    throw bad('Instructor is locked by the original course assignment');
-  if(!trainer.allowedModes.includes(course.mode)||
-    (course.mode==='HYBRID'&&(!trainer.allowedModes.includes('ONSITE')||!trainer.allowedModes.includes('REMOTE')))||
-    (trainer.eligibleCourseCodes&&!trainer.eligibleCourseCodes.includes(course.code))||
-    (trainer.exclusiveCourseCodes&&!trainer.exclusiveCourseCodes.includes(course.code)))
-    throw bad('Selected instructor is not eligible for the course or delivery mode');
+  if(!trainerQualified(trainer,course))
+    throw bad('Selected instructor does not meet course, specialty or delivery qualification');
   const oldTeacher=section.instructorId;
   if(!oldTeacher)throw bad('Section has no current instructor');
   const duration=target.end-target.start,end=number3(move.start+duration);
@@ -41,7 +33,7 @@ export function moveScheduledSession(input:PlanRequest,original:PlanResult,move:
   if(target.mode==='REMOTE'&&move.roomId!==null)throw bad('Remote session cannot use a physical room');
   if(target.mode==='ONSITE'){
     const room=input.rooms.find(r=>r.id===move.roomId);
-    if(!room||!compatible(room,target,section.students))throw bad('Room capacity or component compatibility is invalid');
+    if(!room||!roomQualified(room,course,target.component,section.students))throw bad('Room capacity or component compatibility is invalid');
   }
   if(course.exclusiveInstructor && result.sections.some(s=>s.courseCode===course.code &&
     s.id!==section.id && s.state!=='UNASSIGNED' && s.instructorId!==trainer.id))
