@@ -2,6 +2,8 @@ import {useEffect,useState} from 'react';
 import {Link,NavLink,Navigate,Route,Routes} from 'react-router-dom';
 import {useQuery,useQueryClient} from '@tanstack/react-query';
 import {api,post,setCSRF,type Auth,type Context,type Entity,type Plan,type Scenario} from './api';
+import PolicyPage from './PolicyPage';
+import ResourcesEditor from './ResourcesEditor';
 
 const labels:Record<string,string>={ONSITE:'حضوري',REMOTE:'عن بُعد',SELF_PACED:'ذاتي',HYBRID:'مدمج'};
 const days:Record<string,string>={SUN:'الأحد',MON:'الإثنين',TUE:'الثلاثاء',WED:'الأربعاء',THU:'الخميس'};
@@ -183,7 +185,7 @@ function ScenarioPage({ctx,notify}:{ctx:Context;notify:Message}){
     finally{setWorking(false);}
   }
   const rows=list.data??[],current=one.data,p=current?.result_snapshot;
-  return <section className="panel"><h2>٤. إنشاء الشعب وتشغيل Timefold</h2>
+  return <section className="panel"><h2>٥. إنشاء الشعب وتشغيل Timefold</h2>
     <p className="hint">إنشاء السيناريو يحسب مسودة Greedy مع إظهار العجز. زر Timefold وحده ينفذ التحسين؛ لا يُخفى تعطل Java.</p>
     <div className="actions"><input placeholder="اسم السيناريو" value={name} onChange={e=>setName(e.target.value)}/>
       <button className="primary" disabled={working||!ctx.termId} onClick={()=>run(async()=>{
@@ -212,7 +214,7 @@ function ScenarioPage({ctx,notify}:{ctx:Context;notify:Message}){
     </>}
   </section>;
 }
-const nav=[['/context','الكلية والقسم والفصل'],['/courses','المقررات والطلب'],['/resources','المدربون والقاعات'],['/scheduling','الشعب والجدولة والاعتماد']];
+const nav=[['/context','الكلية والقسم والفصل'],['/courses','المقررات والطلب'],['/resources','المدربون والقاعات'],['/policy','الأنماط والأنصبة'],['/scheduling','الشعب والجدولة والاعتماد']];
 export default function App(){
   const qc=useQueryClient(),[user,setUser]=useState<Auth|null>(null),[initial,setInitial]=useState(true);
   const [ctx,setCtx]=useStore<Context>('tps-context',{collegeId:'',departmentId:'',termId:''});
@@ -231,7 +233,8 @@ export default function App(){
     <Routes><Route path="/" element={<Navigate to="/context" replace/>}/>
     <Route path="/context" element={<ContextSetup context={ctx} setContext={setCtx} notify={notify}/>}/>
     <Route path="/courses" element={ctx.departmentId?<CoursePage ctx={ctx} notify={notify}/>:<NeedContext/>}/>
-    <Route path="/resources" element={ctx.departmentId?<ResourcesPage ctx={ctx} notify={notify}/>:<NeedContext/>}/>
+    <Route path="/resources" element={ctx.departmentId?<ResourcesEditor ctx={ctx} user={user} notify={notify}/>:<NeedContext/>}/>
+    <Route path="/policy" element={ctx.termId&&ctx.departmentId?<PolicyPage ctx={ctx} user={user} notify={notify}/>:<NeedContext/>}/>
     <Route path="/scheduling" element={ctx.termId&&ctx.departmentId?<ScenarioPage ctx={ctx} notify={notify}/>:<NeedContext/>}/>
     <Route path="*" element={<Navigate to="/context"/>}/></Routes>
     <footer>محرك Timefold لتوليد الجداول · البيانات محفوظة في PostgreSQL المحلي · الأوقات بتوقيت السعودية</footer>

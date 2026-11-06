@@ -120,7 +120,11 @@ export async function registerCatalog(app:FastifyInstance){
     const found=await pool.query<{department_id:string}>('SELECT department_id FROM instructors WHERE id=$1',[id]);
     if(!found.rows[0])throw Object.assign(new Error('Instructor not found'),{statusCode:404});
     await assertDepartment(req,found.rows[0].department_id);
-    const v=parse(instructor.omit({departmentId:true}).partial().strict(),req.body);
+    const v=parse(instructor.omit({departmentId:true}).partial().extend({
+      eligibleCourseCodes:z.array(z.string()).nullable().optional(),
+      available:windows.nullable(),
+      overload:instructor.shape.overload.nullable().optional()
+    }).strict(),req.body);
     if(!Object.keys(v).length)throw Object.assign(new Error('No changes supplied'),{statusCode:400});
     const values={...v,maxLoad:v.maxLoad===undefined?undefined:String(v.maxLoad)};
     const updated=await db.update(instructors).set(values).where(eq(instructors.id,id)).returning();
@@ -146,7 +150,7 @@ export async function registerCatalog(app:FastifyInstance){
     const found=await pool.query<{college_id:string}>('SELECT college_id FROM rooms WHERE id=$1',[id]);
     if(!found.rows[0])throw Object.assign(new Error('Room not found'),{statusCode:404});
     await assertCollege(req,found.rows[0].college_id);
-    const v=parse(room.omit({collegeId:true}).partial().strict(),req.body);
+    const v=parse(room.omit({collegeId:true}).partial().extend({available:windows.nullable()}).strict(),req.body);
     if(!Object.keys(v).length)throw Object.assign(new Error('No changes supplied'),{statusCode:400});
     const updated=await db.update(rooms).set(v).where(eq(rooms.id,id)).returning();
     await audit(req.principal!.id,'UPDATE','ROOM',id,{fields:Object.keys(v)});
