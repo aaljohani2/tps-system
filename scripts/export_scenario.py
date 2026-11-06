@@ -36,11 +36,21 @@ def page(book, title, columns, rows):
     ws.auto_filter.ref = ws.dimensions
 
 def main():
-    plan = json.load(sys.stdin)
+    payload = json.load(sys.stdin)
+    metadata = payload.get("metadata") if isinstance(payload, dict) and "plan" in payload else None
+    plan = payload.get("plan") if metadata is not None else payload
     if not isinstance(plan, dict) or not isinstance(plan.get("sections"), list):
         raise ValueError("Invalid scenario snapshot")
     book = Workbook()
     book.remove(book.active)
+    if metadata:
+        page(book, "حالة الاعتماد", ["البيان", "القيمة"], [
+            ["حالة الجدول", metadata.get("state", "NOT_APPROVED")],
+            ["السيناريو", metadata.get("scenarioName", "")],
+            ["الفصل التدريبي", metadata.get("termId", "")],
+            ["إصدار سياسة الجدولة", metadata.get("policyRevision", 0)],
+            ["تنبيه", "نسخة تخطيطية محلية، لا تُعد تصديرًا رسميًا إلى رايات"]
+        ])
     sessions = plan.get("sessions", [])
     page(book, "الجداول",
         ["المقرر", "الشعبة", "المدرب", "القاعة", "النمط", "اليوم", "من", "إلى", "البلوك"],

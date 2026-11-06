@@ -207,20 +207,24 @@ export async function registerScenarios(app:FastifyInstance):Promise<void>{
   });
   app.get('/api/v1/scenarios/:id/export.csv',async(req,reply)=>{
     const sc=await find(req,params(req));
-    const header=['المقرر','الشعبة','المدرب','القاعة','النمط','اليوم','البداية','النهاية','البلوك'];
+    const state=sc.state==='APPROVED'?'APPROVED':'NOT_APPROVED';
+    const header=['حالة الاعتماد','المقرر','الشعبة','المدرب','القاعة','النمط','اليوم','البداية','النهاية','البلوك'];
     const lines=[header.map(csvCell).join(',')];
     for(const s of sc.result_snapshot.sessions){
-      lines.push([s.courseCode,s.sectionId,s.instructorId,s.roomId,s.mode,s.day,s.start,s.end,s.blockId].map(csvCell).join(','));
+      lines.push([state,s.courseCode,s.sectionId,s.instructorId,s.roomId,s.mode,s.day,s.start,s.end,s.blockId].map(csvCell).join(','));
     }
     reply.header('content-type','text/csv; charset=utf-8');
-    reply.header('content-disposition','attachment; filename="tps-schedule.csv"');
+    reply.header('content-disposition','attachment; filename="tps-schedule-'+state+'.csv"');
     return '\uFEFF'+lines.join('\r\n')+'\r\n';
   });
   app.get('/api/v1/scenarios/:id/export.xlsx',async(req,reply)=>{
     const scenario=await find(req,params(req));
-    const bytes=await exportScenarioXlsx(scenario.result_snapshot);
+    const state=scenario.state==='APPROVED'?'APPROVED':'NOT_APPROVED';
+    const bytes=await exportScenarioXlsx(scenario.result_snapshot,{
+      state,scenarioName:scenario.name,termId:scenario.term_id,policyRevision:scenario.policy_revision
+    });
     reply.header('content-type','application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    reply.header('content-disposition','attachment; filename="tps-schedule.xlsx"');
+    reply.header('content-disposition','attachment; filename="tps-schedule-'+state+'.xlsx"');
     return reply.send(bytes);
   });
   app.get('/api/v1/scenarios/compare',async(req)=>{

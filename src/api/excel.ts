@@ -2,7 +2,7 @@ import {spawn} from 'node:child_process';
 import {resolve} from 'node:path';
 import type {PlanResult} from '../types.js';
 
-export async function exportScenarioXlsx(result:PlanResult):Promise<Buffer>{
+export async function exportScenarioXlsx(result:PlanResult,metadata?:{state:string;scenarioName:string;termId:string;policyRevision:number}):Promise<Buffer>{
   const executable=process.env.TPS_PYTHON??(process.platform==='win32'?'python':'python3');
   const script=resolve('scripts/export_scenario.py');
   return new Promise<Buffer>((resolveResult,reject)=>{
@@ -25,6 +25,6 @@ export async function exportScenarioXlsx(result:PlanResult):Promise<Buffer>{
       else finish(new Error('Excel exporter failed: '+Buffer.concat(errors).toString('utf8').slice(0,500)));
     });
     child.stdin.on('error',()=>{});
-    child.stdin.end(JSON.stringify(result));
+    child.stdin.end(JSON.stringify(metadata?{plan:result,metadata}:result));
   });
 }
