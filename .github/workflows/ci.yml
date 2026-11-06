@@ -96,3 +96,24 @@ jobs:
       - run: TPS_ALLOW_SYNTHETIC_SEED=1 node dist/src/api/seed.js
       - run: mvn -B -ntp -f solver/pom.xml clean package
       - run: node --test dist/tests/api-postgres.test.js
+
+  web-e2e-phase10-11:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm install --prefix frontend --ignore-scripts --no-audit
+      - run: cd frontend && npx playwright install --with-deps chromium
+      - run: npm run web:build
+      - run: nohup npm run dev --prefix frontend -- --port 5173 > /tmp/tps-vite.log 2>&1 &
+      - run: |
+          for i in {1..40}; do
+            curl -fsS http://127.0.0.1:5173/ >/dev/null && exit 0
+            sleep 1
+          done
+          cat /tmp/tps-vite.log
+          exit 1
+      - run: TPS_E2E_MOCK=1 npm run e2e --prefix frontend -- phase10-11.spec.ts
