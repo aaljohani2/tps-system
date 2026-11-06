@@ -166,7 +166,9 @@ jobs:
       - name: Generate isolated test-only browser credentials
         run: |
           echo "TPS_TEST_USERNAME=tps_ci_synthetic" >> "$GITHUB_ENV"
-          echo "TPS_TEST_PASSWORD=$(openssl rand -hex 24)" >> "$GITHUB_ENV"
+          PASS="$(openssl rand -hex 24)"
+          echo "::add-mask::$PASS"
+          echo "TPS_TEST_PASSWORD=$PASS" >> "$GITHUB_ENV"
       - run: TPS_E2E_SYNTHETIC=1 node scripts/ci-e2e-user.mjs
       - name: Start loopback-only real Fastify/React API
         run: nohup node dist/src/api/server.js > /tmp/tps-e2e-real.log 2>&1 &
