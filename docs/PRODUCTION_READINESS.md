@@ -25,6 +25,12 @@ Codex's Windows local acceptance report, supplied 2026-11-06, verified React/Fas
 - The test PC remains loopback-only and operates against `tps_browser_test` synthetic data. **No full encrypted independent database restore, off-device redundant copy, security pentest or institutional authorizations** were supplied with that report.
 - The development branch now includes `scripts/backup-restore.mjs`, offering encrypted pg_dump and **restore-test to a new database only**. Source CI `backup-restore-drill` **passed at source commit `f9797b51d5d7fa9e14682d6f4df7a430fe097f5e`, GitHub Actions run `42295358836` (all 9 checks successful)**, verifying restore of an approved synthetic scenario, completed solver run and audit record; modified ciphertext was rejected. See `docs/BACKUP_RESTORE.md`. This is not an automatic backup service, operational offsite replication or certified disaster-recovery program.
 
+## Operational-mode source evidence (2026-11-07)
+
+- The local production increment passed GitHub Actions `TPS checks` **42309548466 (10/10 jobs SUCCESS)** at code commit `2789af23fb788265f4da088e299b22e394fb9331`, including real production-profile health and isolated operational encrypted backup/restore with an administrator account.
+- This constitutes successful **source verification**, not on-device activation. The owner's previously observed listener and database remain `tps_browser_test` until Codex explicitly performs the non-destructive Windows changeover and verifies `mode=local-production`.
+- The operational system is intended to be used daily on the single Windows workstation without public/LAN hosting. Approval to process identifiable institutional records remains an additional data-governance matter, not a prerequisite for booting the local production profile.
+
 ## Release gates (all must be evidenced)
 1. **Code and dependencies:** latest GitHub `TPS checks` including **Windows regression** and unmocked Chromium/Timefold pass; `TPS production dependency security gate` passes with zero reported high/critical advisories. Record both workflow IDs and commit SHA. No force upgrades or suppressed failures.
 2. **Reproducibility:** tracked, reviewed `package-lock.json` and `frontend/package-lock.json`; `npm ci` succeeds on Node 22/24 without changing manifests. Capture tested Java/Python/Docker versions and dependency integrity.
