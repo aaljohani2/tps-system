@@ -284,6 +284,10 @@ test('authenticated end-to-end workflow persists a synthetic TPS scenario in Pos
     assert.equal(forkComparison.statusCode,200,forkComparison.body);
     assert.equal(forkComparison.json().first.sections,1);
     assert.equal(forkComparison.json().second.sections,2);
+    const comparisonXlsx=await app.inject({url:'/api/v1/scenarios/'+created.id+
+      '/export.xlsx?compareId='+fork.id,headers:{cookie:session}});
+    assert.equal(comparisonXlsx.statusCode,200,comparisonXlsx.body);
+    assert.equal(comparisonXlsx.rawPayload.subarray(0,2).toString('ascii'),'PK');
     const forkRecord=await pool.query('SELECT parent_scenario_id,solver_status FROM scenarios WHERE id=$1',[fork.id]);
     assert.equal(forkRecord.rows[0]?.parent_scenario_id,created.id);
     assert.equal(forkRecord.rows[0]?.solver_status,'NOT_RUN');

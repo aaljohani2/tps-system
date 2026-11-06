@@ -302,6 +302,8 @@ function ScenarioPage({ctx,notify}:{ctx:Context;notify:Message}){
       </details>
       <div className="compare"><h3>مقارنة السيناريوهات</h3><Select label="السيناريو الثاني" items={rows.filter(s=>s.id!==selected).map(s=>({id:s.id,name:s.name}))}
         value={second} onChange={setSecond}/>
+        {second&&<a href={'/api/v1/scenarios/'+selected+'/export.xlsx?compareId='+encodeURIComponent(second)}
+          target="_blank" rel="noreferrer">تصدير Excel بمقارنة السيناريوهين</a>}
         {comparison.data&&<div className="table-wrap"><table><thead><tr><th>المؤشر</th><th>الحالي</th><th>المقارن</th></tr></thead><tbody>
         {['sections','requiredHours','coveredHours','uncovered','coverage','load','state','solver'].map(k=><tr key={k}><td>{k}</td><td>{String(comparison.data!.first[k])}</td><td>{String(comparison.data!.second[k])}</td></tr>)}</tbody></table></div>}
       </div>
