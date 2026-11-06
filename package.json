@@ -16,6 +16,7 @@
     "import:csv": "npm run build && node dist/src/import-cli.js",
     "solver:build": "cd solver && mvn -B -ntp clean package",
     "db:migrate": "npm run build && node --env-file=.env dist/src/api/migrate.js",
+    "db:seed": "npm run build && node --env-file=.env dist/src/api/seed.js",
     "db:check": "npm run build && node --env-file=.env dist/src/api/check.js",
     "db:bootstrap": "npm run build && node --env-file=.env dist/src/api/bootstrap.js",
     "web:install": "npm install --prefix frontend",
