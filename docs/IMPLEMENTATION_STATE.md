@@ -1,3 +1,10 @@
+## Resource archival milestone — 0014 (CI pending)
+
+- Migration `0014_resource_lifecycle.sql` adds reversible `is_active` to courses/instructors/rooms. Authorized, CSRF-protected Fastify lifecycle endpoints require reasoned audit and use single PostgreSQL transactions. Shared rooms remain college-admin scoped.
+- Lists hide archived resources by default but may retrieve authorized historical resources with `includeArchived=true`; React academic catalog and resource screens provide archive/restore controls. New scenarios exclude archived resources, historical snapshots remain unchanged, and locked inactive trainers trigger an actionable HTTP 409.
+- A course referenced by an ACTIVE curriculum version cannot be archived; edit/replace the curriculum version first.
+- Postgres integration tests cover archive/restore, historical snapshots, future scenario exclusion, department scope and active-curriculum guard. **Verify seven-job CI at final HEAD before marking closed.** Other original-mandate gaps, including broad CRUD and Windows acceptance, remain open.
+
 ## Resource qualification and equipment milestone — 0013 (CI pending)
 
 - Migration `0013_specialties_and_equipment.sql` adds explicit course required specialties and equipment, instructor specialties, and room equipment as JSONB arrays defaulting to empty (no destructive data rewrite).
