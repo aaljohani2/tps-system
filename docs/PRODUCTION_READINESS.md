@@ -1,5 +1,11 @@
 # TPS — Production readiness and controlled rollout (2026-11-06)
 
+## First priority — operate locally as production without public deployment
+
+The approved immediate target is a **real, persistent local application deployment** on one authorized Windows workstation. A local production profile can operate without a cloud server, HTTPS reverse proxy or LAN exposure because both the API and PostgreSQL bind to loopback. Source now provides `scripts/local-production.mjs`, `scripts/local-production.ps1` and `docs/LOCAL_PRODUCTION_WINDOWS.md` to initialize a dedicated `tps_operational_local` database, bootstrap an actual administrator, run built assets (not Vite), confirm `/health.mode=local-production`, and back up this database encrypted. The user's last acceptance report was for `tps_browser_test` and does **not** mean this new production profile is already installed/running locally; Codex must explicitly switch and provide evidence.
+
+Do NOT conflate a functioning **local production installation** with authorization to load or publish identifiable college records. Institutional personal-data processing remains subject to appropriate owner approvals, privacy/security safeguards and tested backup/key custody. No LAN or cloud deployment is a prerequisite for proving the local application works.
+
 ## Decision
 **Do not expose this branch to the internet or load actual institutional/trainee records merely because CI is green.** The current API is intentionally loopback-only. Production deployment, institutional identity integration, Rayat publishing, and processing identifiable user data are separate approvals outside the local acceptance scope.
 
