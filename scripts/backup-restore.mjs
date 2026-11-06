@@ -6,7 +6,7 @@
  */
 import {spawn} from 'node:child_process';
 import {createCipheriv,createDecipheriv,randomBytes,scryptSync} from 'node:crypto';
-import {createReadStream} from 'node:fs';
+import {createReadStream,createWriteStream} from 'node:fs';
 import {mkdir,open,stat,rename,rm,realpath} from 'node:fs/promises';
 import {join,resolve,dirname,basename,relative,sep} from 'node:path';
 import {fileURLToPath} from 'node:url';
@@ -79,7 +79,11 @@ async function backup(){
   let child;
   try{
     await handle.write(Buffer.concat([magic,salt,iv]),0,HEADER_SIZE,0);
-    writable=handle.createWriteStream({start:HEADER_SIZE,autoClose:false});
+    // FileHandle.createWriteStream(autoClose:false) can keep close() pending on
+    // Node 22 after finish. Close the header descriptor and use a separate
+    // automatically closing stream for ciphertext and the final auth tag.
+    await handle.close();
+    writable=createWriteStream(partial,{flags:'r+',start:HEADER_SIZE,flush:true});
     const task=docker(['pg_dump','--format=custom','--no-owner','--no-acl',
       '--username',user,'--dbname',db],{stream:true});
     child=task.child;
@@ -87,8 +91,9 @@ async function backup(){
     await Promise.all([pipeline(child.stdout,cipher,writable,{end:false}),task.done]);
     writable.end(cipher.getAuthTag());
     await finished(writable);
-    await handle.sync();
-    await handle.close();
+    // fsync after the stream has closed: do not rename an unflushed archive.
+    const syncHandle=await open(partial,'r+');
+    try{await syncHandle.sync();}finally{await syncHandle.close();}
     await rename(partial,file);
     console.log(JSON.stringify({status:'BACKUP_CREATED',file:relative(root,file),
       encrypted:true,format:'AES-256-GCM',postgresFormat:'custom'}));
