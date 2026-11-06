@@ -5,7 +5,7 @@
 | ID | Action | Expected local result | Category |
 |---|---|---|---|
 | A01 | Install Node/React/Python/Java dependencies | No missing package; backend/frontend/Java compile | Environment |
-| A02 | Start loopback PostgreSQL and run all SQL migrations twice | 0001–0011 installed; second run idempotent | DB |
+| A02 | Start loopback PostgreSQL and run all SQL migrations twice | 0001–0012 installed; second run idempotent | DB |
 | A03 | Create first admin and login/logout | Argon2id hash; session cookie; no default password | Auth |
 | A04 | Make request without CSRF | 403, nothing changed | Security |
 | A05 | Create two colleges/departments; sign in as scoped head | Other departments inaccessible; shared college objects not modifiable | Tenant scope |
@@ -71,3 +71,9 @@ For each row record: timestamp, machine versions, command/request used, pass/fai
 ## Scope exclusions
 
 No Rayat API connection, no student personal records, no production deployment, no official institutional approval, and no claim that bounded Timefold candidate search always produces a global optimum.
+
+| A51 | Submit `/scenarios/:id/solve/async` with authorized local user | HTTP 202 and durable run ID before response; process continues after request closes | Async lifecycle |
+| A52 | Poll progress across validating, preparation, solving, verifying and saving | Stored stage + timestamp truthful; no invented percent; final COMPLETED visible after UI refresh | Solver progress |
+| A53 | Cancel an accepted asynchronous job and retry only once prior child exits | CANCELLED run, FAILED retryable DRAFT, no change to previously saved schedule or approved snapshot | Async cancellation |
+| A54 | Drive Chromium against real React + Fastify + PostgreSQL + Java with separate synthetic DB | Login, context, schedule, run, review, approve and CSV/XLSX from real persisted result; no network mocks | Browser E2E |
+| A55 | Deliberately schedule 8 sections in one room with only one two-hour slot | One section scheduled; seven explicit uncovered; no collision or invented coverage | Adversarial scheduling |
