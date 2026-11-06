@@ -46,7 +46,8 @@ export async function createApp(){
   await registerBulkImports(app);
   app.get('/health',async()=>{
     await pool.query('SELECT 1');
-    return {status:'ok',database:'ok',storage:'PostgreSQL',mode:'local-only'};
+    return {status:'ok',database:'ok',storage:'PostgreSQL',
+      mode:process.env.TPS_RUNTIME_PROFILE==='LOCAL_PRODUCTION'?'local-production':'local-only'};
   });
   const web=resolve('frontend/dist');
   if(existsSync(web)){
