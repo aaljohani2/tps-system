@@ -187,6 +187,55 @@ test('authenticated end-to-end workflow persists a synthetic TPS scenario in Pos
     assert.equal(injectedPolicy.statusCode,400,'Policy override must be rejected');
     const created=await write('/scenarios',{departmentId:department.id,termId:term.id,name:'مسودة اصطناعية'});
     assert.equal(created.result.metrics.sectionCount,1);
+    // Archival is reversible and audited; no saved or approved snapshots are destroyed.
+    const beforeArchive=await pool.query('SELECT input_snapshot,result_snapshot FROM scenarios WHERE id=$1',[created.id]);
+    const archivedRoom=await app.inject({method:'PATCH',
+      url:'/api/v1/rooms/'+room.id+'/lifecycle',
+      headers:{cookie:session,'x-csrf-token':csrf},
+      payload:{active:false,reason:'Synthetic test classroom maintenance'}});
+    assert.equal(archivedRoom.statusCode,200,archivedRoom.body);
+    assert.equal(archivedRoom.json().is_active,false);
+    const deniedArchive=await app.inject({method:'PATCH',
+      url:'/api/v1/rooms/'+room.id+'/lifecycle',
+      headers:{cookie:limitedCookie,'x-csrf-token':limitedCsrf},
+      payload:{active:true,reason:'Unauthorized shared room activation'}});
+    assert.equal(deniedArchive.statusCode,403);
+    const noRoomScenario=await write('/scenarios',{departmentId:department.id,termId:term.id,
+      name:'Synthetic archived room'});
+    assert.equal(noRoomScenario.result.gaps[0]?.reason,'NO_FEASIBLE_TIMETABLE',
+      'Inactive shared room must not appear in newly generated planning inputs');
+    const archivedVisible=await app.inject({url:'/api/v1/rooms?collegeId='+college.id+
+      '&includeArchived=true',headers:{cookie:session}});
+    assert.equal(archivedVisible.statusCode,200);
+    assert.ok(archivedVisible.json().some((x:{id:string;active:boolean})=>x.id===room.id&&!x.active));
+    const activeRooms=await app.inject({url:'/api/v1/rooms?collegeId='+college.id,
+      headers:{cookie:session}});
+    assert.ok(!activeRooms.json().some((x:{id:string})=>x.id===room.id));
+    const restoredRoom=await app.inject({method:'PATCH',
+      url:'/api/v1/rooms/'+room.id+'/lifecycle',
+      headers:{cookie:session,'x-csrf-token':csrf},
+      payload:{active:true,reason:'Synthetic classroom maintenance complete'}});
+    assert.equal(restoredRoom.statusCode,200,restoredRoom.body);
+    const archivedTrainer=await app.inject({method:'PATCH',
+      url:'/api/v1/instructors/'+trainer.id+'/lifecycle',
+      headers:{cookie:session,'x-csrf-token':csrf},
+      payload:{active:false,reason:'Synthetic trainer temporary deactivation'}});
+    assert.equal(archivedTrainer.statusCode,200,archivedTrainer.body);
+    const noTrainerScenario=await write('/scenarios',{departmentId:department.id,termId:term.id,
+      name:'Synthetic archived trainer'});
+    assert.equal(noTrainerScenario.result.gaps[0]?.reason,'NO_ELIGIBLE_INSTRUCTOR');
+    const restoredTrainer=await app.inject({method:'PATCH',
+      url:'/api/v1/instructors/'+trainer.id+'/lifecycle',
+      headers:{cookie:session,'x-csrf-token':csrf},
+      payload:{active:true,reason:'Synthetic trainer reinstatement approval'}});
+    assert.equal(restoredTrainer.statusCode,200,restoredTrainer.body);
+    const snapshotAfter=await pool.query('SELECT input_snapshot,result_snapshot FROM scenarios WHERE id=$1',[created.id]);
+    assert.deepEqual(snapshotAfter.rows[0],beforeArchive.rows[0],
+      'Historical scenario snapshots must remain unchanged after archiving resources');
+    const archiveAudit=await pool.query("SELECT count(*)::int AS n FROM audit_logs WHERE action='ARCHIVE_ROOM' AND entity_id=$1",
+      [room.id]);
+    assert.equal(archiveAudit.rows[0]?.n,1);
+
     const forbiddenDirectOverload=await app.inject({method:'PATCH',url:'/api/v1/instructors/'+trainer.id,
       headers:{cookie:session,'x-csrf-token':csrf},
       payload:{overload:{additionalHours:2,reason:'Unapproved attempt'}}});
