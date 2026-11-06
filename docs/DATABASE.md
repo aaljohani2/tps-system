@@ -22,7 +22,7 @@ Scenario `input_snapshot` and `result_snapshot` are JSONB snapshots tied to the 
 - Foreign keys/uniques/checks exist for core entities. Examples: one active plan per program, one approved instructor load exception per instructor+term, positive block size, and no self-dependency in a course prerequisite.
 - Further cycle checks and authorization are enforced by API logic; database FK checks alone do not cover all domain rules.
 - `schema_migrations` stores an SHA-256 checksum for each applied SQL script. `npm run db:migrate` uses a transaction and advisory lock. **Never edit an applied migration**; add a forward-only migration.
-- `npm run db:check` requires migrations 0001–0013 and checks database reachability.
+- `npm run db:check` requires migrations 0001–0014 and checks database reachability.
 - Migration 0011 adds `CANCELLED` to `solver_runs.status`; the scenario itself returns to `FAILED` after a cancellation so a DRAFT may be retried.
 - An import commit must match the preview's SHA-256, scope, creator and expiry. No orphan records or silent partial writes may be introduced.
 - `npm run db:seed` is opt-in only (`TPS_ALLOW_SYNTHETIC_SEED=1`) and **only for an isolated synthetic test DB**. Do not run it against operational data.
@@ -42,3 +42,7 @@ The full normalized model named in the original mandate is **not** represented b
 ### Migration 0013: resource qualifications
 
 Courses store `required_specialties` and `required_equipment`; instructors store `specialties` and rooms store `equipment_codes`. All are JSONB arrays defaulting to `[]`. A missing required code blocks scheduling, regardless of room capacity or instructor load. Resource claims are internal planning data, not institutional certification.
+
+### Migration 0014: auditable reversible resource lifecycle
+
+`courses`, `instructors` and `rooms` receive `is_active boolean NOT NULL DEFAULT true` and scoped active indexes. Lifecycle routes archive/restore without deleting linked curriculum, scenarios or approvals. PostgreSQL transactions apply the status and audit together; inactive records are excluded from future scenario snapshots, while historical snapshots remain unchanged. Archived course IDs referenced by an ACTIVE curriculum plan cannot be deactivated until the plan is revised.
