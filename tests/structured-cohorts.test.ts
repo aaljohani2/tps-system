@@ -24,7 +24,7 @@ test('a block sum different from forecast demand is rejected before scheduling',
   assert.throws(()=>validateRequest(req),/Normalized blocks must sum/);
 });
 test('a block exceeding physical section capacity must be corrected, not split invisibly',()=>{
-  const req=input();req.courses[0]!.blocks=['C1::A'];req.courses[0]!.blockSizes=[42];
+  const req=input();req.courses[0]!.demand=46;req.courses[0]!.blocks=['C1::A'];req.courses[0]!.blockSizes=[46];
   assert.throws(()=>validateRequest(req),/Block size exceeds/);
 });
 test('same student cohort reused in two courses does not overlap in time',()=>{
