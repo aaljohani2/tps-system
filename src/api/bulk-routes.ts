@@ -184,6 +184,19 @@ async function save(client:PoolClient,kind:BulkKind,rows:BulkRow[],ctx:Scope,act
   return imported;
 }
 export async function registerBulkImports(app:FastifyInstance):Promise<void>{
+  app.get('/api/v1/import/batch/courses/proposals',async(req)=>{
+    const v=z.object({departmentId:uuid}).parse(req.query);
+    if(!await allowedDepartment(req.principal!,v.departmentId))throw fail('Scope denied',403);
+    return (await pool.query(`SELECT p.id,p.course_id,c.code,c.title,p.requested_mode,
+        p.requested_eligible_modes,p.requires_approval,p.created_at,
+        c.mode AS current_mode,c.eligible_modes AS approved_eligible_modes,
+        j.status AS import_status
+      FROM course_import_proposals p
+      JOIN courses c ON c.id=p.course_id
+      JOIN import_jobs j ON j.id=p.import_job_id
+      WHERE c.department_id=$1 AND j.status='COMMITTED'
+      ORDER BY p.created_at DESC LIMIT 200`,[v.departmentId])).rows;
+  });
   app.get('/api/v1/import/batch/:kind/template.csv',async(req,reply)=>{
     const kind=getKind(req);
     const headers=columns[kind].join(',')+'\r\n';

@@ -76,36 +76,13 @@ function ContextSetup({context,setContext,notify}:{context:Context;setContext:(c
 function CoursePage({ctx,user,notify}:{ctx:Context;user:Auth;notify:Message}){
   const qc=useQueryClient(),q=useQuery({queryKey:['courses',ctx.departmentId],queryFn:()=>api<Entity[]>('/courses?departmentId='+ctx.departmentId),enabled:!!ctx.departmentId});
   const instructors=useQuery({queryKey:['instructors',ctx.departmentId],queryFn:()=>api<Entity[]>('/instructors?departmentId='+ctx.departmentId),enabled:!!ctx.departmentId});
-  const [csv,setCsv]=useState(''),[file,setFile]=useState<File|null>(null),[preview,setPreview]=useState<{courses:Entity[];warnings:string[];ignored:unknown[]}|null>(null);
   const [code,setCode]=useState(''),[title,setTitle]=useState(''),[level,setLevel]=useState(1),[theory,setTheory]=useState(2),[practical,setPractical]=useState(0);
   async function run(task:()=>Promise<unknown>){try{await task();notify('تم حفظ البيانات');await qc.invalidateQueries();}catch(e){notify('فشل: '+String(e instanceof Error?e.message:e));}}
-  async function pick(e:React.ChangeEvent<HTMLInputElement>){
-    const f=e.target.files?.[0];if(!f)return;
-    if(!/\.(csv|xlsx)$/i.test(f.name)){notify('الصيغ المقبولة CSV وXLSX');return;}
-    setFile(f);setCsv(f.name.toLowerCase().endsWith('.csv')?await f.text():'');setPreview(null);
-  }
   return <section className="panel">
     <h2>٢. استيراد وإدارة المقررات</h2>
     <p className="hint">ارفع Excel أو CSV للخطة، وعاين المقررات والأخطاء قبل التأكيد. يحتفظ النظام بالطلب السابق عند تحديث مقررات موجودة. تغيير نمط المقرر يتطلب أهلية معتمدة مستقلة، واعتماد سياسة الفصل.</p>
-    <div className="actions"><a href="/api/v1/import/courses/template.csv">قالب CSV</a>
-      <a href="/api/v1/import/courses/template.xlsx">قالب Excel</a>
-      <input type="file" accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={pick}/>
-      <button disabled={!file||!ctx.departmentId} onClick={()=>run(async()=>{
-        const xlsx=file!.name.toLowerCase().endsWith('.xlsx');
-        if(xlsx)setPreview(await api<{courses:Entity[];warnings:string[];ignored:unknown[]}>(
-          '/import/courses/preview-xlsx?departmentId='+ctx.departmentId,
-          {method:'POST',body:file!,headers:{'Content-Type':'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}}));
-        else setPreview(await post('/import/courses/preview',{departmentId:ctx.departmentId,csv}));
-      })}>معاينة</button>
-      <button className="primary" disabled={!preview} onClick={()=>run(async()=>{
-        const xlsx=file!.name.toLowerCase().endsWith('.xlsx');
-        if(xlsx)await api('/import/courses/commit-xlsx?departmentId='+ctx.departmentId,
-          {method:'POST',body:file!,headers:{'Content-Type':'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}});
-        else await post('/import/courses/commit',{departmentId:ctx.departmentId,csv});
-        setPreview(null);
-      })}>اعتماد الاستيراد</button>
-    </div>
-    {preview&&<div className="alert">الصفوف المقبولة: {preview.courses.length}، المستبعدة: {preview.ignored.length}. {preview.warnings.join(' | ')}</div>}
+    <div className="actions"><Link to="/imports">فتح قوالب المقررات والمعاينة والاعتماد المقيّد بملف</Link></div>
+    <p className="hint">استيراد المقررات الجديد يدعم بيانات القسم والمستوى والساعات والطلب والنمط المقترح والأهلية المقترحة. لا يمنح الملف وحده أهلية تدريب جديدة.</p>
     <details><summary>إضافة مقرر يدويًا</summary>
       <div className="form-grid">
         <label>رمز المقرر<input value={code} onChange={e=>setCode(e.target.value)}/></label>

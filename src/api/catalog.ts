@@ -220,24 +220,8 @@ export async function registerCatalog(app:FastifyInstance){
     return importCurriculumCsv(v.csv);
   });
   app.post('/api/v1/import/courses/commit',async(req)=>{
-    requireEditor(req);const v=parse(z.object({departmentId:uuid,csv:z.string().max(3000000)}),req.body);
-    await assertDepartment(req,v.departmentId);
-    const preview=importCurriculumCsv(v.csv);
-    const client=await pool.connect();
-    try{
-      await client.query('BEGIN');
-      for(const c of preview.courses){
-        await client.query(`INSERT INTO courses(department_id,code,title,level,theory_hours,practical_hours,demand,mode,eligible_modes)
-          VALUES($1,$2,$3,$4,$5,$6,0,'ONSITE','["ONSITE"]')
-          ON CONFLICT(department_id,code) DO UPDATE SET title=EXCLUDED.title,level=EXCLUDED.level,
-          theory_hours=EXCLUDED.theory_hours,practical_hours=EXCLUDED.practical_hours,updated_at=now()`,
-          [v.departmentId,c.code,c.title,c.level,c.theoryHours,c.practicalHours]);
-      }
-      await client.query('INSERT INTO audit_logs(user_id,action,entity_type,entity_id,details) VALUES($1,$2,$3,$4,$5)',
-        [req.principal!.id,'IMPORT','COURSES',v.departmentId,JSON.stringify({count:preview.courses.length})]);
-      await client.query('COMMIT');
-      return {imported:preview.courses.length,ignored:preview.ignored,warnings:preview.warnings};
-    }catch(error){await client.query('ROLLBACK');throw error;}finally{client.release();}
+    requireEditor(req);
+    throw Object.assign(new Error('Legacy direct import is disabled. Use /import/batch/courses/preview and commit with the exact reviewed file.'),{statusCode:410});
   });
   app.get('/api/v1/import/courses/template.csv',async(_req,reply)=>{
     reply.header('content-type','text/csv; charset=utf-8');
@@ -258,24 +242,7 @@ export async function registerCatalog(app:FastifyInstance){
   });
   app.post('/api/v1/import/courses/commit-xlsx',async(req)=>{
     requireEditor(req);
-    const departmentId=uuid.parse(query(req,'departmentId'));
-    await assertDepartment(req,departmentId);
-    const preview=await importCatalogXlsx(req.body as Buffer);
-    const client=await pool.connect();
-    const statement='INSERT INTO courses(department_id,code,title,level,theory_hours,practical_hours,demand,mode,eligible_modes) '+
-      'VALUES($1,$2,$3,$4,$5,$6,0,\'ONSITE\',\'["ONSITE"]\') '+
-      'ON CONFLICT(department_id,code) DO UPDATE SET title=EXCLUDED.title,level=EXCLUDED.level, '+
-      'theory_hours=EXCLUDED.theory_hours,practical_hours=EXCLUDED.practical_hours,updated_at=now()';
-    try{
-      await client.query('BEGIN');
-      for(const c of preview.courses){
-        await client.query(statement,[departmentId,c.code,c.title,c.level,c.theoryHours,c.practicalHours]);
-      }
-      await client.query('INSERT INTO audit_logs(user_id,action,entity_type,entity_id,details) VALUES($1,$2,$3,$4,$5)',
-        [req.principal!.id,'IMPORT_XLSX','COURSES',departmentId,JSON.stringify({count:preview.courses.length})]);
-      await client.query('COMMIT');
-      return {imported:preview.courses.length,ignored:preview.ignored,warnings:preview.warnings};
-    }catch(e){await client.query('ROLLBACK');throw e;}finally{client.release();}
+    throw Object.assign(new Error('Legacy direct XLSX import is disabled. Use the reviewed /import/batch/courses workflow.'),{statusCode:410});
   });
 
 }

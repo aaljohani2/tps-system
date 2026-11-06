@@ -1,5 +1,5 @@
 import {useState} from 'react';
-import {useQueryClient} from '@tanstack/react-query';
+import {useQuery,useQueryClient} from '@tanstack/react-query';
 import {api,type Auth,type Context} from './api';
 
 type Kind='courses'|'instructors'|'rooms'|'blocks'|'demand';
@@ -18,6 +18,12 @@ export default function BulkImportsPage({ctx,user,notify}:{
   const [preview,setPreview]=useState<Preview|null>(null);
   const [working,setWorking]=useState(false);
   const [committed,setCommitted]=useState(false);
+  const [approvalReason,setApprovalReason]=useState('');
+  const proposals=useQuery({queryKey:['course-proposals',ctx.departmentId],
+    queryFn:()=>api<Array<{id:string;course_id:string;code:string;title:string;requested_mode:string;
+      requested_eligible_modes:string[];requires_approval:boolean;current_mode:string;
+      approved_eligible_modes:string[]}>>('/import/batch/courses/proposals?departmentId='+ctx.departmentId),
+    enabled:!!ctx.departmentId});
   const canWrite=['SYSTEM_ADMIN','COLLEGE_ADMIN','DEPARTMENT_HEAD','SCHEDULER'].includes(user.role);
   const canRooms=['SYSTEM_ADMIN','COLLEGE_ADMIN'].includes(user.role)&&!user.departmentId;
   const available=kinds.filter(x=>x!=='rooms'||canRooms);
@@ -93,6 +99,26 @@ export default function BulkImportsPage({ctx,user,notify}:{
         </button><p className="hint">تنتهي صلاحية المعاينة بعد 30 دقيقة. عند تغيير الملف يُلغى الربط بالمعاينة السابقة.</p>
       </>}
     </>}
+    {category==='courses'&&['SYSTEM_ADMIN','COLLEGE_ADMIN'].includes(user.role)&&
+      <details><summary>مقترحات أهلية أنماط المقررات المستوردة</summary>
+        <p className="hint">الاعتماد هنا داخلي لتخطيط الجداول، ويتطلب مبررًا صريحًا. تبقى حالة نمط المقرر نفسها دون تغيير حتى يعدلها مسؤول المقررات بعد الموافقة.</p>
+        <label>مبرر قرار أهلية النمط<input value={approvalReason}
+          onChange={e=>setApprovalReason(e.target.value)}/></label>
+        <div className="table-wrap"><table><thead><tr><th>المقرر</th><th>النمط المقترح</th>
+          <th>الأهلية المطلوبة</th><th>المعتمدة الآن</th><th>الإجراء</th></tr></thead>
+          <tbody>{(proposals.data??[]).filter(p=>p.requires_approval).map(p=><tr key={p.id}>
+            <td>{p.code} — {p.title}</td><td>{p.requested_mode}</td>
+            <td>{p.requested_eligible_modes.join('، ')}</td><td>{p.approved_eligible_modes.join('، ')}</td>
+            <td><button disabled={working||approvalReason.trim().length<8}
+              onClick={async()=>{setWorking(true);try{
+                await api('/courses/'+p.course_id+'/eligibility',{method:'PUT',
+                  body:JSON.stringify({eligibleModes:p.requested_eligible_modes,reason:approvalReason})});
+                notify('اعتمدت أهلية المقرر بشكل مستقل، ويمكن ضبط النمط الحالي من إدارة المقررات.');
+                await qc.invalidateQueries();
+              }catch(e){notify(String(e instanceof Error?e.message:e));}
+              finally{setWorking(false);}}}>اعتماد الأهلية بعد المراجعة</button></td></tr>)}
+          </tbody></table></div>
+      </details>}
     {committed&&<p className="success">تم الحفظ بنجاح. يمكنك مراجعة السجلات من صفحات المدربين والقاعات والبلوكات والطلب.</p>}
   </section>;
 }
