@@ -1,6 +1,6 @@
 # Security and privacy — TPS local development branch
 
-This document describes controls visible in the current source; it is **not** a security certification or permission for public network deployment. Earlier `docs/security.md` text was written for the pre-authentication prototype and is historical.
+This document describes controls visible in the current source; it is **not** a security certification or permission for public network deployment. Earlier `docs/legacy/security-bootstrap.md` text was written for the pre-authentication prototype and is historical.
 
 ## Implemented controls (verify in CI and Windows before relying on them)
 
