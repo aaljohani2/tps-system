@@ -18,7 +18,7 @@ jobs:
         with:
           python-version: '3.12'
       - run: python -m pip install openpyxl==3.1.5
-      - run: npm install --ignore-scripts --no-audit
+      - run: npm ci --ignore-scripts --no-audit
       - run: npm test
   xlsx-import-tests:
     runs-on: ubuntu-latest
@@ -53,7 +53,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - run: cd frontend && npm install --ignore-scripts --no-audit
+      - run: cd frontend && npm ci --ignore-scripts --no-audit
       - run: npm run web:build
   api-postgres-integration:
     runs-on: ubuntu-latest
@@ -86,7 +86,7 @@ jobs:
           java-version: '21'
           cache: maven
           cache-dependency-path: solver/pom.xml
-      - run: npm install --ignore-scripts --no-audit
+      - run: npm ci --ignore-scripts --no-audit
       - run: npm run build
       - run: python -m pip install openpyxl==3.1.5
       - run: node dist/src/api/migrate.js
@@ -107,7 +107,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - run: cd frontend && npm install --ignore-scripts --no-audit
+      - run: cd frontend && npm ci --ignore-scripts --no-audit
       - run: cd frontend && npx playwright install --with-deps chromium
       - run: npm run web:build
       - run: nohup npm run dev --prefix frontend -- --port 5173 > /tmp/tps-vite.log 2>&1 &
@@ -156,8 +156,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - run: npm install --ignore-scripts --no-audit
-      - run: cd frontend && npm install --ignore-scripts --no-audit
+      - run: npm ci --ignore-scripts --no-audit
+      - run: cd frontend && npm ci --ignore-scripts --no-audit
       - run: python -m pip install openpyxl==3.1.5
       - run: cd frontend && npx playwright install --with-deps chromium
       - run: npm run build && npm run web:build && npm run solver:build
@@ -194,7 +194,7 @@ jobs:
         with:
           python-version: '3.11'
       - run: python -m pip install openpyxl==3.1.5
-      - run: npm install --ignore-scripts --no-audit
+      - run: npm ci --ignore-scripts --no-audit
       - run: npm run build
       - name: Decode Arabic bulk XLSX with simulated legacy Windows code page
         run: node --test dist/tests/bulk-xlsx-unicode.test.js
