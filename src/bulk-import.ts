@@ -94,7 +94,7 @@ function normalize(kind:BulkKind,cell:Record<string,string>):BulkRow{
 export function previewBulk(kind:BulkKind,table:unknown[][]):BulkPreview{
   if(!kinds.includes(kind))throw new Error('Unsupported import entity');
   if(table.length<2)throw new Error('File must have a header and at least one data row');
-  if(table.length>502)throw new Error('Import exceeds 500 data rows');
+  if(table.length>501)throw new Error('Import exceeds 500 data rows');
   const headers=columns[kind];
   const actual=table[0]?.map(x=>String(x??'').trim())??[];
   if(actual.length!==headers.length||headers.some((h,i)=>h!==actual[i]))

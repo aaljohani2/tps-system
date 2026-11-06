@@ -80,7 +80,7 @@ def read(path, kind):
         if "البيانات" not in wb.sheetnames:
             raise ValueError("Expected worksheet البيانات")
         ws = wb["البيانات"]
-        if (ws.max_column or 0) > len(HEADERS[kind]) + 8 or (ws.max_row or 0) > 502:
+        if (ws.max_column or 0) > len(HEADERS[kind]) + 8 or (ws.max_row or 0) > 501:
             raise ValueError("Workbook exceeds 500 rows or expected columns")
         rows = []
         for row in ws.iter_rows(values_only=False):
