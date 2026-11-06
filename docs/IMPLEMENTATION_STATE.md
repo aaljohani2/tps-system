@@ -1,3 +1,7 @@
+## Pre-production hardening checkpoint — 2026-11-06
+
+The first Codex local report recorded 57/59 passing (A07 and A40 Arabic XLSX failures). Source repairs plus dependency security remediations now pass source SHA `c077e431749a7236d4add6cc4e14b2528b757b4c` on GitHub: `TPS checks` **42285459292 (8/8 successful)**, and `TPS production dependency security gate` **42285459720 (pass, 0 npm audit vulnerabilities in root/frontend)**. GitHub now tracks two npm lockfiles and installs with `npm ci`. **No second Windows acceptance has yet been performed on the actual workstation; do not equate GitHub Windows runners with the owner's PC.** Local synthetic trial may proceed after safe update/retest; institutional real-data production, LAN/public deployment and external Rayat integrations remain NO-GO without explicit security/data approvals and tested backup/restore. See `docs/PRODUCTION_READINESS.md`.
+
 ## Resource archival milestone — 0014 (verified synthetic CI)
 
 - Migration `0014_resource_lifecycle.sql` adds reversible `is_active` to courses/instructors/rooms. Authorized, CSRF-protected Fastify lifecycle endpoints require reasoned audit and use single PostgreSQL transactions. Shared rooms remain college-admin scoped.
