@@ -15,7 +15,9 @@ function number3(n:number){return Math.round(n*1000)/1000;}
  */
 export function moveScheduledSession(input:PlanRequest,original:PlanResult,move:ManualMove):PlanResult{
   const before=assessReadiness(input,original,'COMPLETED');
-  if(!before.technicalReady)throw bad('Resolve all existing timetable and cohort blockers before manual rescheduling');
+  // An operator must be able to FIX an existing collision. Disallow new or
+  // intensified blockers; permit a strictly improving edit while other
+  // unrelated pending blockers remain. Approved snapshots are protected upstream.
   const result:PlanResult=structuredClone(original);
   const target=result.sessions.find(s=>s.id===move.sessionId);
   if(!target)throw bad('Session not found');
@@ -62,8 +64,25 @@ export function moveScheduledSession(input:PlanRequest,original:PlanResult,move:
       remaining:number3(i.maxLoad+exception-credited)};
   });
   const readiness=assessReadiness(input,result,'COMPLETED');
-  if(!readiness.technicalReady)
-    throw bad('Move violates scheduling constraints: '+readiness.issues.map(x=>x.code).join(', '));
+  if(!readiness.technicalReady){
+    const signature=(x:{code:string;sectionId?:string;courseCode?:string})=>
+      x.code+'|'+(x.sectionId??'')+'|'+(x.courseCode??'');
+    const previous=before.issues.filter(x=>x.severity==='BLOCKER');
+    const next=readiness.issues.filter(x=>x.severity==='BLOCKER');
+    const counts=new Map<string,number>();
+    for(const issue of previous){
+      const key=signature(issue);
+      counts.set(key,(counts.get(key)??0)+1);
+    }
+    for(const issue of next){
+      const key=signature(issue),remaining=counts.get(key)??0;
+      if(remaining===0)
+        throw bad('Move introduces a new scheduling blocker: '+issue.code+' for '+(issue.sectionId??'scenario'));
+      counts.set(key,remaining-1);
+    }
+    if(next.length>=previous.length)
+      throw bad('A conflicted timetable move must strictly reduce existing blockers');
+  }
   if(!result.notices.some(n=>n.includes('Manual edits after Timefold')))
     result.notices.push('Manual edits after Timefold: all hard constraints rechecked; not a new Timefold optimization.');
   return result;
