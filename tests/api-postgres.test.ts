@@ -507,6 +507,23 @@ test('authenticated end-to-end workflow persists a synthetic TPS scenario in Pos
     const cannotActivate=await app.inject({method:'POST',url:'/api/v1/plans/'+incompletePlan.id+'/activate',
       headers:{cookie:session,'x-csrf-token':csrf},payload:{reason:'Incomplete synthetic plan'}});
     assert.equal(cannotActivate.statusCode,409,'Plan cannot omit a required prerequisite course');
+    const archivalCourse=await write('/courses',{departmentId:department.id,code:'ARCH-199',
+      title:'مقرر أرشفة تجريبي',level:1,theoryHours:2,practicalHours:0,demand:0});
+    const archivalPlan=await write('/plans',{programId:program.id,code:'ARCHIVED-'+uniq,
+      versionLabel:'خطة مع مقرر مؤرشف'});
+    await write('/plans/'+archivalPlan.id+'/items',{courseId:archivalCourse.id,level:1,isRequired:true});
+    const archivedBeforeActivate=await app.inject({method:'PATCH',
+      url:'/api/v1/courses/'+archivalCourse.id+'/lifecycle',
+      headers:{cookie:session,'x-csrf-token':csrf},
+      payload:{active:false,reason:'Archive course before plan activation'}});
+    assert.equal(archivedBeforeActivate.statusCode,200);
+    const cannotActivateArchivedCourse=await app.inject({method:'POST',
+      url:'/api/v1/plans/'+archivalPlan.id+'/activate',
+      headers:{cookie:session,'x-csrf-token':csrf},
+      payload:{reason:'Attempt to activate archived course in plan'}});
+    assert.equal(cannotActivateArchivedCourse.statusCode,409,
+      'Plan containing an inactive course must not become ACTIVE');
+
     const activation=await write('/plans/'+plan.id+'/activate',{reason:'Synthetic internally approved curriculum version'});
     assert.equal(activation.state,'ACTIVE');
     const archiveActivePlanCourse=await app.inject({method:'PATCH',
