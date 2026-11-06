@@ -25,3 +25,10 @@ After commit `28f64044`, development continued with schema 0004, academic UI, de
 
 - Commit `f704bb1d`: two successful GitHub Actions runs **42221648859** and **42221662313**, including repeated opt-in synthetic database seeding.
 - Migration 0008, durable solver attempts/history and recovery were added in subsequent commits. Confirm the newest HEAD-matching CI run; do not infer a PASS from previous revisions.
+
+## Verified full-stack checkpoint — 2026-11-06
+
+- Commit `dbf2cd236b1329433443fdaf951475108d518cae`: GitHub Actions runs **42222172141** and **42222182839** completed **SUCCESS**.
+- On run **42222182839**, all five jobs passed: `api-postgres-integration`, `web-build`, `node-tests`, `java-timefold` and `xlsx-import-tests`.
+- Verification includes SQL migrations **0001–0008**, opt-in synthetic seed twice, scope/CSRF checks, manual timetable edit history/optimistic concurrency, Timefold run history, term load exception approval, prerequisites and active-plan immutability, and normalized block fork constraints. These are CI synthetic checks, not institution or Windows signoff.
+- **Not performed:** local Windows installation, browser-driven end-to-end journey on user's PC, real student dataset evaluation, throughput benchmarks for production-size terms, and official curriculum/security approval.
