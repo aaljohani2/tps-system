@@ -383,12 +383,12 @@ test('authenticated end-to-end workflow persists a synthetic TPS scenario in Pos
       headers:batchHeaders,payload:Buffer.from(csv,'utf8')
     });
     const invalidResource=await csvUpload('rooms','preview',
-      'code,name,type,capacity,building,available\\nR-IMP,Bad room,LAB,0,B1,\\n');
+      'code,name,type,capacity,building,available\nR-IMP,Bad room,LAB,0,B1,\n');
     assert.equal(invalidResource.statusCode,200,invalidResource.body);
     assert.equal(invalidResource.json().ready,false);
     assert.equal(invalidResource.json().importId,null);
     assert.equal(invalidResource.json().errors[0].row,2);
-    const safeCsv='code,name,type,capacity,building,available\\nR-IMP-'+uniq+',قاعة دفعة,CLASSROOM,36,B1,\\n';
+    const safeCsv='code,name,type,capacity,building,available\nR-IMP-'+uniq+',قاعة دفعة,CLASSROOM,36,B1,\n';
     const beforeImport=await pool.query('SELECT count(*)::int AS n FROM rooms WHERE college_id=$1',[college.id]);
     const roomPreview=await csvUpload('rooms','preview',safeCsv);
     assert.equal(roomPreview.statusCode,200,roomPreview.body);
@@ -420,8 +420,8 @@ test('authenticated end-to-end workflow persists a synthetic TPS scenario in Pos
       url:'/api/v1/import/batch/instructors/template.xlsx',headers:{cookie:session}});
     assert.equal(xlsxTemplate.statusCode,200,xlsxTemplate.body);
     assert.equal(xlsxTemplate.rawPayload.subarray(0,2).toString('ascii'),'PK');
-    const trainerCsv='code,name,maxLoad,eligibleCourseCodes,allowedModes,available\\nI-IMP-'+uniq+
-      ',مدرب اصطناعي للدفعة,18,TEST-101,ONSITE,\\n';
+    const trainerCsv='code,name,maxLoad,eligibleCourseCodes,allowedModes,available\nI-IMP-'+uniq+
+      ',مدرب اصطناعي للدفعة,18,TEST-101,ONSITE,\n';
     const trainerPreview=await csvUpload('instructors','preview',trainerCsv);
     assert.equal(trainerPreview.statusCode,200,trainerPreview.body);
     const trainerCommit=await csvUpload('instructors','commit',trainerCsv,
@@ -431,8 +431,8 @@ test('authenticated end-to-end workflow persists a synthetic TPS scenario in Pos
       [department.id,'I-IMP-'+uniq]);
     assert.equal(trainerImport.rowCount,1);
     assert.equal(trainerImport.rows[0].overload,null,'Bulk import cannot approve overload');
-    const blockCsv='cohortCode,code,name,size,courseCodes\\nGROUP-'+uniq+
-      ',B-IMP,بلوك تجريبي,10,TEST-101\\n';
+    const blockCsv='cohortCode,code,name,size,courseCodes\nGROUP-'+uniq+
+      ',B-IMP,بلوك تجريبي,10,TEST-101\n';
     const blockPreview=await csvUpload('blocks','preview',blockCsv);
     assert.equal(blockPreview.statusCode,200,blockPreview.body);
     const blockCommit=await csvUpload('blocks','commit',blockCsv,
@@ -441,7 +441,7 @@ test('authenticated end-to-end workflow persists a synthetic TPS scenario in Pos
     const blockPersisted=await pool.query(`SELECT b.size FROM student_blocks b JOIN cohorts co ON co.id=b.cohort_id
       WHERE co.department_id=$1 AND co.code=$2 AND b.code='B-IMP'`,[department.id,'GROUP-'+uniq]);
     assert.equal(blockPersisted.rows[0].size,10);
-    const demandCsv='courseCode,level,baseStudents,repeatRate,source,confidence\\nADV-102,2,0,0.05,Academic forecast,HIGH\\n';
+    const demandCsv='courseCode,level,baseStudents,repeatRate,source,confidence\nADV-102,2,0,0.05,Academic forecast,HIGH\n';
     const demandPreview=await csvUpload('demand','preview',demandCsv);
     assert.equal(demandPreview.statusCode,200,demandPreview.body);
     const demandCommit=await csvUpload('demand','commit',demandCsv,
