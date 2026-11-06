@@ -65,3 +65,12 @@ test('Timefold response must match exact generated candidates and not exceed tra
 test('optimizer fails closed without executable jar instead of relabeling greedy results', async () => {
   await assert.rejects(optimizeWithTimefold(fixture(),{jar:'/not-found/tps.jar'}));
 });
+
+test('pre-cancelled solver never spawns Java or reports a fictitious optimized result', async () => {
+  const controller=new AbortController();
+  controller.abort();
+  await assert.rejects(
+    optimizeWithTimefold(fixture(),{jar:'/not-found/tps.jar',signal:controller.signal}),
+    /Solver cancelled by operator/
+  );
+});
