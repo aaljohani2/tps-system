@@ -2,7 +2,15 @@
 
 Branch: `feat/full-stack-tps-v1`. Base commit: `3a1d84c` from the previously tested `feat/web-excel-import-v0.3`.
 
-## P0-07 incremental closeout — live local Timefold control (pending HEAD-matching CI)
+## New verified engineering checkpoint — candidate diversity and documentation
+
+- Timefold source fix `ddc8afc` diversifies room placements per instructor, preventing multiple valid trainers from artificially sharing one room candidate even when 20 rooms are available.
+- GitHub Actions run **42261333608** on `eedd6c5` passed all six jobs, including Java JAR cancellation and actual synthetic scheduling performance. The 25-course fixture improved from **8 covered / 17 uncovered (4291 ms)** to **25 covered / 0 uncovered (4279 ms)**; this is one synthetic fixture, not a guarantee for other inputs. Source regression now checks diversity among trainer/room placements.
+- Added the exact originally mandated documentation names: `docs/ARCHITECTURE.md`, `docs/DATABASE.md`, `docs/API.md`, `docs/USER_GUIDE_AR.md`, `docs/ADMIN_GUIDE_AR.md`, `docs/SCHEDULING_RULES.md`, `docs/SECURITY.md`. They explicitly distinguish present features from residual gaps.
+- **Still open:** wider/unbounded search and preferences, queued solver progress/cluster management, relational course-section constraints, complete resource administration, 20-step unmocked browser testing, larger-scale/adversarial performance, Windows local acceptance and release signoff. The new documentation does **not** close these feature gaps.
+- Preserve the development branch and Draft PR #8; only the validated engineering increments may be described as complete. Confirm latest HEAD CI separately.
+
+## P0-07 incremental closeout — live local Timefold control (verified synthetic CI)
 
 - `POST /api/v1/scenarios/:id/solve` now accepts independently bounded `seconds` (1–30; default 5) and `candidatesPerInstructor` (1–24; default 6), records selections in run audit/details, and prevents more than two local Java solver claims at once.
 - `POST /api/v1/scenarios/:id/runs/cancel` is a scope/role/CSRF-protected route. It uses a PostgreSQL transaction to mark the active run `CANCELLED`, returns the scenario to `FAILED` (retriable DRAFT), records `CANCEL_SOLVER` audit and aborts the attached Java child process. Cancellation cannot overwrite a result already committed.
