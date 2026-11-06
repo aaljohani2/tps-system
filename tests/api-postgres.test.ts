@@ -435,8 +435,8 @@ test('authenticated end-to-end workflow persists a synthetic TPS scenario in Pos
       [department.id,'I-IMP-'+uniq]);
     assert.equal(trainerImport.rowCount,1);
     assert.equal(trainerImport.rows[0].overload,null,'Bulk import cannot approve overload');
-    const blockCsv='cohortCode,code,name,size,courseCodes\nGROUP-'+uniq+
-      ',B-IMP,بلوك تجريبي,10,TEST-101\n';
+    const blockCsv='cohortCode,level,code,name,size,courseCodes\nGROUP-'+uniq+
+      ',1,B-IMP,بلوك تجريبي,10,TEST-101\n';
     const blockPreview=await csvUpload('blocks','preview',blockCsv);
     assert.equal(blockPreview.statusCode,200,blockPreview.body);
     const blockCommit=await csvUpload('blocks','commit',blockCsv,

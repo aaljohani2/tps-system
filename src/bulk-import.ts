@@ -6,7 +6,7 @@ export type BulkKind=typeof kinds[number];
 export const columns:Record<BulkKind,string[]>={
   instructors:['code','name','maxLoad','eligibleCourseCodes','allowedModes','available'],
   rooms:['code','name','type','capacity','building','available'],
-  blocks:['cohortCode','code','name','size','courseCodes'],
+  blocks:['cohortCode','level','code','name','size','courseCodes'],
   demand:['courseCode','level','baseStudents','repeatRate','source','confidence']
 };
 const nonFormula=(s:string)=>!/^\s*[=+@-]/.test(s);
@@ -48,7 +48,7 @@ export type TrainerBulk={code:string;name:string;maxLoad:number;eligibleCourseCo
   allowedModes:string[];available:ReturnType<typeof availability>};
 export type RoomBulk={code:string;name:string;type:'CLASSROOM'|'LAB'|'MULTI';capacity:number;
   building:string|null;available:ReturnType<typeof availability>};
-export type BlockBulk={cohortCode:string;code:string;name:string;size:number;courseCodes:string[]};
+export type BlockBulk={cohortCode:string;level:number;code:string;name:string;size:number;courseCodes:string[]};
 export type DemandBulk={courseCode:string;level:number;baseStudents:number;repeatRate:number;
   source:string;confidence:'LOW'|'MEDIUM'|'HIGH'};
 export type BulkRow=TrainerBulk|RoomBulk|BlockBulk|DemandBulk;
@@ -79,8 +79,9 @@ function normalize(kind:BulkKind,cell:Record<string,string>):BulkRow{
     const size=number(cell.size,5000,true);
     if(!size)throw new Error('Block size must be positive');
     const courseCodes=list(cell.courseCodes);
+    if(number(cell.level,12,true)<1)throw new Error('Block level must be 1–12');
     if(!courseCodes.length)throw new Error('A block import must explicitly assign at least one course');
-    return {cohortCode:code(cell.cohortCode),code:code(cell.code),name:text(cell.name),
+    return {cohortCode:code(cell.cohortCode),level:number(cell.level,12,true),code:code(cell.code),name:text(cell.name),
       size,courseCodes};
   }
   const level=number(cell.level,12,true);

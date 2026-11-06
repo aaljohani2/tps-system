@@ -17,7 +17,7 @@ class BulkXlsxTests(unittest.TestCase):
         for kind,headers in {
             "instructors":["code","name","maxLoad","eligibleCourseCodes","allowedModes","available"],
             "rooms":["code","name","type","capacity","building","available"],
-            "blocks":["cohortCode","code","name","size","courseCodes"],
+            "blocks":["cohortCode","level","code","name","size","courseCodes"],
             "demand":["courseCode","level","baseStudents","repeatRate","source","confidence"]
         }.items():
             with self.subTest(kind=kind):

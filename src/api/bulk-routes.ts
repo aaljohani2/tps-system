@@ -72,6 +72,7 @@ async function preflight(client:PoolClient,kind:BulkKind,rows:BulkRow[],ctx:Scop
     for(const row of rows as BlockBulk[]){
       const cohort=known.get(row.cohortCode);
       if(!cohort)throw fail('Unknown or inactive cohort: '+row.cohortCode,409);
+      if(cohort.level!==row.level)throw fail('Uploaded block level disagrees with existing cohort level',409);
       for(const courseCode of row.courseCodes){
         const course=coursesByCode.get(courseCode);
         if(!course)throw fail('Unknown course for block '+row.code+': '+courseCode,409);

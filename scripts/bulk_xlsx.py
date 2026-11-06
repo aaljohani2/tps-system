@@ -11,7 +11,7 @@ from openpyxl.utils import get_column_letter
 HEADERS = {
     "instructors": ["code", "name", "maxLoad", "eligibleCourseCodes", "allowedModes", "available"],
     "rooms": ["code", "name", "type", "capacity", "building", "available"],
-    "blocks": ["cohortCode", "code", "name", "size", "courseCodes"],
+    "blocks": ["cohortCode", "level", "code", "name", "size", "courseCodes"],
     "demand": ["courseCode", "level", "baseStudents", "repeatRate", "source", "confidence"],
 }
 NOTES = {
@@ -29,7 +29,7 @@ NOTES = {
         "القاعات مشتركة على مستوى الكلية؛ يتطلب الاستيراد صلاحيات كلية."
     ],
     "blocks": [
-        "cohortCode: رمز الفوج المسجل سابقًا داخل القسم",
+        "cohortCode: رمز الفوج المسجل سابقًا داخل القسم، level: المستوى 1–12",
         "code: رمز البلوك داخل الفوج، size: عدد المتدربين",
         "courseCodes: رموز المقررات المرتبطة بهذا البلوك في الفصل، مفصولة بعلامة |",
         "يجب تطابق مستوى كل مقرر مع مستوى الفوج، ولا تُحذف الروابط القديمة ضمنيًا."

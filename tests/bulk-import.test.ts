@@ -30,10 +30,10 @@ test('malformed availability and formula-like names are rejected with row number
   assert.deepEqual(p.errors.map(x=>x.row),[2,3]);
 });
 test('block template requires linked courses and nonzero size',()=>{
-  const p=previewBulk('blocks',row('blocks',['G-1','B-1','Block 1','0','COURSE-1']));
+  const p=previewBulk('blocks',row('blocks',['G-1','1','B-1','Block 1','0','COURSE-1']));
   assert.equal(p.ready,false);
   assert.equal(p.errors.length,1);
-  const q=previewBulk('blocks',row('blocks',['G-1','B-1','Block 1','30','COURSE-1|COURSE-2']));
+  const q=previewBulk('blocks',row('blocks',['G-1','1','B-1','Block 1','30','COURSE-1|COURSE-2']));
   assert.equal(q.ready,true);
 });
 test('demand template uses configurable 5% default without multiplying components',()=>{
