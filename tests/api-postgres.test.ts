@@ -386,6 +386,41 @@ test('authenticated end-to-end workflow persists a synthetic TPS scenario in Pos
       method:'POST',url:'/api/v1/import/batch/'+kind+'/'+stage+'?'+scope+extra,
       headers:batchHeaders,payload:Buffer.from(csv,'utf8')
     });
+    // Phase 10: complete nine-column course template; uploaded modes are proposals, not permissions.
+    const courseBatch='code,title,level,department,theoryHours,practicalHours,demand,proposedMode,eligibleModes\n'+
+      'BULK-'+uniq+',مقرر استيراد اصطناعي,2,قسم اصطناعي,2,1,27,REMOTE,ONSITE|REMOTE\n';
+    const coursePreview=await csvUpload('courses','preview',courseBatch);
+    assert.equal(coursePreview.statusCode,200,coursePreview.body);
+    assert.equal(coursePreview.json().ready,true);
+    assert.equal(coursePreview.json().rows[0].demand,27);
+    const wrongDepartmentCsv=courseBatch.replace(',قسم اصطناعي,',',قسم غير تابع,');
+    const wrongDepartment=await csvUpload('courses','preview',wrongDepartmentCsv);
+    assert.equal(wrongDepartment.statusCode,200,wrongDepartment.body);
+    assert.equal(wrongDepartment.json().ready,false);
+    assert.equal(wrongDepartment.json().importId,null);
+    const courseCommit=await csvUpload('courses','commit',courseBatch,
+      '&importId='+coursePreview.json().importId);
+    assert.equal(courseCommit.statusCode,200,courseCommit.body);
+    assert.equal(courseCommit.json().imported,1);
+    const importedCourse=await pool.query(
+      'SELECT id,mode,eligible_modes,demand FROM courses WHERE department_id=$1 AND code=$2',
+      [department.id,'BULK-'+uniq]);
+    assert.equal(importedCourse.rows[0].mode,'ONSITE');
+    assert.deepEqual(importedCourse.rows[0].eligible_modes,['ONSITE']);
+    assert.equal(importedCourse.rows[0].demand,27);
+    const suggestions=await app.inject({url:'/api/v1/import/batch/courses/proposals?departmentId='+department.id,
+      headers:{cookie:session}});
+    assert.equal(suggestions.statusCode,200,suggestions.body);
+    assert.ok(suggestions.json().some((p:{course_id:string;requested_mode:string;requires_approval:boolean})=>
+      p.course_id===importedCourse.rows[0].id&&p.requested_mode==='REMOTE'&&p.requires_approval));
+    const legacy=await app.inject({method:'POST',url:'/api/v1/import/courses/commit',
+      headers:{cookie:session,'x-csrf-token':csrf},payload:{departmentId:department.id,csv:'some,data'}});
+    assert.equal(legacy.statusCode,410,'Legacy course imports cannot bypass preview approval');
+    const approveImportedModes=await app.inject({method:'PUT',
+      url:'/api/v1/courses/'+importedCourse.rows[0].id+'/eligibility',
+      headers:{cookie:session,'x-csrf-token':csrf},
+      payload:{eligibleModes:['ONSITE','REMOTE'],reason:'Synthetic approval outside import workflow'}});
+    assert.equal(approveImportedModes.statusCode,200,approveImportedModes.body);
     const invalidResource=await csvUpload('rooms','preview',
       'code,name,type,capacity,building,available\nR-IMP,Bad room,LAB,0,B1,\n');
     assert.equal(invalidResource.statusCode,200,invalidResource.body);
