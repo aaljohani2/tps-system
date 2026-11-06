@@ -24,7 +24,7 @@ You are Codex on the user's Windows computer. **Your only tasks are to install a
 7. Include programs/plan versions, normalized blocks, source-based demand, half-hour slots, manual trainer locks, hybrid split, dashboard and user scope checks; never infer completion of the full mandate from the limited matrix.
 7. Validate `docs/ACCEPTANCE_MATRIX.md` A01–A20 locally, including mode-policy draft/approval, instructor/room editing, scenario forks and readiness blockers.
 7. Validate the full workflow: login → institution/college/department/term → import courses → instructors and rooms → mode policy → demand/blocks → sections → Timefold → timetable/gaps → fork/compare → review/approve → CSV/XLSX.
-8. Verify that a PostgreSQL container restart does not lose the synthetic scenario, policy and users; repeat migrations 0001–0013 idempotently.
+8. Verify that a PostgreSQL container restart does not lose the synthetic scenario, policy and users; repeat migrations 0001–0014 idempotently.
 9. Produce a written report with command, environment/version, test count, pass/fail/skip, errors and exact fixes **recommended but not performed**. Mark unsupported workflow steps as incomplete.
 
 Only local installation and testing are authorized. A passing test in GitHub Actions does **not** replace Windows-specific verification.
@@ -44,3 +44,7 @@ Once the remaining original-mandate development stages are finished, Codex may r
 ## Asynchronous solver and browser regression (development increment 0012)
 
 Only after source CI is green and development gaps are agreed closed, run local-only acceptance for HTTP 202 solve submission, realistic stage polling, cancellation, duplicate 409, and immutable result snapshots. Confirm the browser's polling still refreshes after the scenario becomes COMPLETED. Use a synthetic local DB for a real, unmocked login → schedule → approve → CSV/XLSX flow. Do not update GitHub, commit, deploy, change dependencies, replace Timefold, reset the user's worktree or delete persistent volumes. The async worker is process-local and cannot be described as a restart-surviving distributed queue.
+
+### Additional archive/restore tests (migration 0014)
+
+Run archived course/trainer/room lifecycle A56–A59 only in a separate synthetic local test DB. Verify audit and status changes in the same transaction; no deletion, no overwrite of older scenarios, no archive of courses in ACTIVE curriculum, and college-only permission for shared rooms. Do not touch actual trainer or trainee information.
