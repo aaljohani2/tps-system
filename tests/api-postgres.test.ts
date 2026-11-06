@@ -279,6 +279,27 @@ test('authenticated end-to-end workflow persists a synthetic TPS scenario in Pos
     const plan=await write('/plans',{programId:program.id,code:'PLAN-'+uniq,versionLabel:'نسخة اختبار 1'});
     const planItem=await write('/plans/'+plan.id+'/items',{courseId:course.id,level:1,isRequired:true});
     assert.equal(planItem.level,1);
+    const advanced=await write('/courses',{departmentId:department.id,code:'ADV-102',
+      title:'مقرر اصطناعي متقدم',level:2,theoryHours:2,practicalHours:0,demand:0});
+    await write('/plans/'+plan.id+'/items',{courseId:advanced.id,level:2,isRequired:true});
+    const prerequisite=await write('/prerequisites',{courseId:advanced.id,prerequisiteCourseId:course.id});
+    assert.ok(prerequisite.id);
+    const attemptedCycle=await app.inject({method:'POST',url:'/api/v1/prerequisites',
+      headers:{cookie:session,'x-csrf-token':csrf},
+      payload:{courseId:course.id,prerequisiteCourseId:advanced.id}});
+    assert.equal(attemptedCycle.statusCode,409,'A dependency cycle must be forbidden');
+    const incompletePlan=await write('/plans',{programId:program.id,code:'INCOMPLETE-'+uniq,versionLabel:'Draft without prerequisite'});
+    await write('/plans/'+incompletePlan.id+'/items',{courseId:advanced.id,level:2,isRequired:true});
+    const cannotActivate=await app.inject({method:'POST',url:'/api/v1/plans/'+incompletePlan.id+'/activate',
+      headers:{cookie:session,'x-csrf-token':csrf},payload:{reason:'Incomplete synthetic plan'}});
+    assert.equal(cannotActivate.statusCode,409,'Plan cannot omit a required prerequisite course');
+    const activation=await write('/plans/'+plan.id+'/activate',{reason:'Synthetic internally approved curriculum version'});
+    assert.equal(activation.state,'ACTIVE');
+    const duplicateActivation=await app.inject({method:'POST',
+      url:'/api/v1/plans/'+plan.id+'/activate',headers:{cookie:session,'x-csrf-token':csrf},
+      payload:{reason:'Already activated earlier'}});
+    assert.equal(duplicateActivation.statusCode,409,'An active plan cannot be activated again');
+
     const group=await write('/cohorts',{departmentId:department.id,programId:program.id,
       code:'GROUP-'+uniq,name:'فوج اختبار',level:1});
     const block=await write('/blocks',{cohortId:group.id,code:'B1',name:'البلوك الأول',size:20});
