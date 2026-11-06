@@ -103,8 +103,13 @@ export async function registerPrerequisites(app:FastifyInstance){
       if(!await allowedDepartment(req.principal!,p.department_id))throw fail('Scope denied',403);
       if(p.state!=='DRAFT')throw fail('Only a draft curriculum plan can be activated',409);
       await client.query('SELECT pg_advisory_xact_lock(hashtext($1))',['plan:'+p.program_id]);
-      const items=await client.query<{course_id:string;level:number}>(`
-        SELECT course_id,level FROM curriculum_items WHERE plan_id=$1`,[id]);
+      // Take SHARE locks on each member course: concurrent archive requests
+      // hold the same rows FOR UPDATE and cannot race plan activation.
+      const items=await client.query<{course_id:string;level:number;is_active:boolean}>(`
+        SELECT ci.course_id,ci.level,c.is_active FROM curriculum_items ci
+        JOIN courses c ON c.id=ci.course_id WHERE ci.plan_id=$1 FOR SHARE OF c`,[id]);
+      if(items.rows.some(item=>!item.is_active))
+        throw fail('Archived courses cannot be activated in a training plan',409);
       if(!items.rows.length)throw fail('Cannot activate an empty plan',409);
       const levels=new Map(items.rows.map(x=>[x.course_id,x.level]));
       const missing=await client.query<{code:string;prerequisite_id:string;prerequisite_level:number}>(`
