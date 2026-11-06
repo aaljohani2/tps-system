@@ -231,6 +231,70 @@ test('authenticated end-to-end workflow persists a synthetic TPS scenario in Pos
     const solveAgain=await app.inject({method:'POST',url:'/api/v1/scenarios/'+created.id+'/solve',
       headers:{cookie:session,'x-csrf-token':csrf},payload:{}});
     assert.equal(solveAgain.statusCode,409,'a solved scenario must not be solved twice');
+
+    // HTTP-independent execution: request returns 202 with an already-durable
+    // run ID, then its stages and eventual result remain observable via API.
+    const asyncDraft=await write('/scenarios',{departmentId:department.id,termId:term.id,
+      name:'Synthetic detached Timefold execution'});
+    const asyncStart=await app.inject({method:'POST',
+      url:'/api/v1/scenarios/'+asyncDraft.id+'/solve/async',
+      headers:{cookie:session,'x-csrf-token':csrf},payload:{seconds:1,candidatesPerInstructor:4}});
+    assert.equal(asyncStart.statusCode,202,asyncStart.body);
+    assert.equal(asyncStart.json().accepted,true);
+    const detachedRunId=asyncStart.json().runId;
+    const persistedStart=await pool.query(
+      'SELECT status,progress_stage,requested_settings FROM solver_runs WHERE id=$1',[detachedRunId]);
+    assert.equal(persistedStart.rowCount,1,'Accepted async run must be durable before response');
+    assert.equal(persistedStart.rows[0].requested_settings.seconds,1);
+    const duplicateAsync=await app.inject({method:'POST',
+      url:'/api/v1/scenarios/'+asyncDraft.id+'/solve/async',
+      headers:{cookie:session,'x-csrf-token':csrf},payload:{}});
+    assert.equal(duplicateAsync.statusCode,409,'Duplicate detached solve must fail');
+    let asyncFinal='RUNNING';
+    for(let attempt=0;attempt<90;attempt++){
+      const current=await pool.query('SELECT status FROM solver_runs WHERE id=$1',[detachedRunId]);
+      asyncFinal=current.rows[0]?.status??'MISSING';
+      if(asyncFinal!=='RUNNING')break;
+      await new Promise(resolve=>setTimeout(resolve,100));
+    }
+    assert.equal(asyncFinal,'COMPLETED','Detached Java process must finish after HTTP 202');
+    const detachedRecord=await pool.query(
+      'SELECT solver_status,result_snapshot FROM scenarios WHERE id=$1',[asyncDraft.id]);
+    assert.equal(detachedRecord.rows[0].solver_status,'COMPLETED');
+    assert.ok(detachedRecord.rows[0].result_snapshot.metrics.sectionCount>=1);
+    const detachedHistory=await app.inject({url:'/api/v1/scenarios/'+asyncDraft.id+'/runs',
+      headers:{cookie:session}});
+    assert.equal(detachedHistory.statusCode,200);
+    assert.equal(detachedHistory.json()[0].progress_stage,'COMPLETED');
+
+    // A cancellation is transactionally committed before the detached worker
+    // can save a result. Its previous draft must remain unchanged.
+    const cancelDraft=await write('/scenarios',{departmentId:department.id,termId:term.id,
+      name:'Synthetic cancellable Timefold execution'});
+    const initialSnapshot=await pool.query('SELECT result_snapshot FROM scenarios WHERE id=$1',[cancelDraft.id]);
+    const cancellable=await app.inject({method:'POST',
+      url:'/api/v1/scenarios/'+cancelDraft.id+'/solve/async',
+      headers:{cookie:session,'x-csrf-token':csrf},payload:{seconds:25,candidatesPerInstructor:4}});
+    assert.equal(cancellable.statusCode,202,cancellable.body);
+    const cancelled=await app.inject({method:'POST',
+      url:'/api/v1/scenarios/'+cancelDraft.id+'/runs/cancel',
+      headers:{cookie:session,'x-csrf-token':csrf},payload:{}});
+    assert.equal(cancelled.statusCode,200,cancelled.body);
+    assert.equal(cancelled.json().runId,cancellable.json().runId);
+    await new Promise(resolve=>setTimeout(resolve,250));
+    const cancelledRecord=await pool.query(
+      'SELECT status,progress_stage FROM solver_runs WHERE id=$1',[cancellable.json().runId]);
+    assert.equal(cancelledRecord.rows[0].status,'CANCELLED');
+    assert.equal(cancelledRecord.rows[0].progress_stage,'CANCELLED');
+    const cancelledScenario=await pool.query(
+      'SELECT solver_status,result_snapshot FROM scenarios WHERE id=$1',[cancelDraft.id]);
+    assert.equal(cancelledScenario.rows[0].solver_status,'FAILED');
+    assert.deepEqual(cancelledScenario.rows[0].result_snapshot,initialSnapshot.rows[0].result_snapshot,
+      'Cancelling must not overwrite or approve a partial schedule');
+    const cancelAudit=await pool.query(
+      "SELECT id FROM audit_logs WHERE action='CANCEL_SOLVER' AND entity_id=$1",[cancelDraft.id]);
+    assert.equal(cancelAudit.rowCount,1);
+
     assert.equal(solve.result.gaps.length,0,JSON.stringify(solve.result.gaps));
     const readiness=await app.inject({url:'/api/v1/scenarios/'+created.id+'/readiness',headers:{cookie:session}});
     assert.equal(readiness.statusCode,200,readiness.body);
