@@ -48,3 +48,12 @@ After commit `28f64044`, development continued with schema 0004, academic UI, de
 - PostgreSQL integration tests include complete course CSV and actual XLSX preview/commit, exact file hash, school scope, immutable mode eligibility, master data and report export.
 - Playwright runs **three browser interaction tests** using mocked API responses for the four timetable views, warning navigation, stage-only drag/drop, rejected API save, viewer permissions and course import preview/commit UI. Mocked-browser interaction is not a substitute for a full real-API end-to-end user journey.
 - **Windows local installation/testing has not been conducted.** No main merge, no external deployment or Rayat changes.
+
+## P0-07 controlled Timefold and synthetic scale — verified GitHub CI (2026-11-06)
+
+- Commit `0a6f8b92bd8a4a5859dacd866b1fac7cc6a2d227` — GitHub Actions run **42260563860**, **SUCCESS** on all six jobs (`node-tests`, `web-e2e-phase10-11`, `web-build`, `java-timefold`, `api-postgres-integration`, `xlsx-import-tests`). Includes cancellation API, explicit CANCELLED SQL status, abort propagation, setting bounds, and Windows-agnostic source tests.
+- Commit `afaa78fce9cc67ede63c89e342c7d6d0d5ea30e1` — run **42260816121**, all six jobs **SUCCESS**. Added actual assembled-JAR child-process abort test and a real Java Timefold synthetic scale smoke. Logs: 25 sections, 8 scheduled sessions, **17 gaps**, **4291 ms**, Node RSS **68 MB**. This exposed a room-candidate diversity defect despite a green CI check.
+- Commit `eedd6c5e84592bbb0c782088064f61ad57802c93` — run **42261333608**, all six jobs **SUCCESS**. After diversifying room choices by instructor and adding a candidate diversity regression: **25 sections, 25 scheduled sessions, 0 uncovered gaps**, **4279 ms**, Node RSS **68 MB** on the same synthetic 25-course/6-trainer/20-room/4-level/20-block workload.
+- **Interpretation:** the measured gain is from candidate-space quality, not increased room inventory or a claim of global optimum. Tests validate one synthetic feasible fixture; additional larger and adversarial configurations, stable repeated runs, all hard/soft constraints and real-world data remain to be verified.
+- **Not tested locally:** the user's Windows checkout `H:\\tps_system`, Docker restart persistence, all 20 real-API browser journey steps, official institutional policies or real trainee records.
+- Subsequent documentation-only commits require a HEAD-matching CI pass before reporting a final green branch. No main merge or remote deployment.
