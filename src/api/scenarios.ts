@@ -122,13 +122,20 @@ function csvCell(v:unknown):string{
 }
 export async function registerScenarios(app:FastifyInstance):Promise<void>{
   app.get('/api/v1/scenarios',async(req)=>{
-    const q=req.query as {departmentId?:string;termId?:string};
-    const departmentId=uuid.parse(q.departmentId);
-    await scope(req,departmentId);
-    const termId=q.termId?uuid.parse(q.termId):null;
+    // Preserve the legacy array response for React while allowing bounded paging.
+    const params=z.object({
+      departmentId:uuid,termId:uuid.optional(),
+      limit:z.coerce.number().int().min(1).max(100).default(100),
+      offset:z.coerce.number().int().min(0).max(10000).default(0),
+      search:z.string().trim().max(120).default('')
+    }).strict().parse(req.query);
+    await scope(req,params.departmentId);
     const rows=await pool.query(`SELECT id,department_id,term_id,name,state,solver_status,revision,policy_revision,parent_scenario_id,created_at,approved_at
       FROM scenarios WHERE department_id=$1 AND ($2::uuid IS NULL OR term_id=$2)
-      ORDER BY created_at DESC LIMIT 100`,[departmentId,termId]);
+      AND ($3::text='' OR name ILIKE '%' || $3 || '%')
+      ORDER BY created_at DESC,id DESC LIMIT $4 OFFSET $5`,[
+        params.departmentId,params.termId??null,params.search,params.limit,params.offset
+      ]);
     return rows.rows;
   });
   app.post('/api/v1/scenarios',async(req)=>{
