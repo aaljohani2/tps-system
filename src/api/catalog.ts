@@ -40,6 +40,10 @@ function parse<T extends z.ZodTypeAny>(schema:T,body:unknown):z.infer<T>{
 function forbidden(){throw Object.assign(new Error('Scope denied'),{statusCode:403});}
 async function assertDepartment(req:FastifyRequest,departmentId:string){if(!await allowedDepartment(req.principal!,departmentId))forbidden();}
 async function assertCollege(req:FastifyRequest,collegeId:string){if(!await allowedCollege(req.principal!,collegeId))forbidden();}
+function requireCollegeEditor(req:FastifyRequest){
+  requireEditor(req);
+  if(req.principal!.departmentId&&req.principal!.role!=='SYSTEM_ADMIN')forbidden();
+}
 export async function registerCatalog(app:FastifyInstance){
   app.get('/api/v1/institutions',async(req)=>{
     const p=req.principal!;
@@ -72,7 +76,7 @@ export async function registerCatalog(app:FastifyInstance){
     return p.departmentId?rows.filter(x=>x.id===p.departmentId):rows;
   });
   app.post('/api/v1/departments',async(req)=>{
-    requireEditor(req);const v=parse(z.object({collegeId:uuid,name}),req.body);
+    requireCollegeEditor(req);const v=parse(z.object({collegeId:uuid,name}),req.body);
     await assertCollege(req,v.collegeId);
     const rows=await db.insert(departments).values(v).returning();await audit(req.principal!.id,'CREATE','DEPARTMENT',rows[0]!.id);return rows[0];
   });
@@ -82,7 +86,7 @@ export async function registerCatalog(app:FastifyInstance){
     return db.select().from(terms).where(eq(terms.collegeId,collegeId));
   });
   app.post('/api/v1/terms',async(req)=>{
-    requireEditor(req);const v=parse(z.object({collegeId:uuid,code,label:name,
+    requireCollegeEditor(req);const v=parse(z.object({collegeId:uuid,code,label:name,
       startsOn:z.string().regex(/^\d{4}-\d\d-\d\d$/),endsOn:z.string().regex(/^\d{4}-\d\d-\d\d$/)}),req.body);
     await assertCollege(req,v.collegeId);
     const rows=await db.insert(terms).values(v).returning();await audit(req.principal!.id,'CREATE','TERM',rows[0]!.id);return rows[0];
@@ -136,16 +140,14 @@ export async function registerCatalog(app:FastifyInstance){
     return db.select().from(rooms).where(eq(rooms.collegeId,collegeId));
   });
   app.post('/api/v1/rooms',async(req)=>{
-    requireEditor(req);
-    if(req.principal!.departmentId && req.principal!.role!=='SYSTEM_ADMIN')forbidden();
+    requireCollegeEditor(req);
     const v=parse(room,req.body);await assertCollege(req,v.collegeId);
     const rows=await db.insert(rooms).values({...v,available:v.available??null,building:v.building??null}).returning();
     await audit(req.principal!.id,'CREATE','ROOM',rows[0]!.id);return rows[0];
   });
   app.patch('/api/v1/rooms/:id',async(req)=>{
-    requireEditor(req);
-    // Rooms are shared college-wide. A department-only account cannot mutate their master records.
-    if(req.principal!.departmentId && req.principal!.role!=='SYSTEM_ADMIN')forbidden();
+    requireCollegeEditor(req);
+    // Rooms are shared college-wide. Department-scoped accounts cannot mutate master records.
     const id=uuid.parse((req.params as {id:string}).id);
     const found=await pool.query<{college_id:string}>('SELECT college_id FROM rooms WHERE id=$1',[id]);
     if(!found.rows[0])throw Object.assign(new Error('Room not found'),{statusCode:404});
