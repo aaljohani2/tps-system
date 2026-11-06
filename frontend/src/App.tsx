@@ -10,6 +10,7 @@ import DashboardPage from './DashboardPage';
 import UsersPage from './UsersPage';
 import ManualScheduleEditor from './ManualScheduleEditor';
 import SolverRunsPanel from './SolverRunsPanel';
+import WeeklyGrid,{type GridProposal} from './WeeklyGrid';
 import BulkImportsPage from './BulkImportsPage';
 
 const labels:Record<string,string>={ONSITE:'حضوري',REMOTE:'عن بُعد',SELF_PACED:'ذاتي',HYBRID:'مدمج'};
@@ -220,6 +221,7 @@ function ScenarioPage({ctx,notify}:{ctx:Context;notify:Message}){
   const qc=useQueryClient(),list=useQuery({queryKey:['scenarios',ctx.departmentId,ctx.termId],
     queryFn:()=>api<Scenario[]>('/scenarios?departmentId='+ctx.departmentId+'&termId='+ctx.termId),enabled:!!ctx.departmentId&&!!ctx.termId});
   const [name,setName]=useState('السيناريو الحضوري'),[selected,setSelected]=useState(''),[working,setWorking]=useState(false),[second,setSecond]=useState('');
+  const [gridProposal,setGridProposal]=useState<GridProposal|null>(null);
   const [forkName,setForkName]=useState('سيناريو بديل'),[forkDemand,setForkDemand]=useState<Record<string,number>>({}),
     [forkBlocks,setForkBlocks]=useState<Record<string,string>>({}),
     [forkBlockSizes,setForkBlockSizes]=useState<Record<string,string>>({});
@@ -271,7 +273,10 @@ function ScenarioPage({ctx,notify}:{ctx:Context;notify:Message}){
           <td>{i.code} — {i.message}</td><td>{i.sectionId??'—'}</td><td>{i.courseCode??'—'}</td></tr>)}
       </tbody></table></div>:null}
       <SolverRunsPanel scenario={current} notify={notify}/>
-      <div className="subhead"><h3>الجداول الأسبوعية</h3></div><Timetable p={p}/><ManualScheduleEditor scenario={current} notify={notify}/>
+      <div className="subhead"><h3>الجداول الأسبوعية التفاعلية</h3></div>
+      <WeeklyGrid scenario={current} issues={readiness.data?.issues??[]} onPropose={setGridProposal}/>
+      <details><summary>عرض تفصيلي إضافي — قائمة جميع الجلسات</summary><Timetable p={p}/></details>
+      <ManualScheduleEditor scenario={current} notify={notify} proposal={gridProposal}/>
       <h3>كشف العجز</h3>{p.gaps.length?<div className="table-wrap"><table><thead><tr><th>الشعبة</th><th>المقرر</th><th>السبب</th><th>ساعات التدريب</th><th>النصاب المطلوب</th></tr></thead>
         <tbody>{p.gaps.map(g=><tr key={g.sectionId}><td>{g.sectionId}</td><td>{g.courseCode}</td><td>{g.reason}</td><td>{g.contactHours}</td><td>{g.equivalentLoad}</td></tr>)}</tbody></table></div>:<p className="success">لا يوجد عجز مسجل في النتيجة الحالية. يلزم التحقق من هوية البلوكات قبل اعتمادها.</p>}
       <h3>أنصبة المدربين</h3><div className="table-wrap"><table><thead><tr><th>المدرب</th><th>الساعات الفعلية</th><th>النصاب المكافئ</th><th>المتبقي</th></tr></thead><tbody>

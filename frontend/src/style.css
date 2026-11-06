@@ -30,3 +30,22 @@ tr:last-child td{border-bottom:0}.small{width:88px}.medium{width:175px}.split{di
 .login-card p{color:#647e84;margin:0}.login-card h1{margin:0}.login-card small{color:#84939a}.brand-mark{font-weight:900;font-size:2rem;color:#078a80}.loading{padding:5rem;text-align:center}
 @media(max-width:1100px){.split{grid-template-columns:1fr}.metrics{grid-template-columns:repeat(2,1fr)}}
 @media(max-width:740px){.shell{display:block}.sidebar{padding:15px}.sidebar nav{grid-template-columns:1fr 1fr}.sidebar-footer{display:none}.content{padding:18px}.top{display:block}.panel{padding:17px}.metrics{grid-template-columns:1fr 1fr}.badge{display:inline-block}.form-grid{grid-template-columns:1fr}}
+
+/* Phase 11: accessible weekly timetable; DnD only stages a request, never commits it. */
+.weekly-section{max-width:100%}.weekly-scroll{overflow:auto;max-height:76vh}
+.weekly-grid{min-width:1050px;table-layout:fixed;white-space:normal;border-spacing:0}
+.weekly-grid caption{text-align:right;padding:10px;font-size:.83rem;color:#536f75}
+.weekly-grid thead th{position:sticky;top:0;z-index:2}
+.weekly-grid th:first-child{width:85px}.week-slot{vertical-align:top;border-inline-start:1px solid #e4edf0;padding:5px;min-height:54px}
+.weekly-grid tbody tr{height:50px}.week-session{display:grid;gap:4px;white-space:normal;text-align:right;
+ width:100%;padding:10px;border-radius:9px;margin:3px 0;cursor:pointer;line-height:1.35;font-size:.77rem}
+.week-session strong{font-size:.85rem}.week-session.onsite,.session-legend.onsite{background:#e4f2f0;border-color:#91c9c2;color:#205b58}
+.week-session.remote,.session-legend.remote{background:#eaf0fb;border-color:#a3bfe6;color:#274e89}
+.week-session.hybrid,.session-legend.hybrid{background:#f8effc;border-color:#d2b2e8;color:#69418a}
+.week-session.flagged{outline:2px solid #ad3c3c}.week-session.focused{box-shadow:0 0 0 3px #296f72}
+.week-continuation{display:block;color:#789096;font-size:.72rem;border-inline-start:3px solid #cddadd;padding:3px 5px}
+.session-legend{display:inline-block;border:1px solid;border-radius:7px;padding:7px 12px;font-size:.78rem}
+.weekly-details{border:1px solid #c9dedc;border-radius:13px;padding:17px;background:#f9fcfc;margin:18px 0}
+.weekly-details p{line-height:1.8;white-space:normal}
+.week-slot:has(.week-session){background:#fafcfd}
+@media(max-width:850px){.weekly-grid{min-width:1000px}.weekly-scroll{max-height:65vh}}

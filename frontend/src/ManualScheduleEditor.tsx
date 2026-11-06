@@ -6,7 +6,10 @@ type Input={instructors:Array<{id:string;name:string}>;rooms:Array<{id:string;na
 type MoveEdit={id:number;edit_version:number;session_id:string;reason:string;edited_at:string};
 const names:Record<string,string>={SUN:'الأحد',MON:'الإثنين',TUE:'الثلاثاء',WED:'الأربعاء',THU:'الخميس'};
 const clock=(hour:number)=>String(Math.floor(hour)).padStart(2,'0')+':'+(hour%1===0.5?'30':'00');
-export default function ManualScheduleEditor({scenario,notify}:{scenario:Scenario;notify:(message:string)=>void}){
+export default function ManualScheduleEditor({scenario,notify,proposal}:{
+  scenario:Scenario;notify:(message:string)=>void;
+  proposal?:{sessionId:string;day:string;start:number;nonce:number}|null;
+}){
   const qc=useQueryClient();
   const plan=scenario.result_snapshot as Plan;
   const input=scenario.input_snapshot as Input|undefined;
@@ -27,6 +30,13 @@ export default function ManualScheduleEditor({scenario,notify}:{scenario:Scenari
   // Reset after a new snapshot or scenario is selected; preserves current editing in between.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   },[scenario.id,scenario.edit_version]);
+  useEffect(()=>{
+    if(!proposal)return;
+    const s=sessions.find(x=>x.id===proposal.sessionId);
+    if(!s)return;
+    setChosen(s.id);setDay(proposal.day);setStart(proposal.start);
+    setRoom(s.roomId??'');setInstructor(s.instructorId);
+  },[proposal?.nonce,proposal?.sessionId,proposal?.day,proposal?.start]);
   const current=sessions.find(x=>x.id===chosen);
   const editable=scenario.state==='DRAFT'&&scenario.solver_status==='COMPLETED';
   async function save(){
@@ -47,7 +57,7 @@ export default function ManualScheduleEditor({scenario,notify}:{scenario:Scenari
     }finally{setSaving(false);}
   }
   if(!editable)return <div className="hint">تعديل الجلسات يدويًا متاح لمسودات Timefold المكتملة فقط. الجداول المعتمدة لا تتغير؛ أنشئ مراجعة جديدة لتعديلها.</div>;
-  return <details className="panel"><summary>تعديل جلسة أسبوعية مع التحقق من التعارضات</summary>
+  return <details className="panel" id="manual-schedule-editor" open={!!proposal}><summary>تعديل جلسة أسبوعية مع التحقق من التعارضات</summary>
     <p className="hint">النقل اليدوي لا يعيد تشغيل Timefold، لكنه يخضع لفحص القاعات والبلوكات والأنصبة والإتاحة. تغيير المدرب ينطبق على جميع جلسات الشعبة، حفاظًا على ارتباط النظري والعملي. لا يمكن الحفظ عند وجود موانع جاهزية قائمة.</p>
     <div className="form-grid">
       <label>الجلسة<select value={chosen} onChange={e=>selectSession(e.target.value)}>
