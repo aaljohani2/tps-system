@@ -21,7 +21,7 @@ test('authenticated end-to-end workflow persists a synthetic TPS scenario in Pos
     assert.equal(me.statusCode,200,me.body);
     const csrf=me.json().csrfToken as string;
     const write=async(path:string,body:unknown)=>{
-      const r=await app.inject({method:'POST',url:'/api/v1'+path,headers:{cookie:session,'x-csrf-token':csrf},payload:body});
+      const r=await app.inject({method:'POST',url:'/api/v1'+path,headers:{cookie:session,'x-csrf-token':csrf},payload:body as Record<string,unknown>});
       assert.equal(r.statusCode,200,r.body);return r.json();
     };
     const forbidden=await app.inject({method:'POST',url:'/api/v1/institutions',headers:{cookie:session},payload:{name:'Bad request'}});

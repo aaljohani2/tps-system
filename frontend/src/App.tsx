@@ -75,7 +75,7 @@ function CoursePage({ctx,notify}:{ctx:Context;notify:Message}){
   return <section className="panel">
     <h2>٢. استيراد وإدارة المقررات</h2>
     <p className="hint">ارفع CSV للخطة، وعاين المقررات والأخطاء قبل التأكيد. يحتفظ النظام بالطلب السابق عند تحديث مقررات موجودة.</p>
-    <div className="actions"><a href="/templates/curriculum.csv" onClick={e=>{e.preventDefault();notify('قالب الاستيراد الأصلي متاح في النسخة التجريبية؛ رفع CSV مدعوم هنا.');}}>قالب المقررات الأصلي</a>
+    <div className="actions"><a href="/api/v1/import/courses/template.csv">قالب استيراد CSV</a>
       <input type="file" accept=".csv,text/csv" onChange={pick}/>
       <button disabled={!csv||!ctx.departmentId} onClick={()=>run(async()=>{setPreview(await post('/import/courses/preview',{departmentId:ctx.departmentId,csv}));})}>معاينة</button>
       <button className="primary" disabled={!preview} onClick={()=>run(async()=>{await post('/import/courses/commit',{departmentId:ctx.departmentId,csv});setPreview(null);})}>اعتماد الاستيراد</button>
@@ -120,9 +120,9 @@ function ResourcesPage({ctx,notify}:{ctx:Context;notify:Message}){
       <label>النصاب المكافئ<input type="number" value={i.maxLoad} onChange={e=>setI({...i,maxLoad:+e.target.value})}/></label>
       <label>المقررات المؤهل لها (رموز مفصولة بفواصل)<input value={i.eligibleCourseCodes} onChange={e=>setI({...i,eligibleCourseCodes:e.target.value})}/></label>
     </div><button className="primary" onClick={()=>run(()=>post('/instructors',{departmentId:ctx.departmentId,
-      code:i.code,name:i.name,maxLoad:i.maxLoad,eligibleCourseCodes:i.eligibleCourseCodes.split(',').map(v=>v.trim()).filter(Boolean)}))}>إضافة مدرب</button>
+      code:i.code,name:i.name,maxLoad:i.maxLoad,...(i.eligibleCourseCodes.trim()?{eligibleCourseCodes:i.eligibleCourseCodes.split(',').map(v=>v.trim()).filter(Boolean)}:{})}))}>إضافة مدرب</button>
       <div className="table-wrap"><table><thead><tr><th>الرمز</th><th>الاسم</th><th>النصاب</th></tr></thead><tbody>
-      {(inst.data??[]).map(x=><tr key={x.id}><td>{x.code}</td><td>{x.name}</td><td>{x.maxLoad}</td></tr>)}</tbody></table></div>
+      {(inst.data??[]).map(x=><tr key={x.id}><td>{String(x.code)}</td><td>{String(x.name)}</td><td>{String(x.maxLoad)}</td></tr>)}</tbody></table></div>
     </section><section><h3>القاعات والمعامل</h3><div className="form-grid">
       <label>رمز القاعة<input value={r.code} onChange={e=>setR({...r,code:e.target.value})}/></label>
       <label>اسم القاعة<input value={r.name} onChange={e=>setR({...r,name:e.target.value})}/></label>
@@ -131,7 +131,7 @@ function ResourcesPage({ctx,notify}:{ctx:Context;notify:Message}){
       <label>المبنى<input value={r.building} onChange={e=>setR({...r,building:e.target.value})}/></label>
     </div><button className="primary" onClick={()=>run(()=>post('/rooms',{collegeId:ctx.collegeId,...r}))}>إضافة قاعة</button>
       <div className="table-wrap"><table><thead><tr><th>القاعة</th><th>النوع</th><th>السعة</th></tr></thead><tbody>
-      {(rooms.data??[]).map(x=><tr key={x.id}><td>{x.code}</td><td>{x.type}</td><td>{x.capacity}</td></tr>)}</tbody></table></div>
+      {(rooms.data??[]).map(x=><tr key={x.id}><td>{String(x.code)}</td><td>{String(x.type)}</td><td>{String(x.capacity)}</td></tr>)}</tbody></table></div>
     </section></div>
   </section>;
 }
