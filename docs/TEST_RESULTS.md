@@ -75,3 +75,10 @@ After commit `28f64044`, development continued with schema 0004, academic UI, de
 - Run **42264700428** passed the PostgreSQL/Timefold job for impossible-slot validation: 8 synthetic sections, one room, one two-hour slot → **1 scheduled, 7 uncovered**. Earlier feasible scale checks cover 25/25 and 50/50 with zero gaps for their respective synthetic fixtures.
 - Additional optional scenario search/pagination (`limit` 1–100, `offset` 0–10000) and access-control tests were added in subsequent commits; they require a HEAD-matching CI run before acceptance.
 - **Not tested:** Windows `H:\\tps_system`, PostgreSQL persistence across Windows Docker restart, complete 20-step role-negative browser suite, broader curriculum/equipment constraints, multi-process durable job queue, performance with authentic institutional data, formal security review.
+
+## Scoped scenario list search/pagination — confirmed 2026-11-06
+
+- Source commit `7ceda8a12144be3a958d8847648db7e38dc119fc`: GitHub Actions run **42265498369**, **7/7 successful** including the unmocked real Chromium/React/Fastify/PostgreSQL/Timefold journey.
+- `GET /api/v1/scenarios` supports optional `limit` (1–100; default 100), `offset` (0–10000; default 0) and bounded `search`, retaining the legacy array shape. SQL uses parameter binding and preserves mandatory department/term scoping.
+- PostgreSQL API integration tests verify exact scoped search, empty offsets, invalid page size (400), and out-of-scope page (403). This closes only the scenario-list slice of the wider P0-13 uniform API pagination/archiving requirement, **not all catalog/user CRUD**.
+- Last independently verified code SHA: `7ceda8a12144be3a958d8847648db7e38dc119fc`. Subsequent documentation-only HEAD must not be confused with an independently tested code change.
