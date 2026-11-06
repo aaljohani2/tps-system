@@ -93,12 +93,22 @@ async function check(settings){
     expectedUrl:'http://127.0.0.1:8787',sourceTestDatabaseNotUsed:true}));
 }
 async function main(){
-  guard(['init','check','bootstrap','start'].includes(cmd),
-    'Usage: node --env-file=.env scripts/local-production.mjs init|check|bootstrap|start');
-  guard(process.argv.length===3,'Unexpected extra arguments');
+  guard(['init','check','bootstrap','start','backup','backup:verify','restore:test'].includes(cmd),
+    'Usage: node --env-file=.env scripts/local-production.mjs init|check|bootstrap|start|backup|backup:verify|restore:test');
+  const fileCommand=cmd==='backup:verify'||cmd==='restore:test';
+  if(fileCommand)guard(process.argv.length===5&&process.argv[3]==='--file',
+    'Verification/restoration requires --file <encrypted archive>');
+  else guard(process.argv.length===3,'Unexpected extra arguments');
   const settings=checkSettings();
   if(cmd==='init')return init(settings);
   await check(settings);
+  if(cmd==='backup'||fileCommand||cmd==='restore:test'){
+    guard(process.env.TPS_BACKUP_PASSPHRASE?.length>=24,
+      'Provide unique TPS_BACKUP_PASSPHRASE in the current shell; do not store in Git');
+    const subcommand=cmd==='backup'?'backup':cmd==='backup:verify'?'verify':'restore-test';
+    return commandRun(process.execPath,['scripts/backup-restore.mjs',subcommand,
+      ...(fileCommand?process.argv.slice(3):[])],{env:settings.env});
+  }
   if(cmd==='bootstrap'){
     guard(process.env.TPS_BOOTSTRAP_PASSWORD?.length>=16,
       'Set a private 16+ character TPS_BOOTSTRAP_PASSWORD in the current shell');
