@@ -12,6 +12,26 @@ import {assessReadiness} from './readiness.js';
 import type {Course,Instructor,PlanRequest,PlanResult,Policy,Room} from '../types.js';
 
 const uuid=z.string().uuid();
+/** Bound work before invoking either the greedy baseline or the candidate-limited Java optimizer. */
+export function projectedSectionCount(input:PlanRequest):number{
+  return input.courses.reduce((total,c)=>{
+    if(c.demand===0)return total;
+    if(c.mode==='SELF_PACED')return total+1;
+    const cap=input.policy.capacities[c.mode];
+    const limit=c.theoryHours>0&&c.practicalHours>0?Math.min(cap.theory!,cap.practical!):
+      c.theoryHours>0?cap.theory!:cap.practical!;
+    if(!Number.isFinite(limit)||limit<=0)throw new Error('Invalid course capacity in policy');
+    return total+Math.ceil(c.demand/limit);
+  },0);
+}
+function boundedDraft(input:PlanRequest):PlanResult{
+  validateRequest(input);
+  if(projectedSectionCount(input)>250)throw Object.assign(
+    new Error('Scenario exceeds the 250-section limit of the experimental Timefold candidate solver'),
+    {statusCode:400});
+  return buildDraftPlan(input);
+}
+
 const invalid=(message:string,statusCode=400)=>Object.assign(new Error(message),{statusCode});
 const params=(req:FastifyRequest)=>uuid.parse((req.params as {id:string}).id);
 async function scope(req:FastifyRequest,departmentId:string){
@@ -82,7 +102,7 @@ export async function registerScenarios(app:FastifyInstance):Promise<void>{
     const input=await fromDatabase(v.departmentId,v.termId,v.name,policy);
     validateRequest(input);
     if(!input.courses.length)throw invalid('Import or enter courses first');
-    const result=buildDraftPlan(input);
+    const result=boundedDraft(input);
     const r=await pool.query<{id:string}>(`INSERT INTO scenarios
       (department_id,term_id,name,state,solver_status,input_snapshot,result_snapshot,created_by,policy_revision)
       VALUES($1,$2,$3,'DRAFT','NOT_RUN',$4,$5,$6,$7) RETURNING id`,[
@@ -160,7 +180,7 @@ export async function registerScenarios(app:FastifyInstance):Promise<void>{
   });
   app.post('/api/v1/scenarios/:id/revise',async(req)=>{
     requireEditor(req);const id=params(req),sc=await find(req,id);
-    const result=buildDraftPlan(sc.input_snapshot);
+    const result=boundedDraft(sc.input_snapshot);
     const next=await pool.query<{id:string}>(`INSERT INTO scenarios
       (department_id,term_id,name,state,solver_status,input_snapshot,result_snapshot,created_by,revision,policy_revision)
       VALUES($1,$2,$3,'DRAFT','NOT_RUN',$4,$5,$6,$7,$8) RETURNING id`,[
@@ -198,7 +218,7 @@ export async function registerScenarios(app:FastifyInstance):Promise<void>{
       return override?{...c,demand:override.demand,blocks:override.blocks}:c;
     });
     validateRequest(source);
-    const result=buildDraftPlan(source);
+    const result=boundedDraft(source);
     const next=await pool.query<{id:string}>(`INSERT INTO scenarios
       (department_id,term_id,name,state,solver_status,input_snapshot,result_snapshot,created_by,
        revision,policy_revision,parent_scenario_id)
