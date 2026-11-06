@@ -119,3 +119,63 @@ jobs:
           cat /tmp/tps-vite.log
           exit 1
       - run: TPS_E2E_MOCK=1 npm run e2e --prefix frontend -- phase10-11.spec.ts
+
+  web-e2e-real:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: tps
+          POSTGRES_DB: tps_e2e
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U tps -d tps_e2e"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgres://tps@127.0.0.1:5432/tps_e2e
+      TPS_DB_INTEGRATION: '1'
+      HOST: 127.0.0.1
+      PORT: '8787'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+          cache-dependency-path: solver/pom.xml
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: npm install --ignore-scripts --no-audit
+      - run: npm install --prefix frontend --ignore-scripts --no-audit
+      - run: python -m pip install openpyxl==3.1.5
+      - run: cd frontend && npx playwright install --with-deps chromium
+      - run: npm run build && npm run web:build && npm run solver:build
+      - run: node dist/src/api/migrate.js && node dist/src/api/check.js
+      - run: TPS_ALLOW_SYNTHETIC_SEED=1 node dist/src/api/seed.js
+      - name: Generate isolated test-only browser credentials
+        run: |
+          echo "TPS_TEST_USERNAME=tps_ci_synthetic" >> "$GITHUB_ENV"
+          echo "TPS_TEST_PASSWORD=$(openssl rand -hex 24)" >> "$GITHUB_ENV"
+      - run: TPS_E2E_SYNTHETIC=1 node scripts/ci-e2e-user.mjs
+      - name: Start loopback-only real Fastify/React API
+        run: nohup node dist/src/api/server.js > /tmp/tps-e2e-real.log 2>&1 &
+      - name: Verify real backend and frontend are ready
+        run: |
+          for i in {1..60}; do
+            curl -fsS http://127.0.0.1:8787/health >/dev/null && exit 0
+            sleep 1
+          done
+          tail -n 70 /tmp/tps-e2e-real.log
+          exit 1
+      - run: npm run e2e --prefix frontend -- real-api-journey.spec.ts
