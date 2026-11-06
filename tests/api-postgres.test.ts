@@ -443,6 +443,29 @@ test('authenticated end-to-end workflow persists a synthetic TPS scenario in Pos
     assert.equal(roomCommit.json().imported,1);
     const replay=await csvUpload('rooms','commit',safeCsv,'&importId='+roomPreview.json().importId);
     assert.equal(replay.statusCode,409,'A preview can be committed once only');
+    const {execFileSync}=await import('node:child_process');
+    const python=process.env.TPS_PYTHON??(process.platform==='win32'?'python':'python3');
+    const generated=execFileSync(python,['-c',
+      "import sys,io;from openpyxl import Workbook;w=Workbook();s=w.active;s.title='البيانات';"+
+      "s.append(['code','title','level','department','theoryHours','practicalHours','demand','proposedMode','eligibleModes']);"+
+      "s.append(['XL-"+uniq+"','مقرر Excel اصطناعي',2,'قسم اصطناعي',3,0,0,'ONSITE','ONSITE']);"+
+      "b=io.BytesIO();w.save(b);sys.stdout.buffer.write(b.getvalue())"
+    ],{maxBuffer:1024*1024});
+    const bulkExcelHeaders={cookie:session,'x-csrf-token':csrf,
+      'content-type':'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'};
+    const excelPreview=await app.inject({method:'POST',
+      url:'/api/v1/import/batch/courses/preview?'+scope,
+      headers:bulkExcelHeaders,payload:generated});
+    assert.equal(excelPreview.statusCode,200,excelPreview.body);
+    assert.equal(excelPreview.json().ready,true);
+    const excelCommit=await app.inject({method:'POST',
+      url:'/api/v1/import/batch/courses/commit?'+scope+'&importId='+excelPreview.json().importId,
+      headers:bulkExcelHeaders,payload:generated});
+    assert.equal(excelCommit.statusCode,200,excelCommit.body);
+    assert.equal(excelCommit.json().imported,1,'Actual XLSX course data must be committed');
+    const persistedExcel=await pool.query('SELECT title FROM courses WHERE department_id=$1 AND code=$2',
+      [department.id,'XL-'+uniq]);
+    assert.equal(persistedExcel.rows[0].title,'مقرر Excel اصطناعي');
     const roomRecord=await pool.query('SELECT capacity FROM rooms WHERE college_id=$1 AND code=$2',
       [college.id,'R-IMP-'+uniq]);
     assert.equal(roomRecord.rows[0].capacity,36);
@@ -503,7 +526,7 @@ test('authenticated end-to-end workflow persists a synthetic TPS scenario in Pos
     assert.equal(demandRecord.rows[0].source,'Academic forecast');
     const committedJobs=await pool.query(`SELECT count(*)::int AS n FROM import_jobs
       WHERE created_by=(SELECT id FROM users WHERE username=$1) AND status='COMMITTED'`,[username]);
-    assert.equal(committedJobs.rows[0].n,5,'All five bulk entities committed after separate previews');
+    assert.equal(committedJobs.rows[0].n,6,'Five bulk entity kinds plus actual XLSX import each committed once');
 
     const next=await write('/scenarios/'+created.id+'/revise',{});
     assert.equal(next.revision,2);
