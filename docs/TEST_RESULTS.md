@@ -57,3 +57,12 @@ After commit `28f64044`, development continued with schema 0004, academic UI, de
 - **Interpretation:** the measured gain is from candidate-space quality, not increased room inventory or a claim of global optimum. Tests validate one synthetic feasible fixture; additional larger and adversarial configurations, stable repeated runs, all hard/soft constraints and real-world data remain to be verified.
 - **Not tested locally:** the user's Windows checkout `H:\\tps_system`, Docker restart persistence, all 20 real-API browser journey steps, official institutional policies or real trainee records.
 - Subsequent documentation-only commits require a HEAD-matching CI pass before reporting a final green branch. No main merge or remote deployment.
+
+## Additional larger Timefold workload (2026-11-06)
+
+- Commit `d4a7fa6d279a0b4e606eb8e0feaa336632f51c70`; GitHub Actions run **42262168587**: **SUCCESS (all six jobs)**.
+- PostgreSQL/Java job logs show the real JAR tests:
+  - **25 courses, 6 trainers, 20 rooms, 4 levels, 20 blocks**: 25 sections / 25 sessions / **0 gaps**; **3985 ms**; Node RSS **64 MB**.
+  - **50 courses, 12 trainers, 30 rooms, 6 levels, 30 blocks**: 50 sections / 50 sessions / **0 gaps**; **4155 ms**; Node RSS **69 MB**.
+- These values come from CI's synthetic feasibility smoke, not repeated production benchmarks or full end-to-end browser acceptance. Java child memory is **not** fully captured by Node RSS; do not present these RSS values as total solution-process memory consumption.
+- Run sources: `tests/scenario-scale.test.ts`, `.github/workflows/ci.yml` and Actions logs. The Windows device has **not** been tested.
