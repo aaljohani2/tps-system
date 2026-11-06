@@ -175,12 +175,47 @@ test('authenticated end-to-end workflow persists a synthetic TPS scenario in Pos
     const readiness=await app.inject({url:'/api/v1/scenarios/'+created.id+'/readiness',headers:{cookie:session}});
     assert.equal(readiness.statusCode,200,readiness.body);
     assert.equal(readiness.json().technicalReady,true,JSON.stringify(readiness.json().issues));
+    // Manual rescheduling must be transactional, versioned and fail closed.
+    const existingSession=solve.result.sessions[0];
+    const originalStart=existingSession.start;
+    const editBody={editVersion:0,day:'TUE',start:9.5,roomId:'R-1',
+      instructorId:'INS-1',reason:'Synthetic timetable adjustment with audit'};
+    const withoutCsrf=await app.inject({method:'PATCH',
+      url:'/api/v1/scenarios/'+created.id+'/sessions/'+encodeURIComponent(existingSession.id),
+      headers:{cookie:session},payload:editBody});
+    assert.equal(withoutCsrf.statusCode,403,'Manual edit must require CSRF');
+    const invalidManual=await app.inject({method:'PATCH',
+      url:'/api/v1/scenarios/'+created.id+'/sessions/'+encodeURIComponent(existingSession.id),
+      headers:{cookie:session,'x-csrf-token':csrf},payload:{...editBody,start:10.25}});
+    assert.equal(invalidManual.statusCode,400,'Quarter-hour schedules are not allowed');
+    const validManual=await app.inject({method:'PATCH',
+      url:'/api/v1/scenarios/'+created.id+'/sessions/'+encodeURIComponent(existingSession.id),
+      headers:{cookie:session,'x-csrf-token':csrf},payload:editBody});
+    assert.equal(validManual.statusCode,200,validManual.body);
+    assert.equal(validManual.json().editVersion,1);
+    assert.equal(validManual.json().session.start,9.5);
+    const stale=await app.inject({method:'PATCH',
+      url:'/api/v1/scenarios/'+created.id+'/sessions/'+encodeURIComponent(existingSession.id),
+      headers:{cookie:session,'x-csrf-token':csrf},payload:editBody});
+    assert.equal(stale.statusCode,409,'Stale edits cannot overwrite a concurrent change');
+    const editLog=await app.inject({url:'/api/v1/scenarios/'+created.id+'/edits',headers:{cookie:session}});
+    assert.equal(editLog.statusCode,200,editLog.body);
+    assert.equal(editLog.json()[0].edit_version,1);
+    assert.equal(editLog.json()[0].before_snapshot.start,originalStart);
+    const savedEdit=await pool.query('SELECT edit_version,result_snapshot FROM scenarios WHERE id=$1',[created.id]);
+    assert.equal(savedEdit.rows[0].edit_version,1);
+    assert.equal(savedEdit.rows[0].result_snapshot.sessions[0].start,9.5);
     await write('/scenarios/'+created.id+'/review',{});
     const approved=await write('/scenarios/'+created.id+'/approve',{});
     assert.equal(approved.state,'APPROVED');
     const persisted=await pool.query('SELECT state,approved_snapshot FROM scenarios WHERE id=$1',[created.id]);
     assert.equal(persisted.rows[0]?.state,'APPROVED');
     assert.ok(persisted.rows[0]?.approved_snapshot?.result);
+    const approvedImmutable=await app.inject({method:'PATCH',
+      url:'/api/v1/scenarios/'+created.id+'/sessions/'+encodeURIComponent(existingSession.id),
+      headers:{cookie:session,'x-csrf-token':csrf},
+      payload:{...editBody,editVersion:1,start:10}});
+    assert.equal(approvedImmutable.statusCode,409,'Approved timetable must be immutable');
     const exportCsv=await app.inject({url:'/api/v1/scenarios/'+created.id+'/export.csv',headers:{cookie:session}});
     assert.equal(exportCsv.statusCode,200,exportCsv.body);
     assert.match(exportCsv.body,/TEST-101/);
