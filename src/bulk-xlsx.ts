@@ -12,7 +12,10 @@ const script=resolve(root,'scripts/bulk_xlsx.py');
 const python=()=>process.env.TPS_PYTHON??(process.platform==='win32'?'python':'python3');
 async function run(args:string[],maxBuffer=8*1024*1024){
   try{return await exec(python(),[script,...args],{cwd:root,timeout:20_000,
-    maxBuffer,encoding:'buffer',windowsHide:true});}
+    maxBuffer,encoding:'buffer',windowsHide:true,
+    // Force UTF-8 for child output even on Windows cp1252/cp1256 consoles.
+    // Preserve unrelated environment variables; never require an operator workaround.
+    env:{...process.env,PYTHONUTF8:'1',PYTHONIOENCODING:'utf-8'}});}
   catch(e){
     const err=e as Error&{stderr?:Buffer;code?:string};
     if(err.code==='ENOENT')throw new Error('Python not found');
