@@ -43,3 +43,7 @@ Both keys are optional; bounds are 1–30 seconds and 1–24 candidates per trai
 - User-role and delivery-mode approval are **internal planning controls** and do not confer official training authority.
 - The old lowercase `docs/api.md` describes the historic v0.2 prototype; this file documents the current local V1 API.
 - API results in CI use synthetic fixtures; the unmocked 20-step browser journey and Windows acceptance remain outstanding.
+
+## Resource archive/restore (migration 0014)
+
+`PATCH /courses/:id/lifecycle`, `PATCH /instructors/:id/lifecycle` and `PATCH /rooms/:id/lifecycle` with JSON `{"active":false,"reason":"At least eight characters"}` or `active:true` for restoration. Requires role, scope and CSRF; shared college rooms require college-level edit permission. All state transitions and audit writes are in one transaction; no permanent deletion occurs. Attempts to repeat the same state return HTTP 409. A course in an ACTIVE curriculum version cannot be archived. GET `/courses`, `/instructors` and `/rooms` exclude inactive rows by default; `includeArchived=true` shows them within the same authorized scope. Existing scenarios/approved snapshots are immutable. New scenarios fail clearly if a locked trainer is inactive.
