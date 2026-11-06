@@ -134,8 +134,7 @@ test('authenticated end-to-end workflow persists a synthetic TPS scenario in Pos
       return response.json();
     };
     const updatedTrainer=await patch('/instructors/'+trainer.id,{maxLoad:20,
-      available:[{day:'SUN',from:8,to:16}],allowedModes:['ONSITE','REMOTE'],
-      overload:{additionalHours:2,reason:'Synthetic approved extra load'}});
+      available:[{day:'SUN',from:8,to:16}],allowedModes:['ONSITE','REMOTE']});
     assert.equal(Number(updatedTrainer.maxLoad),20);
     const updatedRoom=await patch('/rooms/'+room.id,{capacity:50,building:'T1'});
     assert.equal(updatedRoom.capacity,50);
@@ -161,6 +160,37 @@ test('authenticated end-to-end workflow persists a synthetic TPS scenario in Pos
     assert.equal(injectedPolicy.statusCode,400,'Policy override must be rejected');
     const created=await write('/scenarios',{departmentId:department.id,termId:term.id,name:'مسودة اصطناعية'});
     assert.equal(created.result.metrics.sectionCount,1);
+    const forbiddenDirectOverload=await app.inject({method:'PATCH',url:'/api/v1/instructors/'+trainer.id,
+      headers:{cookie:session,'x-csrf-token':csrf},
+      payload:{overload:{additionalHours:2,reason:'Unapproved attempt'}}});
+    assert.equal(forbiddenDirectOverload.statusCode,400,
+      'No editor may grant extra load directly on the master instructor record');
+    const exception=await write('/load-exceptions',{instructorId:trainer.id,termId:term.id,
+      additionalHours:2,reason:'Synthetic documented temporary teaching load'});
+    assert.equal(exception.state,'PENDING');
+    const beforeDecision=await pool.query('SELECT input_snapshot FROM scenarios WHERE id=$1',[created.id]);
+    assert.equal(beforeDecision.rows[0].input_snapshot.instructors[0].overload,undefined,
+      'Unapproved load must not enter existing scenario snapshot');
+    const noHeadApproval=await app.inject({method:'POST',
+      url:'/api/v1/load-exceptions/'+exception.id+'/decision',
+      headers:{cookie:limitedCookie,'x-csrf-token':limitedCsrf},
+      payload:{decision:'APPROVED',reason:'Unauthorized department approval'}});
+    assert.equal(noHeadApproval.statusCode,403,'Department editor cannot approve own load exception');
+    const approval=await write('/load-exceptions/'+exception.id+'/decision',
+      {decision:'APPROVED',reason:'Approved for synthetic test semester'});
+    assert.equal(approval.state,'APPROVED');
+    const future=await write('/scenarios',{departmentId:department.id,termId:term.id,name:'Synthetic approved load'});
+    const approvedLoad=future.result.instructorLoads.find((i:{id:string})=>i.id==='INS-1');
+    assert.equal(approvedLoad.approvedException,2);
+    const futureRow=await pool.query('SELECT input_snapshot FROM scenarios WHERE id=$1',[future.id]);
+    assert.equal(futureRow.rows[0].input_snapshot.instructors[0].overload.additionalHours,2);
+    const priorUnchanged=await pool.query('SELECT input_snapshot FROM scenarios WHERE id=$1',[created.id]);
+    assert.equal(priorUnchanged.rows[0].input_snapshot.instructors[0].overload,undefined);
+    const repeatApproval=await app.inject({method:'POST',
+      url:'/api/v1/load-exceptions/'+exception.id+'/decision',
+      headers:{cookie:session,'x-csrf-token':csrf},
+      payload:{decision:'APPROVED',reason:'Duplicate decision blocked'}});
+    assert.equal(repeatApproval.statusCode,409);
     const policySnapshot=await pool.query('SELECT policy_revision,input_snapshot FROM scenarios WHERE id=$1',[created.id]);
     assert.equal(policySnapshot.rows[0]?.policy_revision,1);
     assert.deepEqual(policySnapshot.rows[0]?.input_snapshot.policy.enabledModes,['ONSITE','REMOTE']);
