@@ -190,6 +190,14 @@ test('authenticated end-to-end workflow persists a synthetic TPS scenario in Pos
     assert.equal(structured.result.sections.length,1);
     assert.equal(structured.result.sections[0].students,20);
     assert.equal(structured.result.sections[0].blockId,'GROUP-'+uniq+'::B1');
+    const dashboard=await app.inject({url:'/api/v1/dashboard?departmentId='+department.id+'&termId='+term.id,
+      headers:{cookie:session}});
+    assert.equal(dashboard.statusCode,200,dashboard.body);
+    assert.equal(dashboard.json().counts.programs,1);
+    assert.equal(dashboard.json().counts.cohorts,1);
+    assert.equal(dashboard.json().counts.blocks,1);
+    assert.equal(dashboard.json().demand.projected,20);
+    assert.equal(dashboard.json().demand.assignedBlocks,20);
     const structuredRow=await pool.query('SELECT input_snapshot FROM scenarios WHERE id=$1',[structured.id]);
     assert.deepEqual(structuredRow.rows[0]?.input_snapshot.courses[0].blockSizes,[20]);
     const mismatchSet=await app.inject({method:'PUT',url:'/api/v1/demand',headers:{cookie:session,'x-csrf-token':csrf},
