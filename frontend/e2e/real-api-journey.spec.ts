@@ -38,7 +38,8 @@ test('real local TPS journey: auth, academic context, scheduling, Timefold, revi
   // The UI uses the new non-blocking route; the browser observes real progress.
   await page.getByRole('button',{name:'تشغيل Timefold',exact:true}).click();
   await expect(page.locator('.status').first()).toContainText('COMPLETED',{timeout:45000});
-  await expect(page.getByText('Timefold يعالج البدائل').or(page.getByText('مكتمل')).first()).toBeVisible();
+  await page.getByText('سجل عمليات Timefold ونتائج المحرك').click();
+  await expect(page.getByRole('cell',{name:'مكتمل'}).first()).toBeVisible();
   await expect(page.getByText('TPS-TEST-101').first()).toBeVisible();
 
   await page.getByRole('button',{name:'إرسال للمراجعة'}).click();
