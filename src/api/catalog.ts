@@ -1,6 +1,6 @@
 import type {FastifyInstance,FastifyRequest} from 'fastify';
 import {z} from 'zod';
-import {eq} from 'drizzle-orm';
+import {and,eq} from 'drizzle-orm';
 import {db,pool,institutions,colleges,departments,terms,courses,instructors,rooms} from './database.js';
 import {audit,allowedCollege,allowedDepartment,requireEditor} from './security.js';
 import {importCurriculumCsv} from '../importer.js';
@@ -111,7 +111,8 @@ export async function registerCatalog(app:FastifyInstance){
   });
   app.get('/api/v1/courses',async(req)=>{
     const departmentId=uuid.parse(query(req,'departmentId'));await assertDepartment(req,departmentId);
-    return db.select().from(courses).where(eq(courses.departmentId,departmentId));
+    return db.select().from(courses).where(query(req,'includeArchived')==='true'?
+      eq(courses.departmentId,departmentId):and(eq(courses.departmentId,departmentId),eq(courses.active,true)));
   });
   app.post('/api/v1/courses',async(req)=>{
     requireEditor(req);const v=parse(course,req.body);await assertDepartment(req,v.departmentId);
@@ -181,7 +182,8 @@ export async function registerCatalog(app:FastifyInstance){
   });
   app.get('/api/v1/instructors',async(req)=>{
     const departmentId=uuid.parse(query(req,'departmentId'));await assertDepartment(req,departmentId);
-    return db.select().from(instructors).where(eq(instructors.departmentId,departmentId));
+    return db.select().from(instructors).where(query(req,'includeArchived')==='true'?
+      eq(instructors.departmentId,departmentId):and(eq(instructors.departmentId,departmentId),eq(instructors.active,true)));
   });
   app.post('/api/v1/instructors',async(req)=>{
     requireEditor(req);const v=parse(instructor.omit({overload:true}).strict(),req.body);await assertDepartment(req,v.departmentId);
@@ -206,7 +208,8 @@ export async function registerCatalog(app:FastifyInstance){
   });
   app.get('/api/v1/rooms',async(req)=>{
     const collegeId=uuid.parse(query(req,'collegeId'));await assertCollege(req,collegeId);
-    return db.select().from(rooms).where(eq(rooms.collegeId,collegeId));
+    return db.select().from(rooms).where(query(req,'includeArchived')==='true'?
+      eq(rooms.collegeId,collegeId):and(eq(rooms.collegeId,collegeId),eq(rooms.active,true)));
   });
   app.post('/api/v1/rooms',async(req)=>{
     requireCollegeEditor(req);
@@ -226,6 +229,49 @@ export async function registerCatalog(app:FastifyInstance){
     const updated=await db.update(rooms).set(v).where(eq(rooms.id,id)).returning();
     await audit(req.principal!.id,'UPDATE','ROOM',id,{fields:Object.keys(v)});
     return updated[0];
+  });
+
+  // Reversible lifecycle operations; never delete records referenced by past snapshots,
+  // curricula, saved edits or approved schedules. Only future scenario inputs change.
+  const lifecycle=z.object({active:z.boolean(),reason:z.string().trim().min(8).max(1000)}).strict();
+  app.patch('/api/v1/courses/:id/lifecycle',async(req)=>{
+    requireEditor(req);
+    const id=uuid.parse((req.params as {id:string}).id),v=parse(lifecycle,req.body);
+    const old=await pool.query<{department_id:string;is_active:boolean}>(
+      'SELECT department_id,is_active FROM courses WHERE id=$1',[id]);
+    if(!old.rowCount)throw Object.assign(new Error('Course not found'),{statusCode:404});
+    await assertDepartment(req,old.rows[0]!.department_id);
+    if(old.rows[0]!.is_active===v.active)
+      throw Object.assign(new Error('Course already has this lifecycle state'),{statusCode:409});
+    const updated=await pool.query('UPDATE courses SET is_active=$2,updated_at=now() WHERE id=$1 RETURNING id,is_active',[id,v.active]);
+    await audit(req.principal!.id,v.active?'RESTORE_COURSE':'ARCHIVE_COURSE','COURSE',id,{reason:v.reason});
+    return updated.rows[0];
+  });
+  app.patch('/api/v1/instructors/:id/lifecycle',async(req)=>{
+    requireEditor(req);
+    const id=uuid.parse((req.params as {id:string}).id),v=parse(lifecycle,req.body);
+    const old=await pool.query<{department_id:string;is_active:boolean}>(
+      'SELECT department_id,is_active FROM instructors WHERE id=$1',[id]);
+    if(!old.rowCount)throw Object.assign(new Error('Instructor not found'),{statusCode:404});
+    await assertDepartment(req,old.rows[0]!.department_id);
+    if(old.rows[0]!.is_active===v.active)
+      throw Object.assign(new Error('Instructor already has this lifecycle state'),{statusCode:409});
+    const updated=await pool.query('UPDATE instructors SET is_active=$2,updated_at=now() WHERE id=$1 RETURNING id,is_active',[id,v.active]);
+    await audit(req.principal!.id,v.active?'RESTORE_INSTRUCTOR':'ARCHIVE_INSTRUCTOR','INSTRUCTOR',id,{reason:v.reason});
+    return updated.rows[0];
+  });
+  app.patch('/api/v1/rooms/:id/lifecycle',async(req)=>{
+    requireCollegeEditor(req);
+    const id=uuid.parse((req.params as {id:string}).id),v=parse(lifecycle,req.body);
+    const old=await pool.query<{college_id:string;is_active:boolean}>(
+      'SELECT college_id,is_active FROM rooms WHERE id=$1',[id]);
+    if(!old.rowCount)throw Object.assign(new Error('Room not found'),{statusCode:404});
+    await assertCollege(req,old.rows[0]!.college_id);
+    if(old.rows[0]!.is_active===v.active)
+      throw Object.assign(new Error('Room already has this lifecycle state'),{statusCode:409});
+    const updated=await pool.query('UPDATE rooms SET is_active=$2,updated_at=now() WHERE id=$1 RETURNING id,is_active',[id,v.active]);
+    await audit(req.principal!.id,v.active?'RESTORE_ROOM':'ARCHIVE_ROOM','ROOM',id,{reason:v.reason});
+    return updated.rows[0];
   });
   app.post('/api/v1/import/courses/preview',async(req)=>{
     requireEditor(req);
