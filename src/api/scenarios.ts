@@ -6,6 +6,7 @@ import {defaultPolicy} from '../policy.js';
 import {buildDraftPlan} from '../planner.js';
 import {optimizeWithTimefold} from '../optimizer.js';
 import {validateRequest} from '../validation.js';
+import {exportScenarioXlsx} from './excel.js';
 import type {Course,Instructor,PlanRequest,PlanResult,Policy,Room} from '../types.js';
 
 const uuid=z.string().uuid();
@@ -169,6 +170,13 @@ export async function registerScenarios(app:FastifyInstance):Promise<void>{
     reply.header('content-type','text/csv; charset=utf-8');
     reply.header('content-disposition','attachment; filename="tps-schedule.csv"');
     return '\uFEFF'+lines.join('\r\n')+'\r\n';
+  });
+  app.get('/api/v1/scenarios/:id/export.xlsx',async(req,reply)=>{
+    const scenario=await find(req,params(req));
+    const bytes=await exportScenarioXlsx(scenario.result_snapshot);
+    reply.header('content-type','application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    reply.header('content-disposition','attachment; filename="tps-schedule.xlsx"');
+    return reply.send(bytes);
   });
   app.get('/api/v1/scenarios/compare',async(req)=>{
     const ids=(req.query as {ids?:string}).ids?.split(',')??[];

@@ -20,6 +20,7 @@ export async function createApp(){
   });
   await app.register(swagger,{openapi:{info:{title:'TPS Local API',version:'1.0.0-dev'},
     servers:[{url:'http://127.0.0.1:8787'}]}});
+  app.addContentTypeParser('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',{parseAs:'buffer'},(_req,body,done)=>done(null,body));
   await registerSecurity(app);
   await registerCatalog(app);
   await registerScenarios(app);
