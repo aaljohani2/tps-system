@@ -32,3 +32,13 @@ Invalid data return `400 {"error":"..."}`. JSON bigger than `MAX_REQUEST_BYTES` 
 `/optimize` takes the exact `PlanRequest` from `/preview`. Local Java 21 and built JAR are required. Returns the same `PlanResult` shape with an explicit solver notice, or `503` if the solver is missing / invalid / times out. `timefold.v1` internal JSON is documented in `docs/timefold-integration.md`. A candidate pool constrains the optimization search space; global optimality is not asserted.
 
 `/catalog/import-csv` accepts `Content-Type: text/csv`, requires a schema with Arabic training-course headers, and returns `tps.catalog.v1` with `courses`, `ignored`, `warnings`. Never infer registration numbers or authorize remote teaching from an imported catalog.
+
+
+### `POST /api/v1/catalog/import-xlsx` — v0.3 local development only
+
+- Accepts raw `.xlsx` body with `Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`.
+- Maximum request 5 MiB by default; returned payload `tps.catalog.v1` includes course-level demand from sheet `المقررات`.
+- Requires Python 3 and `openpyxl` on the **server**, invokes `scripts/import_xlsx.py` in a child process and removes its temporary copy.
+- Returns `400` for invalid workbook, `413` for excessive request size, `415` for wrong content type, `503` if Python/OpenPyXL is unavailable.
+- No personal learner fields, session storage or direct Rayat upload. **Not suitable for public deployment without auth/RBAC and file scan controls.**
+- `GET /templates/courses.xlsx` and `GET /templates/curriculum.csv` download filled example templates for term 144720.
