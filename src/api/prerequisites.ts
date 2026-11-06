@@ -33,6 +33,10 @@ export async function registerPrerequisites(app:FastifyInstance){
       await client.query('BEGIN');
       // Serialize modifications to the same department to avoid concurrent cycle creation.
       await client.query('SELECT pg_advisory_xact_lock(hashtext($1))',['prereq:'+owner]);
+      const active=await client.query(`SELECT 1 FROM curriculum_items ci
+        JOIN curriculum_plans cp ON cp.id=ci.plan_id
+        WHERE ci.course_id=$1 AND cp.state='ACTIVE' LIMIT 1 FOR SHARE OF cp`,[v.courseId]);
+      if(active.rowCount)throw fail('Active curricula cannot change prerequisites; create a new draft plan',409);
       const cycle=await client.query(`WITH RECURSIVE chain(course_id) AS (
         SELECT prerequisite_course_id FROM course_prerequisites WHERE course_id=$1
         UNION SELECT p.prerequisite_course_id FROM course_prerequisites p
@@ -55,14 +59,33 @@ export async function registerPrerequisites(app:FastifyInstance){
   app.delete('/api/v1/prerequisites/:id',async(req)=>{
     requireEditor(req);
     const id=uid.parse((req.params as {id:string}).id);
-    const row=await pool.query<{department_id:string}>(`SELECT c.department_id FROM course_prerequisites p
+    const row=await pool.query<{department_id:string;course_id:string}>(`
+      SELECT c.department_id,p.course_id FROM course_prerequisites p
       JOIN courses c ON c.id=p.course_id WHERE p.id=$1`,[id]);
     if(!row.rows[0])throw fail('Prerequisite not found',404);
-    if(!await allowedDepartment(req.principal!,row.rows[0].department_id))throw fail('Scope denied',403);
-    await pool.query('DELETE FROM course_prerequisites WHERE id=$1',[id]);
-    await pool.query(`INSERT INTO audit_logs(user_id,action,entity_type,entity_id)
-      VALUES($1,'DELETE','COURSE_PREREQUISITE',$2)`,[req.principal!.id,id]);
-    return {ok:true};
+    if(!await allowedDepartment(req.principal!,row.rows[0].department_id))
+      throw fail('Scope denied',403);
+    const client=await pool.connect();
+    try{
+      await client.query('BEGIN');
+      await client.query('SELECT pg_advisory_xact_lock(hashtext($1))',
+        ['prereq:'+row.rows[0].department_id]);
+      const locked=await client.query<{course_id:string}>(`
+        SELECT course_id FROM course_prerequisites WHERE id=$1 FOR UPDATE`,[id]);
+      if(!locked.rows[0])throw fail('Prerequisite no longer exists',409);
+      const active=await client.query(`SELECT 1 FROM curriculum_items ci
+        JOIN curriculum_plans cp ON cp.id=ci.plan_id
+        WHERE ci.course_id=$1 AND cp.state='ACTIVE' LIMIT 1 FOR SHARE OF cp`,[
+        locked.rows[0].course_id
+      ]);
+      if(active.rowCount)throw fail('Cannot modify prerequisite of an active plan',409);
+      await client.query('DELETE FROM course_prerequisites WHERE id=$1',[id]);
+      await client.query(`INSERT INTO audit_logs(user_id,action,entity_type,entity_id)
+        VALUES($1,'DELETE','COURSE_PREREQUISITE',$2)`,[req.principal!.id,id]);
+      await client.query('COMMIT');
+      return {ok:true};
+    }catch(e){await client.query('ROLLBACK');throw e;}
+    finally{client.release();}
   });
   app.post('/api/v1/plans/:id/activate',async(req)=>{
     if(!canApprove(req.principal!))throw fail('Approver required',403);
