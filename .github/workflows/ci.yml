@@ -220,3 +220,68 @@ jobs:
           # A deliberately failed child process is expected. A native exit
           # code can otherwise leak through the GitHub Windows PowerShell step.
           $global:LASTEXITCODE = 0
+
+  backup-restore-drill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm ci --ignore-scripts --no-audit
+      - name: Create disposable local PostgreSQL settings and encryption key
+        shell: bash
+        run: |
+          set -euo pipefail
+          DBPASS="$(openssl rand -hex 24)"
+          KEY="$(openssl rand -hex 32)"
+          echo "::add-mask::$DBPASS"
+          echo "::add-mask::$KEY"
+          echo "TPS_BACKUP_PASSPHRASE=$KEY" >> "$GITHUB_ENV"
+          printf 'TPS_DB_USER=tps\nTPS_DB_NAME=tps_backup_ci\nTPS_DB_PASSWORD=%s\nTPS_DB_PORT=54329\nDATABASE_URL=postgres://tps:%s@127.0.0.1:54329/tps_backup_ci\n' "$DBPASS" "$DBPASS" > .env
+      - name: Start synthetic isolated PostgreSQL 17
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker compose up -d postgres
+          for i in {1..45}; do
+            if docker compose exec -T postgres pg_isready -U tps -d tps_backup_ci; then exit 0; fi
+            sleep 2
+          done
+          docker compose ps
+          exit 1
+      - name: Migrate, seed synthetic data and snapshot encrypted archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run db:migrate
+          TPS_ALLOW_SYNTHETIC_SEED=1 npm run db:seed
+          npm run db:backup
+          test "$(find private-data/backups -maxdepth 1 -type f -name '*.tpsbak' | wc -l)" -eq 1
+          test "$(find private-data/backups -maxdepth 1 -type f -name '*.partial' | wc -l)" -eq 0
+      - name: Verify integrity and restore to NEW isolated database
+        shell: bash
+        run: |
+          set -euo pipefail
+          ARCHIVE="$(find private-data/backups -maxdepth 1 -type f -name '*.tpsbak' -print -quit)"
+          npm run db:backup:verify -- --file "$ARCHIVE"
+          npm run db:restore:test -- --file "$ARCHIVE"
+          test "$(docker compose exec -T postgres psql -U tps -d tps_backup_ci -At -c 'SELECT count(*) FROM schema_migrations')" -ge 14
+          git diff --exit-code
+      - name: Reject altered encrypted backup without writing production data
+        shell: bash
+        run: |
+          set -euo pipefail
+          ARCHIVE="$(find private-data/backups -maxdepth 1 -type f -name '*.tpsbak' -print -quit)"
+          TAMPER="${ARCHIVE%.tpsbak}_tampered.tpsbak"
+          cp "$ARCHIVE" "$TAMPER"
+          node --input-type=module -e 'import fs from "node:fs"; const p=process.argv[1];const b=fs.readFileSync(p);b[40]^=0xff;fs.writeFileSync(p,b)' "$TAMPER"
+          if npm run db:backup:verify -- --file "$TAMPER"; then
+            echo "Integrity failure: modified ciphertext was accepted"
+            exit 1
+          fi
+          echo "Authenticated archive correctly rejected tampering"
+      - name: Leave synthetic CI Docker container (no persistent real data)
+        if: always()
+        run: docker compose down || true
