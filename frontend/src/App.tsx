@@ -64,7 +64,7 @@ function ContextSetup({context,setContext,notify}:{context:Context;setContext:(c
     </details>
   </section>;
 }
-function CoursePage({ctx,notify}:{ctx:Context;notify:Message}){
+function CoursePage({ctx,user,notify}:{ctx:Context;user:Auth;notify:Message}){
   const qc=useQueryClient(),q=useQuery({queryKey:['courses',ctx.departmentId],queryFn:()=>api<Entity[]>('/courses?departmentId='+ctx.departmentId),enabled:!!ctx.departmentId});
   const [csv,setCsv]=useState(''),[file,setFile]=useState<File|null>(null),[preview,setPreview]=useState<{courses:Entity[];warnings:string[];ignored:unknown[]}|null>(null);
   const [code,setCode]=useState(''),[title,setTitle]=useState(''),[level,setLevel]=useState(1),[theory,setTheory]=useState(2),[practical,setPractical]=useState(0);
@@ -76,7 +76,7 @@ function CoursePage({ctx,notify}:{ctx:Context;notify:Message}){
   }
   return <section className="panel">
     <h2>٢. استيراد وإدارة المقررات</h2>
-    <p className="hint">ارفع Excel أو CSV للخطة، وعاين المقررات والأخطاء قبل التأكيد. يحتفظ النظام بالطلب السابق عند تحديث مقررات موجودة.</p>
+    <p className="hint">ارفع Excel أو CSV للخطة، وعاين المقررات والأخطاء قبل التأكيد. يحتفظ النظام بالطلب السابق عند تحديث مقررات موجودة. تغيير نمط المقرر يتطلب أهلية معتمدة مستقلة، واعتماد سياسة الفصل.</p>
     <div className="actions"><a href="/api/v1/import/courses/template.csv">قالب CSV</a>
       <a href="/api/v1/import/courses/template.xlsx">قالب Excel</a>
       <input type="file" accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={pick}/>
@@ -106,18 +106,32 @@ function CoursePage({ctx,notify}:{ctx:Context;notify:Message}){
         <button onClick={()=>run(()=>post('/courses',{departmentId:ctx.departmentId,code,title,level,theoryHours:theory,practicalHours:practical,demand:0}))}>إضافة المقرر</button>
       </div></details>
     <div className="table-wrap"><table><thead><tr><th>المقرر</th><th>المستوى</th><th>النظري</th><th>العملي</th><th>الطلب</th><th>البلوكات</th><th>النمط</th><th></th></tr></thead>
-    <tbody>{(q.data??[]).map(c=><CourseRow key={c.id} item={c} save={data=>run(()=>api('/courses/'+c.id,{method:'PATCH',body:JSON.stringify(data)}))}/>)}</tbody></table></div>
+    <tbody>{(q.data??[]).map(c=><CourseRow key={c.id} item={c}
+      canApprove={['SYSTEM_ADMIN','COLLEGE_ADMIN'].includes(user.role)}
+      save={data=>run(()=>api('/courses/'+c.id,{method:'PATCH',body:JSON.stringify(data)}))}
+      approve={data=>run(()=>api('/courses/'+c.id+'/eligibility',{method:'PUT',body:JSON.stringify(data)}))}/>)}</tbody></table></div>
   </section>;
 }
-function CourseRow({item,save}:{item:Entity;save:(d:unknown)=>void}){
+function CourseRow({item,save,approve,canApprove}:{item:Entity;save:(d:unknown)=>void;approve:(d:unknown)=>void;canApprove:boolean}){
   const [demand,setDemand]=useState(Number(item.demand??0)),[blocks,setBlocks]=useState((item.blocks as string[]|undefined)?.join(',')??'');
   const [mode,setMode]=useState(String(item.mode??'ONSITE'));
+  const existing=(item.eligibleModes??['ONSITE']) as string[];
+  const [eligibility,setEligibility]=useState<string[]>(existing);
+  const [reason,setReason]=useState('');
   return <tr><td><strong>{String(item.title)}</strong><small>{item.code}</small></td><td>{String(item.level)}</td>
     <td>{String(item.theoryHours)}</td><td>{String(item.practicalHours)}</td>
     <td><input className="small" type="number" min="0" value={demand} onChange={e=>setDemand(+e.target.value)}/></td>
     <td><input className="medium" placeholder="BLK-1,BLK-2..." value={blocks} onChange={e=>setBlocks(e.target.value)}/></td>
-    <td><select value={mode} onChange={e=>setMode(e.target.value)}>{Object.entries(labels).map(([key,label])=><option key={key} value={key}>{label}</option>)}</select></td>
-    <td><button onClick={()=>save({demand,blocks:blocks.split(',').map(x=>x.trim()).filter(Boolean),mode,eligibleModes:[mode]})}>حفظ</button></td>
+    <td><select value={mode} onChange={e=>setMode(e.target.value)}>{Object.entries(labels).map(([key,label])=>
+      <option key={key} value={key} disabled={!existing.includes(key)}>{label}{existing.includes(key)?'':' (غير مؤهل)'}</option>)}</select>
+      {canApprove&&<details style={{minWidth:210}}><summary>اعتماد أهلية المقرر</summary>
+        <div className="actions">{Object.entries(labels).map(([key,label])=><label key={key} style={{flexDirection:'row',alignItems:'center'}}>
+          <input type="checkbox" checked={eligibility.includes(key)} onChange={e=>
+            setEligibility(a=>e.target.checked?[...a,key]:a.filter(x=>x!==key))}/>{label}</label>)}</div>
+        <label>مبرر اعتماد الأهلية<input value={reason} onChange={e=>setReason(e.target.value)}/></label>
+        <button disabled={reason.trim().length<8} onClick={()=>approve({eligibleModes:eligibility,reason})}>حفظ الأهلية المعتمدة</button>
+      </details>}</td>
+    <td><button onClick={()=>save({demand,blocks:blocks.split(',').map(x=>x.trim()).filter(Boolean),mode})}>حفظ</button></td>
   </tr>;
 }
 function ResourcesPage({ctx,notify}:{ctx:Context;notify:Message}){
@@ -274,7 +288,7 @@ export default function App(){
     {message&&<div className="toast" role="status" onClick={()=>notify('')}>{message} <button aria-label="إغلاق">×</button></div>}
     <Routes><Route path="/" element={<Navigate to="/context" replace/>}/>
     <Route path="/context" element={<ContextSetup context={ctx} setContext={setCtx} notify={notify}/>}/>
-    <Route path="/courses" element={ctx.departmentId?<CoursePage ctx={ctx} notify={notify}/>:<NeedContext/>}/>
+    <Route path="/courses" element={ctx.departmentId?<CoursePage ctx={ctx} user={user} notify={notify}/>:<NeedContext/>}/>
     <Route path="/resources" element={ctx.departmentId?<ResourcesEditor ctx={ctx} user={user} notify={notify}/>:<NeedContext/>}/>
     <Route path="/policy" element={ctx.termId&&ctx.departmentId?<PolicyPage ctx={ctx} user={user} notify={notify}/>:<NeedContext/>}/>
     <Route path="/scheduling" element={ctx.termId&&ctx.departmentId?<ScenarioPage ctx={ctx} notify={notify}/>:<NeedContext/>}/>
