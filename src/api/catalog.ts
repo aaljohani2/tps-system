@@ -102,12 +102,37 @@ export async function registerCatalog(app:FastifyInstance){
   });
   app.patch('/api/v1/courses/:id',async(req)=>{
     requireEditor(req);const id=uuid.parse((req.params as {id:string}).id);
-    const old=await pool.query<{department_id:string}>('SELECT department_id FROM courses WHERE id=$1',[id]);
+    const old=await pool.query<{department_id:string;eligible_modes:string[];mode:string}>(
+      'SELECT department_id,eligible_modes,mode FROM courses WHERE id=$1',[id]);
     if(!old.rows[0])throw Object.assign(new Error('Not found'),{statusCode:404});
     await assertDepartment(req,old.rows[0].department_id);
-    const v=parse(courseBase.omit({departmentId:true}).partial(),req.body);
+    // Eligibility cannot be granted by a normal course edit, including the UI mode selector.
+    const v=parse(courseBase.omit({departmentId:true,eligibleModes:true}).partial().strict(),req.body);
+    if(!Object.keys(v).length)throw Object.assign(new Error('No changes supplied'),{statusCode:400});
+    if(v.mode && !old.rows[0].eligible_modes.includes(v.mode))
+      throw Object.assign(new Error('Delivery mode is not approved for this course'),{statusCode:409});
     const rows=await db.update(courses).set(v).where(eq(courses.id,id)).returning();
     await audit(req.principal!.id,'UPDATE','COURSE',id);return rows[0];
+  });
+  app.put('/api/v1/courses/:id/eligibility',async(req)=>{
+    // Approval of course-level delivery eligibility is separate from changing the course mode.
+    // This is an INTERNAL planning approval, not a claimed institutional/regulatory authorization.
+    requireEditor(req);
+    if(!['SYSTEM_ADMIN','COLLEGE_ADMIN'].includes(req.principal!.role))forbidden();
+    const id=uuid.parse((req.params as {id:string}).id);
+    const v=parse(z.object({
+      eligibleModes:z.array(mode).min(1).max(4).refine(a=>new Set(a).size===a.length,'Duplicate modes'),
+      reason:z.string().trim().min(8).max(1200)
+    }).strict(),req.body);
+    const old=await pool.query<{department_id:string;mode:string}>(
+      'SELECT department_id,mode FROM courses WHERE id=$1',[id]);
+    if(!old.rows[0])throw Object.assign(new Error('Course not found'),{statusCode:404});
+    await assertDepartment(req,old.rows[0].department_id);
+    if(!v.eligibleModes.includes(old.rows[0].mode))
+      throw Object.assign(new Error('The current course delivery mode must remain eligible'),{statusCode:409});
+    const changed=await pool.query('UPDATE courses SET eligible_modes=$2::jsonb,updated_at=now() WHERE id=$1 RETURNING id,code,eligible_modes',[id,JSON.stringify(v.eligibleModes)]);
+    await audit(req.principal!.id,'APPROVE_COURSE_MODES','COURSE',id,{eligibleModes:v.eligibleModes,reason:v.reason});
+    return changed.rows[0];
   });
   app.get('/api/v1/instructors',async(req)=>{
     const departmentId=uuid.parse(query(req,'departmentId'));await assertDepartment(req,departmentId);
