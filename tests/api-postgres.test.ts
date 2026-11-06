@@ -75,6 +75,18 @@ test('authenticated end-to-end workflow persists a synthetic TPS scenario in Pos
     const course=await write('/courses',{departmentId:department.id,code:'TEST-101',title:'اختبار التخطيط',
       level:1,theoryHours:2,practicalHours:0,demand:20,blocks:['BLK-1']});
     assert.equal(course.demand,20);
+    const notApprovedMode=await app.inject({method:'PATCH',url:'/api/v1/courses/'+course.id,
+      headers:{cookie:session,'x-csrf-token':csrf},payload:{mode:'REMOTE'}});
+    assert.equal(notApprovedMode.statusCode,409,'mode cannot be used without independent course eligibility');
+    const cannotSelfApprove=await app.inject({method:'PATCH',url:'/api/v1/courses/'+course.id,
+      headers:{cookie:session,'x-csrf-token':csrf},payload:{mode:'REMOTE',eligibleModes:['REMOTE']}});
+    assert.equal(cannotSelfApprove.statusCode,400,'normal edit cannot grant its own eligibility');
+    const eligibility=await app.inject({method:'PUT',url:'/api/v1/courses/'+course.id+'/eligibility',
+      headers:{cookie:session,'x-csrf-token':csrf},
+      payload:{eligibleModes:['ONSITE','REMOTE'],reason:'Approved in synthetic test for planning'}});
+    assert.equal(eligibility.statusCode,200,eligibility.body);
+    assert.deepEqual(eligibility.json().eligible_modes,['ONSITE','REMOTE']);
+
     const {readFile}=await import('node:fs/promises');
     const template=await readFile('web/templates/TPS_Course_Demand_144720.xlsx');
     const imported=await app.inject({method:'POST',
