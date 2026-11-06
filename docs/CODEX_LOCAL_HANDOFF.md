@@ -48,3 +48,13 @@ Only after source CI is green and development gaps are agreed closed, run local-
 ### Additional archive/restore tests (migration 0014)
 
 Run archived course/trainer/room lifecycle A56–A59 only in a separate synthetic local test DB. Verify audit and status changes in the same transaction; no deletion, no overwrite of older scenarios, no archive of courses in ACTIVE curriculum, and college-only permission for shared rooms. Do not touch actual trainer or trainee information.
+
+## Second Windows acceptance after fixing local blockers (2026-11-06)
+
+The first local report recorded A07/A40 failure when reading Arabic XLSX without a UTF-8 workaround. The GitHub branch now includes Python child encoding fixes, PowerShell fail-fast checks, vetted dependency upgrades, committed npm lockfiles, conflict-free historical documentation paths and updated Playwright navigation. These changes have NOT yet been retested on the user's Windows workstation.
+
+Before fetching: inspect git status. Back up any existing untracked package-lock.json and frontend/package-lock.json before fast-forwarding to the tracked lockfiles; preserve all user-created reports, .env, Docker volumes and local changes. If an update would overwrite anything, stop. Never reset, clean or force-checkout.
+
+Once safe: run npm ci in the project root and npm run web:install (frontend npm ci). Run A01-A59 again in an isolated synthetic database, especially A07/A40 without PYTHONUTF8 or PYTHONIOENCODING, the local.ps1 intentional native failure check, npm audit, Playwright login.spec.ts and real-api-journey.spec.ts, and Zod v4 PATCH preservation of course blocks, instructor qualifications and equipment. Confirm DB persistence across restart.
+
+Create a new local evidence file test-reports/TPS_LOCAL_ACCEPTANCE_REPORT_V2.md with real pass/fail/skipped counts, exact code commit, Windows environment, first-hand test evidence and outstanding risks. Never report earlier passing CI as a Windows result. Do not modify source, GitHub, production servers, or real institutional data. A green result permits a synthetic loopback pilot only; full release conditions are in docs/PRODUCTION_READINESS.md.
