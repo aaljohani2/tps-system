@@ -6,7 +6,7 @@ Branch: `feat/full-stack-tps-v1`. Base commit: `3a1d84c` from the previously tes
 
 - Local-only PostgreSQL Compose and non-destructive migration 0001; user sessions, audit log, institutions, colleges, departments, terms, courses, instructors, rooms, scenarios.
 - Node 22 / Fastify API with Argon2id login, scoped roles, CSRF tokens, rate limit and cookies.
-- Institution, college, department, term creation; course creation, demand and block editing; instructor/room creation and PATCH editing. Shared college records have stricter RBAC than department resources.
+- Institution, college, department, term creation; course creation, demand and block editing; independent institutional-level course-mode eligibility approval; instructor/room creation and PATCH editing. Shared college records have stricter RBAC than department resources.
 - Department+term planning policies with pending and approved revisions; mode, capacity, load factors and time windows are validated. Scenario creation uses only approved policy (or ONSITE default), never unapproved client overrides.
 - Scenario forking with alternative demand and blocks, parent lineage, immutable original scenario, and approval-ready analysis.
 - Transactional CSV and XLSX course import with preview, error/warning results and preservation of existing course demand.
@@ -31,6 +31,9 @@ Branch: `feat/full-stack-tps-v1`. Base commit: `3a1d84c` from the previously tes
 ## Verification rules
 
 A successful compiler build does not establish local operational readiness. Integration tests use synthetic data only. Record exact CI job SHA and result in `docs/TEST_RESULTS.md`. Any failed job is a blocker, not something to disable. Never claim optimum global scheduling.
+
+## Full-mandate gap review
+The complete original 15-phase mandate has **not** been fulfilled. See `docs/FULL_MANDATE_GAP_REVIEW.md` for an evidence-based P0–P2 matrix. The existing local acceptance matrix tests the implemented foundation only; it is not complete acceptance of all 20 requested functional pages. Treat this branch as **not yet ready for final Codex acceptance tests**.
 
 ## Local acceptance
 See `docs/ACCEPTANCE_MATRIX.md`. GitHub Actions verifies synthetic Linux builds and integration; Windows/GUI/real-world data validation remains to Codex. Do not treat a successful CI build as the institution's approval.
