@@ -1,23 +1,42 @@
 {
   "name": "tps-system",
-  "version": "0.2.0",
+  "version": "1.0.0-dev",
   "private": true,
-  "description": "Training Planning & Scheduling - auditable planning foundation",
+  "description": "Local-only Training Planning & Scheduling application",
   "type": "module",
-  "engines": {
-    "node": ">=22"
-  },
+  "engines": {"node": ">=22"},
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "test": "npm run build && node --test dist/tests/*.test.js",
-    "start": "node dist/src/server.js",
+    "start": "node --env-file=.env dist/src/api/server.js",
+    "start:legacy": "node dist/src/server.js",
+    "dev": "tsx watch --env-file=.env src/api/server.ts",
     "demo": "npm run build && node dist/src/demo.js",
     "check": "npm test",
     "import:csv": "npm run build && node dist/src/import-cli.js",
-    "solver:build": "cd solver && mvn -B -ntp clean package"
+    "solver:build": "cd solver && mvn -B -ntp clean package",
+    "db:migrate": "npm run build && node --env-file=.env dist/src/api/migrate.js",
+    "db:check": "npm run build && node --env-file=.env dist/src/api/check.js",
+    "db:bootstrap": "npm run build && node --env-file=.env dist/src/api/bootstrap.js",
+    "web:install": "npm install --prefix frontend",
+    "web:build": "npm run build --prefix frontend",
+    "e2e": "npm run e2e --prefix frontend"
+  },
+  "dependencies": {
+    "@fastify/cookie": "11.0.2",
+    "@fastify/rate-limit": "10.3.0",
+    "@fastify/static": "8.2.0",
+    "@fastify/swagger": "9.5.1",
+    "argon2": "0.44.0",
+    "drizzle-orm": "0.44.5",
+    "fastify": "5.6.1",
+    "pg": "8.16.3",
+    "zod": "3.25.76"
   },
   "devDependencies": {
     "@types/node": "22.15.0",
+    "@types/pg": "8.15.5",
+    "tsx": "4.20.6",
     "typescript": "5.8.3"
   },
   "license": "UNLICENSED"
