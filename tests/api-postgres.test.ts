@@ -203,6 +203,16 @@ test('authenticated end-to-end workflow persists a synthetic TPS scenario in Pos
       url:'/api/v1/scenarios/'+created.id+'/runs/cancel',
       headers:{cookie:session,'x-csrf-token':csrf},payload:{}});
     assert.equal(cancelWithoutRunning.statusCode,409,'A non-running draft must never be cancelled');
+    const invalidSeconds=await app.inject({method:'POST',
+      url:'/api/v1/scenarios/'+created.id+'/solve',
+      headers:{cookie:session,'x-csrf-token':csrf},payload:{seconds:31}});
+    assert.equal(invalidSeconds.statusCode,400,'Solver duration cap must be validated before claiming a run');
+    const invalidCandidates=await app.inject({method:'POST',
+      url:'/api/v1/scenarios/'+created.id+'/solve',
+      headers:{cookie:session,'x-csrf-token':csrf},payload:{candidatesPerInstructor:25}});
+    assert.equal(invalidCandidates.statusCode,400,'Solver candidate cap must be enforced');
+    const noClaim=await pool.query('SELECT solver_status FROM scenarios WHERE id=$1',[created.id]);
+    assert.equal(noClaim.rows[0]?.solver_status,'NOT_RUN','Invalid settings must not reserve the solver');
     const solve=await write('/scenarios/'+created.id+'/solve',{});
     assert.equal(solve.solverStatus,'COMPLETED','Timefold must run, not a disguised greedy fallback');
     assert.ok(solve.runId,'Each optimization must persist its run identifier');
