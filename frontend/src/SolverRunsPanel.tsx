@@ -4,7 +4,7 @@ type Run={id:string;status:string;started_at:string;finished_at:string|null;
   elapsed_ms:number|null;score:{hard?:number;soft?:number}|null;error_message:string|null;progress_stage:string;progress_at:string;requested_settings?:{seconds:number;candidatesPerInstructor:number}|null};
 export default function SolverRunsPanel({scenario,notify,canEdit}:{scenario:Scenario;notify:(s:string)=>void;canEdit:boolean}){
   const qc=useQueryClient();
-  const query=useQuery({queryKey:['solver-runs',scenario.id],
+  const query=useQuery({queryKey:['solver-runs',scenario.id,scenario.solver_status],
     queryFn:()=>api<Run[]>('/scenarios/'+scenario.id+'/runs'),enabled:!!scenario.id,
     refetchInterval:scenario.solver_status==='RUNNING'?1500:false});
   const records=query.data??[];
