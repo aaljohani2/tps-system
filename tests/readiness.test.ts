@@ -46,3 +46,25 @@ test('approval is blocked by illegal time, wrong room type and trainer unavailab
   for(const expected of ['INVALID_TIME','ROOM_INCOMPATIBLE','INSTRUCTOR_UNAVAILABLE'])
     assert.ok(report.issues.some(i=>i.code===expected),expected);
 });
+
+test('phase 11 collision warnings name the resource and attach each affected section',()=>{
+  const input=fixture(),draft=buildDraftPlan(input);
+  const first=draft.sessions[0]!;
+  const overlap={...first,id:'SECOND-SESSION',sectionId:'SECOND-SECTION',courseCode:'TEST-101'};
+  draft.sections.push({...draft.sections[0]!,id:'SECOND-SECTION'});
+  draft.sessions.push(overlap);
+  const report=assessReadiness(input,draft,'COMPLETED');
+  for(const code of ['TRAINER_COLLISION','ROOM_OCCUPIED','BLOCK_COLLISION','TIMETABLE_COLLISION']){
+    const issues=report.issues.filter(x=>x.code===code);
+    assert.equal(issues.length,2,code+' must be linked to both sections');
+    assert.ok(issues.some(x=>x.sectionId===first.sectionId));
+    assert.ok(issues.some(x=>x.sectionId===overlap.sectionId));
+    assert.match(issues[0]!.message,/SECOND-SESSION/);
+  }
+});
+test('unapproved course delivery mode is a distinct readiness blocker',()=>{
+  const input=fixture(),draft=buildDraftPlan(input);
+  input.courses[0]!.mode='REMOTE';
+  const issues=assessReadiness(input,draft,'COMPLETED').issues;
+  assert.ok(issues.some(i=>i.code==='COURSE_MODE_INELIGIBLE'&&i.courseCode==='TEST-101'));
+});
