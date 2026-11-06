@@ -8,6 +8,7 @@ import AcademicPage from './AcademicPage';
 import DemandPage from './DemandPage';
 import DashboardPage from './DashboardPage';
 import UsersPage from './UsersPage';
+import ManualScheduleEditor from './ManualScheduleEditor';
 
 const labels:Record<string,string>={ONSITE:'حضوري',REMOTE:'عن بُعد',SELF_PACED:'ذاتي',HYBRID:'مدمج'};
 const days:Record<string,string>={SUN:'الأحد',MON:'الإثنين',TUE:'الثلاثاء',WED:'الأربعاء',THU:'الخميس'};
@@ -265,7 +266,7 @@ function ScenarioPage({ctx,notify}:{ctx:Context;notify:Message}){
         {readiness.data.issues.map((i,index)=><tr key={index}><td>{i.severity==='BLOCKER'?'مانع اعتماد':'تنبيه'}</td>
           <td>{i.code} — {i.message}</td><td>{i.sectionId??'—'}</td><td>{i.courseCode??'—'}</td></tr>)}
       </tbody></table></div>:null}
-      <div className="subhead"><h3>الجداول الأسبوعية</h3></div><Timetable p={p}/>
+      <div className="subhead"><h3>الجداول الأسبوعية</h3></div><Timetable p={p}/><ManualScheduleEditor scenario={current} notify={notify}/>
       <h3>كشف العجز</h3>{p.gaps.length?<div className="table-wrap"><table><thead><tr><th>الشعبة</th><th>المقرر</th><th>السبب</th><th>ساعات التدريب</th><th>النصاب المطلوب</th></tr></thead>
         <tbody>{p.gaps.map(g=><tr key={g.sectionId}><td>{g.sectionId}</td><td>{g.courseCode}</td><td>{g.reason}</td><td>{g.contactHours}</td><td>{g.equivalentLoad}</td></tr>)}</tbody></table></div>:<p className="success">لا يوجد عجز مسجل في النتيجة الحالية. يلزم التحقق من هوية البلوكات قبل اعتمادها.</p>}
       <h3>أنصبة المدربين</h3><div className="table-wrap"><table><thead><tr><th>المدرب</th><th>الساعات الفعلية</th><th>النصاب المكافئ</th><th>المتبقي</th></tr></thead><tbody>
