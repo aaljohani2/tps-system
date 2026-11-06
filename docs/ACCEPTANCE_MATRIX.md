@@ -5,7 +5,7 @@
 | ID | Action | Expected local result | Category |
 |---|---|---|---|
 | A01 | Install Node/React/Python/Java dependencies | No missing package; backend/frontend/Java compile | Environment |
-| A02 | Start loopback PostgreSQL and run all SQL migrations twice | 0001–0009 installed; second run idempotent | DB |
+| A02 | Start loopback PostgreSQL and run all SQL migrations twice | 0001–0011 installed; second run idempotent | DB |
 | A03 | Create first admin and login/logout | Argon2id hash; session cookie; no default password | Auth |
 | A04 | Make request without CSRF | 403, nothing changed | Security |
 | A05 | Create two colleges/departments; sign in as scoped head | Other departments inaccessible; shared college objects not modifiable | Tenant scope |
@@ -54,6 +54,11 @@
 | A44 | Attempt invalid move or edit as VIEWER | API forbids invalid move and UI disables editing; original plan unchanged | Phase 11 |
 | A45 | Repair an existing room/trainer collision without new blockers | Strictly decreasing blockers accepted; unchanged/worse constraints rejected | Phase 11 |
 | A46 | Print Arabic abbreviated report or save PDF in Chromium | Report reflects stored metrics, includes warnings, escaped text, no external service | Phase 10 |
+| A47 | Start a long-lived Timefold solve on a DRAFT; cancel as authorized operator while Java is running | 200 cancel response, live child aborted, solver_runs=CANCELLED, scenario solver_status=FAILED, audit recorded, no partial result approved | Solver cancellation |
+| A48 | Attempt cancellation with no CSRF, viewer role or after a run completed | 403/409; no saved result or approved scenario overwritten | Solver security |
+| A49 | Solve with seconds=31 or candidatesPerInstructor=25, and run 2 parallel solves + a third | Invalid settings return 400 without claiming run; local process limit denies third (429), with no leaked running row | Solver controls |
+| A50 | Run synthetic 25-course and 50-course workloads with a built JAR; compare Java outcome, memory and elapsed time | Real Java execution, hard constraints verified, covered/uncovered counters reconcile; record limits and uncertainty | Performance |
+
 
 ## Inputs
 
