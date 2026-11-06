@@ -3,6 +3,8 @@ import type {Course, PlanRequest, Policy, TimeWindow} from './types.js';
 
 const positiveInt = (v: number) => Number.isInteger(v) && v > 0;
 const hours = (v: number) => Number.isInteger(v) && v >= 0;
+const validCodes=(v:string[]|undefined)=>v===undefined || (Array.isArray(v)&&v.length<=30&&new Set(v).size===v.length&&v.every(x=>typeof x==='string'&&/^[A-Za-z0-9][A-Za-z0-9_.-]{0,59}$/.test(x)));
+
 function validWindow(w: TimeWindow): boolean {
   return DAYS.includes(w.day) && Number.isInteger(w.from*2) && Number.isInteger(w.to*2)
     && w.from >= 0 && w.to <= 24 && w.from < w.to
@@ -26,6 +28,7 @@ function validatePolicy(p: Policy, errors: string[]): void {
 }
 function validateCourse(c: Course, p: Policy, errors: string[]): void {
   if (!c.code || !c.title || !positiveInt(c.level)) errors.push(`Invalid course identity: ${c.code}`);
+  if(!validCodes(c.requiredSpecialties)||!validCodes(c.requiredEquipment))errors.push(`Invalid specialty or equipment requirements for ${c.code}`);
   if (!Number.isInteger(c.demand) || c.demand < 0) errors.push(`Invalid demand for ${c.code}`);
   if (!hours(c.theoryHours) || !hours(c.practicalHours) || c.theoryHours + c.practicalHours === 0) errors.push(`Invalid contact hours for ${c.code}`);
   if (!p.enabledModes.includes(c.mode)) errors.push(`Mode ${c.mode} is disabled for ${c.code}`);
@@ -71,6 +74,7 @@ export function validateRequest(input: PlanRequest): void {
     if (ids.has(i.id)) errors.push(`Duplicate instructor: ${i.id}`);
     ids.add(i.id);
     if (!i.id || !i.name || !Number.isFinite(i.maxLoad) || i.maxLoad < 0) errors.push(`Invalid instructor: ${i.id}`);
+    if(!validCodes(i.specialties))errors.push(`Invalid instructor specialties: ${i.id}`);
     if (!i.allowedModes?.every(m => MODES.includes(m))) errors.push(`Invalid instructor modes: ${i.id}`);
     if (i.available?.some(w => !validWindow(w))) errors.push(`Invalid instructor availability: ${i.id}`);
     if (i.overload && (!Number.isFinite(i.overload.additionalHours) || i.overload.additionalHours <= 0 || !i.overload.reason?.trim())) errors.push(`Overload needs amount and reason: ${i.id}`);
@@ -81,6 +85,7 @@ export function validateRequest(input: PlanRequest): void {
     if (roomIds.has(r.id)) errors.push(`Duplicate room: ${r.id}`);
     roomIds.add(r.id);
     if (!r.id || !r.name || !positiveInt(r.capacity) || !['CLASSROOM', 'LAB', 'MULTI'].includes(r.type)) errors.push(`Invalid room: ${r.id}`);
+    if(!validCodes(r.equipmentCodes))errors.push(`Invalid room equipment identifiers: ${r.id}`);
     if (r.available?.some(w => !validWindow(w))) errors.push(`Invalid room availability: ${r.id}`);
   }
   if (errors.length) throw new Error(errors.join('\n'));
