@@ -45,15 +45,18 @@ python -m unittest discover -s scripts -p 'test_*.py' -v
 npm run web:build
 npm run solver:build
 npm run db:check
+# After Maven creates the JAR, test Java cancellation and synthetic scheduling scale:
+node --test dist/tests/solver-cancel.test.js
+node --test dist/tests/scenario-scale.test.js
 ```
 
-Integration test `tests/api-postgres.test.ts` should run only in a **dedicated empty synthetic testing database**. Never run the test directly against the operational database because it creates test records. Set `TPS_DB_INTEGRATION=1` with a dedicated `DATABASE_URL` and run `node --test dist/tests/api-postgres.test.js` after migration and solver build.
+Integration test `tests/api-postgres.test.ts` should run only in a **dedicated empty synthetic testing database**. Never run the test directly against the operational database because it creates test records. Set `TPS_DB_INTEGRATION=1` with a dedicated `DATABASE_URL` and run `node --test dist/tests/api-postgres.test.js` after migration and solver build. Also run `node --test dist/tests/solver-cancel.test.js` and `node --test dist/tests/scenario-scale.test.js` with the built JAR. The latter tests the 25-course synthetic scope.
 
 For browser tests, install Playwright browser binaries locally and configure `TPS_TEST_USERNAME` and `TPS_TEST_PASSWORD` for a dedicated test administrator. Tests never create real trainee records.
 
 ## Recovery and persistence
 
-Restart PostgreSQL container without removing its named volume and verify that the same scenario record remains. Re-running `npm run db:migrate` must not modify existing records. The three tracked migrations are 0001–0009. Document pass/fail explicitly. Do not perform destructive recovery tests on user data.
+Restart PostgreSQL container without removing its named volume and verify that the same scenario record remains. Re-running `npm run db:migrate` must not modify existing records. The tracked migrations are 0001–0011, including the cancellable-run status check. Run `npm run db:check` after migration. Document pass/fail explicitly. Do not perform destructive recovery tests on user data.
 
 ## Optional synthetic fixture — separate local TEST DB only
 
