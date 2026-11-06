@@ -14,6 +14,7 @@ import {registerUsers} from './users.js';
 import {registerManualScheduling} from './manual-routes.js';
 import {registerLoadExceptions} from './load-exceptions.js';
 import {registerPrerequisites} from './prerequisites.js';
+import {registerBulkImports} from './bulk-routes.js';
 import {ZodError} from 'zod';
 
 export async function createApp(){
@@ -28,6 +29,7 @@ export async function createApp(){
   });
   await app.register(swagger,{openapi:{info:{title:'TPS Local API',version:'1.0.0-dev'},
     servers:[{url:'http://127.0.0.1:8787'}]}});
+  app.addContentTypeParser('text/csv',{parseAs:'buffer'},(_req,body,done)=>done(null,body));
   app.addContentTypeParser('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',{parseAs:'buffer'},(_req,body,done)=>done(null,body));
   await registerSecurity(app);
   await registerCatalog(app);
@@ -39,6 +41,7 @@ export async function createApp(){
   await registerManualScheduling(app);
   await registerLoadExceptions(app);
   await registerPrerequisites(app);
+  await registerBulkImports(app);
   app.get('/health',async()=>{
     await pool.query('SELECT 1');
     return {status:'ok',database:'ok',storage:'PostgreSQL',mode:'local-only'};
