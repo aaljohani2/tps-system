@@ -170,8 +170,8 @@ export async function registerCatalog(app:FastifyInstance){
     return db.select().from(instructors).where(eq(instructors.departmentId,departmentId));
   });
   app.post('/api/v1/instructors',async(req)=>{
-    requireEditor(req);const v=parse(instructor,req.body);await assertDepartment(req,v.departmentId);
-    const rows=await db.insert(instructors).values({...v,maxLoad:String(v.maxLoad),eligibleCourseCodes:v.eligibleCourseCodes??null,available:v.available??null,overload:v.overload??null}).returning();
+    requireEditor(req);const v=parse(instructor.omit({overload:true}).strict(),req.body);await assertDepartment(req,v.departmentId);
+    const rows=await db.insert(instructors).values({...v,maxLoad:String(v.maxLoad),eligibleCourseCodes:v.eligibleCourseCodes??null,available:v.available??null,overload:null}).returning();
     await audit(req.principal!.id,'CREATE','INSTRUCTOR',rows[0]!.id);return rows[0];
   });
   app.patch('/api/v1/instructors/:id',async(req)=>{
@@ -180,10 +180,9 @@ export async function registerCatalog(app:FastifyInstance){
     const found=await pool.query<{department_id:string}>('SELECT department_id FROM instructors WHERE id=$1',[id]);
     if(!found.rows[0])throw Object.assign(new Error('Instructor not found'),{statusCode:404});
     await assertDepartment(req,found.rows[0].department_id);
-    const v=parse(instructor.omit({departmentId:true}).partial().extend({
+    const v=parse(instructor.omit({departmentId:true,overload:true}).partial().extend({
       eligibleCourseCodes:z.array(z.string()).nullable().optional(),
-      available:windows.nullable(),
-      overload:instructor.shape.overload.nullable().optional()
+      available:windows.nullable()
     }).strict(),req.body);
     if(!Object.keys(v).length)throw Object.assign(new Error('No changes supplied'),{statusCode:400});
     const values={...v,maxLoad:v.maxLoad===undefined?undefined:String(v.maxLoad)};

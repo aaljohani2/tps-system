@@ -53,7 +53,7 @@ async function fromDatabase(departmentId:string,termId:string,name:string,policy
   if(!collegeId)throw invalid('Department not found',404);
   const term=await pool.query('SELECT id FROM academic_terms WHERE id=$1 AND college_id=$2',[termId,collegeId]);
   if(!term.rowCount)throw invalid('Term does not belong to selected college');
-  const [coursesRaw,instructorsRaw,roomsRaw,demandRaw,blocksRaw]=await Promise.all([
+  const [coursesRaw,instructorsRaw,roomsRaw,demandRaw,blocksRaw,exceptionsRaw]=await Promise.all([
     pool.query('SELECT * FROM courses WHERE department_id=$1 ORDER BY code',[departmentId]),
     pool.query('SELECT * FROM instructors WHERE department_id=$1 ORDER BY code',[departmentId]),
     pool.query('SELECT * FROM rooms WHERE college_id=$1 ORDER BY code',[collegeId]),
@@ -61,7 +61,10 @@ async function fromDatabase(departmentId:string,termId:string,name:string,policy
     pool.query(`SELECT a.course_id,b.size,(co.code || '::' || b.code) AS block_ref
       FROM block_course_assignments a JOIN courses c ON c.id=a.course_id
       JOIN student_blocks b ON b.id=a.block_id JOIN cohorts co ON co.id=b.cohort_id
-      WHERE c.department_id=$1 AND a.term_id=$2 ORDER BY co.code,b.code`,[departmentId,termId])
+      WHERE c.department_id=$1 AND a.term_id=$2 ORDER BY co.code,b.code`,[departmentId,termId]),
+    pool.query(`SELECT i.code,e.additional_hours,e.reason FROM instructor_load_exceptions e
+      JOIN instructors i ON i.id=e.instructor_id
+      WHERE i.department_id=$1 AND e.term_id=$2 AND e.state='APPROVED'`,[departmentId,termId])
   ]);
   const estimateByCourse=new Map<string,number>(demandRaw.rows.map(v=>[v.course_id,Number(v.projected_students)]));
   const assignedByCourse=new Map<string,Array<{ref:string;size:number}>>();
@@ -87,10 +90,13 @@ async function fromDatabase(departmentId:string,termId:string,name:string,policy
       exclusiveInstructor:c.exclusive_instructor
     };
   });
+  const approvedExtra=new Map<string,{additionalHours:number;reason:string}>(
+    exceptionsRaw.rows.map(x=>[x.code,{additionalHours:Number(x.additional_hours),reason:x.reason}])
+  );
   const instructors:Instructor[]=instructorsRaw.rows.map(i=>({
     id:i.code,name:i.name,maxLoad:Number(i.max_load),allowedModes:i.allowed_modes,
     eligibleCourseCodes:i.eligible_course_codes??undefined,available:i.available??undefined,
-    overload:i.overload??undefined
+    overload:approvedExtra.get(i.code)
   }));
   const rooms:Room[]=roomsRaw.rows.map(r=>({
     id:r.code,name:r.name,type:r.type,capacity:r.capacity,available:r.available??undefined

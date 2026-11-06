@@ -1,6 +1,7 @@
 import {useState} from 'react';
 import {useQuery,useQueryClient} from '@tanstack/react-query';
 import {api,post,type Auth,type Context,type Entity} from './api';
+import LoadExceptionPanel from './LoadExceptionPanel';
 
 type Mode='ONSITE'|'REMOTE'|'SELF_PACED'|'HYBRID';
 const modes:Mode[]=['ONSITE','REMOTE','SELF_PACED','HYBRID'];
@@ -23,21 +24,17 @@ function TrainerRow({item,save}:{item:Entity;save:(id:string,v:unknown)=>Promise
   const [name,setName]=useState(String(item.name??'')),[load,setLoad]=useState(Number(item.maxLoad??0)),
     [allowed,setAllowed]=useState<Mode[]>((item.allowedModes??['ONSITE']) as Mode[]),
     [courses,setCourses]=useState((item.eligibleCourseCodes as string[]|null)?.join(',')??''),
-    [over,setOver]=useState(String((item.overload as {additionalHours?:number}|null)?.additionalHours??'')),
-    [reason,setReason]=useState(String((item.overload as {reason?:string}|null)?.reason??'')),
     [available,setAvailable]=useState<Window[]|undefined>((item.available as Window[]|null)??undefined);
   return <details><summary>{String(item.code)} — {name} | النصاب {load}</summary>
     <div className="form-grid"><label>اسم المدرب<input value={name} onChange={e=>setName(e.target.value)}/></label>
       <label>النصاب الأساسي<input type="number" min="0" value={load} onChange={e=>setLoad(+e.target.value)}/></label>
       <label>المقررات المؤهل لتدريسها (فارغ = غير مقيّد)<input value={courses} onChange={e=>setCourses(e.target.value)}/></label>
-      <label>ساعات استثناء النصاب<input type="number" min="0" value={over} onChange={e=>setOver(e.target.value)}/></label>
-      <label>مبرر الاستثناء<input value={reason} onChange={e=>setReason(e.target.value)}/></label></div>
+    </div>
     <h3>أنماط المدرب المؤهل لها</h3><Modes value={allowed} change={setAllowed}/>
     <Windows value={available} change={setAvailable}/>
     <button onClick={()=>save(item.id,{name,maxLoad:load,allowedModes:allowed,
       eligibleCourseCodes:courses.trim()?courses.split(',').map(x=>x.trim()).filter(Boolean):null,
-      available:available??null,
-      overload:over.trim()?{additionalHours:Number(over),reason}:null})}>حفظ بيانات المدرب</button>
+      available:available??null})}>حفظ بيانات المدرب</button>
   </details>;
 }
 function RoomRow({item,save}:{item:Entity;save:(id:string,v:unknown)=>Promise<void>}){
@@ -81,6 +78,7 @@ export default function ResourcesEditor({ctx,user,notify}:{ctx:Context;user:Auth
       ...(trainer.eligibleCourseCodes.trim()?{eligibleCourseCodes:trainer.eligibleCourseCodes.split(',').map(x=>x.trim()).filter(Boolean)}:{})
     }))}>إضافة مدرب</button><h3>المدربون المسجلون</h3>
     {(trainers.data??[]).map(x=><TrainerRow key={x.id} item={x} save={(id,v)=>edit('/instructors',id,v)}/>)}
+    <LoadExceptionPanel ctx={ctx} user={user} instructors={trainers.data??[]} notify={notify}/>
     </section><section><h3>إضافة قاعة أو معمل</h3><div className="form-grid">
       <label>الرمز<input value={room.code} onChange={e=>setRoom({...room,code:e.target.value})}/></label>
       <label>الاسم<input value={room.name} onChange={e=>setRoom({...room,name:e.target.value})}/></label>
