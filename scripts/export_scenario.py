@@ -68,6 +68,56 @@ def main():
         ["الشعبة", "المقرر", "المستوى", "المتدربون", "الساعات الفعلية", "النصاب المكافئ", "السبب"],
         [[s.get(k) for k in ("sectionId", "courseCode", "level", "students",
                             "contactHours", "equivalentLoad", "reason")] for s in plan.get("gaps", [])])
+    section_by_id = {section.get("id"): section for section in plan.get("sections", [])}
+    days = {"SUN": 1, "MON": 2, "TUE": 3, "WED": 4, "THU": 5}
+    def ordered(items, key):
+        return sorted(items, key=lambda item: (
+            str(item.get(key) or ""),
+            days.get(item.get("day"), 99),
+            float(item.get("start") or 0),
+            str(item.get("sectionId") or "")))
+    def clock(hours):
+        if not isinstance(hours, (int, float)):
+            return ""
+        return f"{int(hours):02d}:{'30' if round((hours % 1) * 2) == 1 else '00'}"
+    page(book, "جداول المدربين",
+        ["المدرب", "المقرر", "الشعبة", "المكون", "النمط", "اليوم", "من", "إلى", "القاعة", "البلوك"],
+        [[s.get("instructorId"),s.get("courseCode"),s.get("sectionId"),s.get("component"),
+          s.get("mode"),s.get("day"),clock(s.get("start")),clock(s.get("end")),
+          s.get("roomId"),s.get("blockId")] for s in ordered(sessions, "instructorId")])
+    onsite = [s for s in sessions if s.get("mode")=="ONSITE" and s.get("roomId")]
+    page(book, "جداول القاعات",
+        ["القاعة", "المقرر", "الشعبة", "المدرب", "المكون", "اليوم", "من", "إلى", "البلوك"],
+        [[s.get("roomId"),s.get("courseCode"),s.get("sectionId"),s.get("instructorId"),
+          s.get("component"),s.get("day"),clock(s.get("start")),clock(s.get("end")),
+          s.get("blockId")] for s in ordered(onsite, "roomId")])
+    level_sessions = sorted(sessions, key=lambda s:(
+        int(section_by_id.get(s.get("sectionId"),{}).get("level") or 0),
+        days.get(s.get("day"),99),float(s.get("start") or 0)))
+    page(book, "جداول المستويات",
+        ["المستوى", "المقرر", "الشعبة", "المدرب", "القاعة", "اليوم", "من", "إلى", "البلوك"],
+        [[section_by_id.get(s.get("sectionId"),{}).get("level"),s.get("courseCode"),
+          s.get("sectionId"),s.get("instructorId"),s.get("roomId"),
+          s.get("day"),clock(s.get("start")),clock(s.get("end")),s.get("blockId")]
+         for s in level_sessions])
+    blocks = [s for s in sessions if s.get("blockId")]
+    page(book, "جداول البلوكات",
+        ["البلوك", "المقرر", "الشعبة", "المستوى", "المدرب", "القاعة", "اليوم", "من", "إلى"],
+        [[s.get("blockId"),s.get("courseCode"),s.get("sectionId"),
+          section_by_id.get(s.get("sectionId"),{}).get("level"),
+          s.get("instructorId"),s.get("roomId"),s.get("day"),
+          clock(s.get("start")),clock(s.get("end"))]
+         for s in ordered(blocks, "blockId")])
+    readiness = (metadata or {}).get("readiness") or {}
+    issues = readiness.get("issues") or []
+    page(book, "التعارضات",
+        ["الرمز", "الخطورة", "التفسير", "الشعبة", "المقرر"],
+        [[i.get("code"),i.get("severity"),i.get("message"),i.get("sectionId"),
+          i.get("courseCode")] for i in issues])
+    if metadata and metadata.get("comparisonRows"):
+        page(book, "مقارنة السيناريوهات",
+            ["المؤشر", "السيناريو الأول", "السيناريو الثاني"],
+            metadata["comparisonRows"])
     page(book, "ملاحظات",
         ["الملاحظة"], [[note] for note in plan.get("notices", [])])
     out = BytesIO()
