@@ -11,23 +11,27 @@ const uuid=z.string().uuid();
 const name=z.string().trim().min(1).max(240);
 const code=z.string().trim().min(1).max(60);
 const mode=z.enum(['ONSITE','REMOTE','SELF_PACED','HYBRID']);
+const codes=z.array(z.string().trim().regex(/^[A-Za-z0-9][A-Za-z0-9_.-]{0,59}$/)).max(30)
+  .refine(v=>new Set(v).size===v.length,'Duplicate qualification/equipment codes');
 const windows=z.array(z.object({day:z.enum(['SUN','MON','TUE','WED','THU']),
   from:z.number().multipleOf(0.5).min(0).max(23.5),to:z.number().multipleOf(0.5).min(0.5).max(24)})
   .refine(w=>w.to>w.from && (w.day!=='THU'||w.to<=10),'Invalid availability time')).max(30).optional();
 const courseBase=z.object({
  departmentId:uuid,code,title:name,level:z.number().int().min(1).max(12),theoryHours:z.number().int().min(0),
  practicalHours:z.number().int().min(0),demand:z.number().int().min(0),mode:mode.default('ONSITE'),
- eligibleModes:z.array(mode).default(['ONSITE']),blocks:z.array(z.string().min(1)).default([]),
+ eligibleModes:z.array(mode).default(['ONSITE']),requiredSpecialties:codes.default([]),
+ requiredEquipment:codes.default([]),blocks:z.array(z.string().min(1)).default([]),
  assignedInstructorId:z.string().optional(),exclusiveInstructor:z.boolean().default(false),
  hybridSplit:z.object({theoryOnsiteHours:z.number().int().nonnegative(),theoryRemoteHours:z.number().int().nonnegative(),
  practicalOnsiteHours:z.number().int().nonnegative(),practicalRemoteHours:z.number().int().nonnegative()}).optional()
 });
 const course=courseBase.refine(v=>v.theoryHours+v.practicalHours>0,{message:'Contact hours required'});
 const instructor=z.object({departmentId:uuid,code,name,maxLoad:z.number().nonnegative(),
- allowedModes:z.array(mode).default(['ONSITE']),eligibleCourseCodes:z.array(z.string()).optional(),available:windows,
+ allowedModes:z.array(mode).default(['ONSITE']),eligibleCourseCodes:z.array(z.string()).optional(),
+ specialties:codes.default([]),available:windows,
  overload:z.object({additionalHours:z.number().positive(),reason:name}).optional()});
 const room=z.object({collegeId:uuid,code,name,type:z.enum(['CLASSROOM','LAB','MULTI']),
- capacity:z.number().int().positive(),building:z.string().max(240).optional(),available:windows});
+ capacity:z.number().int().positive(),equipmentCodes:codes.default([]),building:z.string().max(240).optional(),available:windows});
 function query(req:FastifyRequest,key:string):string|undefined{
   const input=req.query as Record<string,unknown>;
   return typeof input[key]==='string'?input[key] as string:undefined;
