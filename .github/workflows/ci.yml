@@ -257,6 +257,7 @@ jobs:
           set -euo pipefail
           npm run db:migrate
           TPS_ALLOW_SYNTHETIC_SEED=1 npm run db:seed
+          TPS_ALLOW_SYNTHETIC_SEED=1 node --env-file=.env scripts/ci-backup-drill-fixture.mjs
           npm run db:backup
           test "$(find private-data/backups -maxdepth 1 -type f -name '*.tpsbak' | wc -l)" -eq 1
           test "$(find private-data/backups -maxdepth 1 -type f -name '*.partial' | wc -l)" -eq 0
@@ -267,6 +268,11 @@ jobs:
           ARCHIVE="$(find private-data/backups -maxdepth 1 -type f -name '*.tpsbak' -print -quit)"
           npm run db:backup:verify -- --file "$ARCHIVE"
           npm run db:restore:test -- --file "$ARCHIVE"
+          RESTORED="$(docker compose exec -T postgres psql -U tps -d postgres -At -c "SELECT datname FROM pg_database WHERE datname LIKE 'tps_restore_%' ORDER BY datname DESC LIMIT 1" | tr -d '\r')"
+          test -n "$RESTORED"
+          test "$(docker compose exec -T postgres psql -U tps -d "$RESTORED" -At -c "SELECT count(*) FROM scenarios WHERE state='APPROVED'")" -eq 1
+          test "$(docker compose exec -T postgres psql -U tps -d "$RESTORED" -At -c "SELECT count(*) FROM solver_runs WHERE status='COMPLETED'")" -eq 1
+          test "$(docker compose exec -T postgres psql -U tps -d "$RESTORED" -At -c "SELECT count(*) FROM audit_logs WHERE action='CI_BACKUP_DRILL'")" -eq 1
           test "$(docker compose exec -T postgres psql -U tps -d tps_backup_ci -At -c 'SELECT count(*) FROM schema_migrations')" -ge 14
           git diff --exit-code
       - name: Reject altered encrypted backup without writing production data
