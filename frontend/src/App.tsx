@@ -75,7 +75,7 @@ function ContextSetup({context,setContext,notify}:{context:Context;setContext:(c
   </section>;
 }
 function CoursePage({ctx,user,notify}:{ctx:Context;user:Auth;notify:Message}){
-  const qc=useQueryClient(),q=useQuery({queryKey:['courses',ctx.departmentId],queryFn:()=>api<Entity[]>('/courses?departmentId='+ctx.departmentId),enabled:!!ctx.departmentId});
+  const qc=useQueryClient(),q=useQuery({queryKey:['courses',ctx.departmentId],queryFn:()=>api<Entity[]>('/courses?departmentId='+ctx.departmentId+'&includeArchived=true'),enabled:!!ctx.departmentId});
   const instructors=useQuery({queryKey:['instructors',ctx.departmentId],queryFn:()=>api<Entity[]>('/instructors?departmentId='+ctx.departmentId),enabled:!!ctx.departmentId});
   const [code,setCode]=useState(''),[title,setTitle]=useState(''),[level,setLevel]=useState(1),[theory,setTheory]=useState(2),[practical,setPractical]=useState(0);
   async function run(task:()=>Promise<unknown>){try{await task();notify('تم حفظ البيانات');await qc.invalidateQueries();}catch(e){notify('فشل: '+String(e instanceof Error?e.message:e));}}
@@ -97,15 +97,19 @@ function CoursePage({ctx,user,notify}:{ctx:Context;user:Auth;notify:Message}){
     <tbody>{(q.data??[]).map(c=><CourseRow key={c.id} item={c} instructors={instructors.data??[]}
       canApprove={['SYSTEM_ADMIN','COLLEGE_ADMIN'].includes(user.role)}
       save={data=>run(()=>api('/courses/'+c.id,{method:'PATCH',body:JSON.stringify(data)}))}
-      approve={data=>run(()=>api('/courses/'+c.id+'/eligibility',{method:'PUT',body:JSON.stringify(data)}))}/>)}</tbody></table></div>
+      approve={data=>run(()=>api('/courses/'+c.id+'/eligibility',{method:'PUT',body:JSON.stringify(data)}))}
+      lifecycle={(active,reason)=>run(()=>api('/courses/'+c.id+'/lifecycle',{method:'PATCH',body:JSON.stringify({active,reason})}))}/>)}</tbody></table></div>
   </section>;
 }
-function CourseRow({item,instructors,save,approve,canApprove}:{item:Entity;instructors:Entity[];save:(d:unknown)=>void;approve:(d:unknown)=>void;canApprove:boolean}){
+function CourseRow({item,instructors,save,approve,lifecycle,canApprove}:{item:Entity;instructors:Entity[];
+  save:(d:unknown)=>void;approve:(d:unknown)=>void;lifecycle:(active:boolean,reason:string)=>void;canApprove:boolean}){
   const [demand,setDemand]=useState(Number(item.demand??0)),[blocks,setBlocks]=useState((item.blocks as string[]|undefined)?.join(',')??'');
   const [mode,setMode]=useState(String(item.mode??'ONSITE'));
   const existing=(item.eligibleModes??['ONSITE']) as string[];
   const [eligibility,setEligibility]=useState<string[]>(existing);
   const [reason,setReason]=useState('');
+  const [archiveReason,setArchiveReason]=useState('');
+  const active=item.active!==false;
   const [specialties,setSpecialties]=useState((item.requiredSpecialties as string[]|undefined)?.join(',')??'');
   const [equipment,setEquipment]=useState((item.requiredEquipment as string[]|undefined)?.join(',')??'');
   const [assigned,setAssigned]=useState(String(item.assignedInstructorId??''));
@@ -114,7 +118,7 @@ function CourseRow({item,instructors,save,approve,canApprove}:{item:Entity;instr
   const [hybrid,setHybrid]=useState({theoryOnsiteHours:h.theoryOnsiteHours??0,
     theoryRemoteHours:h.theoryRemoteHours??0,practicalOnsiteHours:h.practicalOnsiteHours??0,
     practicalRemoteHours:h.practicalRemoteHours??0});
-  return <tr><td><strong>{String(item.title)}</strong><small>{item.code}</small></td><td>{String(item.level)}</td>
+  return <tr><td><strong>{String(item.title)}</strong><small>{item.code} — {active?'نشط':'مؤرشف'}</small></td><td>{String(item.level)}</td>
     <td>{String(item.theoryHours)}</td><td>{String(item.practicalHours)}</td>
     <td><input className="small" type="number" min="0" value={demand} onChange={e=>setDemand(+e.target.value)}/></td>
     <td><input className="medium" placeholder="BLK-1,BLK-2..." value={blocks} onChange={e=>setBlocks(e.target.value)}/></td>
@@ -142,11 +146,13 @@ function CourseRow({item,instructors,save,approve,canApprove}:{item:Entity;instr
             <input type="number" min="0" value={hybrid[k]}
               onChange={e=>setHybrid(v=>({...v,[k]:Number(e.target.value)}))}/></label>)}
       </details>}</td>
-    <td><button onClick={()=>save({demand,blocks:blocks.split(',').map(x=>x.trim()).filter(Boolean),
+    <td><button disabled={!active} onClick={()=>save({demand,blocks:blocks.split(',').map(x=>x.trim()).filter(Boolean),
       mode,assignedInstructorId:assigned||null,exclusiveInstructor:exclusive,
        requiredSpecialties:specialties.split(',').map(x=>x.trim()).filter(Boolean),
        requiredEquipment:equipment.split(',').map(x=>x.trim()).filter(Boolean),
-      ...(mode==='HYBRID'?{hybridSplit:hybrid}:{hybridSplit:null})})}>حفظ</button></td>
+      ...(mode==='HYBRID'?{hybridSplit:hybrid}:{hybridSplit:null})})}>حفظ</button>
+      <label>مبرر الأرشفة أو الاستعادة<input value={archiveReason} onChange={e=>setArchiveReason(e.target.value)}/></label>
+      <button disabled={archiveReason.trim().length<8} onClick={()=>lifecycle(!active,archiveReason)}>{active?'أرشفة المقرر':'استعادة المقرر'}</button></td>
   </tr>;
 }
 function ResourcesPage({ctx,notify}:{ctx:Context;notify:Message}){
