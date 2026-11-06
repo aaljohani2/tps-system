@@ -1,3 +1,32 @@
+# TPS System — Full-Stack V1 (local development branch)
+
+> **Important: In progress, not ready for institutional use or Rayat.** This branch is separate from `main`; historical prototype notes are retained below.
+
+## Real local workflow
+
+Sign in → select institution, college, department and term → import courses (CSV/XLSX with preview/commit) → enter demand, instructors, rooms and blocks → generate draft sections → run Java Timefold → inspect sessions, loads and uncovered work → compare scenarios → review/approve if eligible → export CSV/Excel.
+
+This release includes a React RTL frontend, Fastify API, PostgreSQL persistence, Argon2id session authentication, scoped routes, audit records and a Java Timefold bridge reused from the tested prototype. **Greedy output is explicitly a draft, never an optimized/approved result.**
+
+### Local prerequisites
+
+Node.js 22+, npm, Docker Desktop/Compose (or a separate local PostgreSQL), Java 21, Maven, Python 3 and openpyxl. The API binds to `127.0.0.1:8787` and PostgreSQL to `127.0.0.1:54329` by default. No cloud infrastructure is required.
+
+### Installation on Windows
+
+1. Preserve any existing local changes in `H:\\tps_system`. Do not reset or clean the repository.
+2. Switch to `feat/full-stack-tps-v1` after checking `git status`.
+3. Create `.env` from `.env.example`, generate a unique high-entropy `TPS_DB_PASSWORD` and set a matching URL-encoded password in `DATABASE_URL`.
+4. Run `powershell -ExecutionPolicy Bypass -File scripts/local.ps1 setup`.
+5. Set `TPS_BOOTSTRAP_PASSWORD` to a strong 16+ character value only in the current shell and run `npm run db:bootstrap`. Unset the variable afterward.
+6. Run `npm start` and visit `http://127.0.0.1:8787`.
+
+See [local deployment](docs/DEPLOYMENT_LOCAL.md), [implementation ledger](docs/IMPLEMENTATION_STATE.md), and [Codex local handoff](docs/CODEX_LOCAL_HANDOFF.md). **Do not interpret remote CI as proof that your local installation passed.**
+
+---
+
+## Historical v0.3 prototype README (retained for traceability)
+
 # TPS | نظام تخطيط وجدولة التدريب
 
 نظام عربي قابل للتوسع لتقدير الطلب على المقررات، وتوليد الشعب، وإسناد المدربين، وفحص القيود الزمنية والمكانية، وإظهار العجز **دون إخفائه**.
