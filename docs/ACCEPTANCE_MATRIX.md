@@ -5,7 +5,7 @@
 | ID | Action | Expected local result | Category |
 |---|---|---|---|
 | A01 | Install Node/React/Python/Java dependencies | No missing package; backend/frontend/Java compile | Environment |
-| A02 | Start loopback PostgreSQL and run all SQL migrations twice | 0001–0012 installed; second run idempotent | DB |
+| A02 | Start loopback PostgreSQL and run all SQL migrations twice | 0001–0014 installed; second run idempotent | DB |
 | A03 | Create first admin and login/logout | Argon2id hash; session cookie; no default password | Auth |
 | A04 | Make request without CSRF | 403, nothing changed | Security |
 | A05 | Create two colleges/departments; sign in as scoped head | Other departments inaccessible; shared college objects not modifiable | Tenant scope |
@@ -77,3 +77,8 @@ No Rayat API connection, no student personal records, no production deployment, 
 | A53 | Cancel an accepted asynchronous job and retry only once prior child exits | CANCELLED run, FAILED retryable DRAFT, no change to previously saved schedule or approved snapshot | Async cancellation |
 | A54 | Drive Chromium against real React + Fastify + PostgreSQL + Java with separate synthetic DB | Login, context, schedule, run, review, approve and CSV/XLSX from real persisted result; no network mocks | Browser E2E |
 | A55 | Deliberately schedule 8 sections in one room with only one two-hour slot | One section scheduled; seven explicit uncovered; no collision or invented coverage | Adversarial scheduling |
+
+| A56 | Archive and restore a course, instructor and room with a reason | Audit and state change are atomic; archived records excluded from new scenarios; all historic scenarios preserved | Resource lifecycle |
+| A57 | Attempt to archive a course in an ACTIVE curriculum plan | 409; no status or curriculum change | Curriculum governance |
+| A58 | Attempt to restore a shared room as a department-scoped editor | 403; room remains unchanged | Resource authorization |
+| A59 | Try scheduling a course locked to an inactive instructor | 409 with actionable explanation; no silent replacement or invented assigned trainer | Resource safety |
