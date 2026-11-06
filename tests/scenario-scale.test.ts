@@ -91,3 +91,25 @@ test('deliberately infeasible single-room workload keeps unmet sections visible'
   console.log(JSON.stringify({adversarial:'8 courses/1 room/one 2h slot',
     scheduled:result.sessions.length,gaps:result.gaps.length}));
 });
+
+test('real Timefold restricted skills/equipment workload never invents qualified resources',{
+  skip:!existsSync(solverJar)
+},async()=>{
+  const input=fixture(8,4,4,4,8);
+  input.courses=input.courses.map(c=>({
+    ...c,requiredSpecialties:['ERP'],requiredEquipment:['PC']
+  }));
+  input.instructors=input.instructors.map((i,n)=>({...i,specialties:n===3?['ERP']:['OTHER']}));
+  input.rooms=input.rooms.map((r,n)=>({...r,equipmentCodes:n===3?['PC']:[]}));
+  const result=await optimizeWithTimefold(input,{
+    jar:solverJar,seconds:2,candidatesPerInstructor:8,timeoutMs:20000
+  });
+  assert.equal(result.metrics.sectionCount,8);
+  assert.ok(result.sessions.every(s=>s.instructorId==='I4'&&s.roomId==='R4'),
+    'Timefold must never use an unqualified trainer or unequipped classroom');
+  assert.equal(result.metrics.uncoveredSectionCount,result.gaps.length);
+  assert.equal(result.metrics.assignedContactHours+result.metrics.uncoveredContactHours,
+    result.metrics.requiredContactHours);
+  console.log(JSON.stringify({adversarial:'restricted skills/equipment',
+    covered:result.sessions.length,uncovered:result.gaps.length}));
+});
