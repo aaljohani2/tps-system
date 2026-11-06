@@ -35,7 +35,7 @@ async function scope(req:FastifyRequest,kind:BulkKind):Promise<Scope>{
 async function decode(kind:BulkKind,req:FastifyRequest):Promise<{bytes:Buffer;preview:BulkPreview}>{
   if(!Buffer.isBuffer(req.body))throw fail('Upload CSV or XLSX with the correct content-type',415);
   const bytes=req.body as Buffer;
-  const media=String(req.headers['content-type']??'').split(';')[0].toLowerCase();
+  const media=(String(req.headers['content-type']??'').split(';')[0]??'').toLowerCase();
   let table:string[][];
   try{
     if(media==='text/csv')table=decodeCsv(bytes);
