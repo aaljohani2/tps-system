@@ -1,0 +1,191 @@
+import type {FastifyInstance,FastifyRequest} from 'fastify';
+import {z} from 'zod';
+import {pool} from './database.js';
+import {audit,allowedDepartment,canApprove,requireEditor} from './security.js';
+import {defaultPolicy} from '../policy.js';
+import {buildDraftPlan} from '../planner.js';
+import {optimizeWithTimefold} from '../optimizer.js';
+import {validateRequest} from '../validation.js';
+import type {Course,Instructor,PlanRequest,PlanResult,Policy,Room} from '../types.js';
+
+const uuid=z.string().uuid();
+const invalid=(message:string,statusCode=400)=>Object.assign(new Error(message),{statusCode});
+const params=(req:FastifyRequest)=>uuid.parse((req.params as {id:string}).id);
+async function scope(req:FastifyRequest,departmentId:string){
+  if(!await allowedDepartment(req.principal!,departmentId))throw invalid('Scope denied',403);
+}
+interface Stored {
+  id:string;department_id:string;term_id:string;name:string;state:string;solver_status:string;
+  input_snapshot:PlanRequest;result_snapshot:PlanResult;solver_details:unknown;approved_snapshot:unknown;revision:number;
+}
+async function find(req:FastifyRequest,id:string):Promise<Stored>{
+  const r=await pool.query<Stored>('SELECT * FROM scenarios WHERE id=$1',[id]);
+  const row=r.rows[0];if(!row)throw invalid('Scenario not found',404);
+  await scope(req,row.department_id);
+  return row;
+}
+async function fromDatabase(departmentId:string,termId:string,name:string,policy:Policy):Promise<PlanRequest>{
+  const d=await pool.query<{college_id:string}>('SELECT college_id FROM departments WHERE id=$1',[departmentId]);
+  const collegeId=d.rows[0]?.college_id;
+  if(!collegeId)throw invalid('Department not found',404);
+  const term=await pool.query('SELECT id FROM academic_terms WHERE id=$1 AND college_id=$2',[termId,collegeId]);
+  if(!term.rowCount)throw invalid('Term does not belong to selected college');
+  const [coursesRaw,instructorsRaw,roomsRaw]=await Promise.all([
+    pool.query('SELECT * FROM courses WHERE department_id=$1 ORDER BY code',[departmentId]),
+    pool.query('SELECT * FROM instructors WHERE department_id=$1 ORDER BY code',[departmentId]),
+    pool.query('SELECT * FROM rooms WHERE college_id=$1 ORDER BY code',[collegeId])
+  ]);
+  const courses:Course[]=coursesRaw.rows.map(c=>({
+    code:c.code,title:c.title,level:c.level,demand:c.demand,theoryHours:c.theory_hours,
+    practicalHours:c.practical_hours,mode:c.mode,eligibleModes:c.eligible_modes,
+    blocks:c.blocks.length?c.blocks:undefined,hybridSplit:c.hybrid_split??undefined,
+    assignedInstructorId:c.assigned_instructor_id??undefined,exclusiveInstructor:c.exclusive_instructor
+  }));
+  const instructors:Instructor[]=instructorsRaw.rows.map(i=>({
+    id:i.code,name:i.name,maxLoad:Number(i.max_load),allowedModes:i.allowed_modes,
+    eligibleCourseCodes:i.eligible_course_codes??undefined,available:i.available??undefined,
+    overload:i.overload??undefined
+  }));
+  const rooms:Room[]=roomsRaw.rows.map(r=>({
+    id:r.code,name:r.name,type:r.type,capacity:r.capacity,available:r.available??undefined
+  }));
+  return {scenarioName:name,termId,courses,instructors,rooms,policy};
+}
+const selectInput=z.object({departmentId:uuid,termId:uuid,name:z.string().trim().min(1).max(160),
+  policy:z.unknown().optional()});
+function csvCell(v:unknown):string{
+  const raw=String(v??'');
+  const guarded=/^[\s]*[=+@-]/.test(raw)?"'"+raw:raw;
+  return '"'+guarded.replace(/"/g,'""')+'"';
+}
+export async function registerScenarios(app:FastifyInstance):Promise<void>{
+  app.get('/api/v1/scenarios',async(req)=>{
+    const q=req.query as {departmentId?:string;termId?:string};
+    const departmentId=uuid.parse(q.departmentId);
+    await scope(req,departmentId);
+    const termId=q.termId?uuid.parse(q.termId):null;
+    const rows=await pool.query(`SELECT id,department_id,term_id,name,state,solver_status,revision,created_at,approved_at
+      FROM scenarios WHERE department_id=$1 AND ($2::uuid IS NULL OR term_id=$2)
+      ORDER BY created_at DESC LIMIT 100`,[departmentId,termId]);
+    return rows.rows;
+  });
+  app.post('/api/v1/scenarios',async(req)=>{
+    requireEditor(req);
+    const parsed=selectInput.safeParse(req.body);
+    if(!parsed.success)throw invalid('Invalid scenario context');
+    const v=parsed.data;
+    await scope(req,v.departmentId);
+    const policy=v.policy===undefined?defaultPolicy():v.policy as Policy;
+    const input=await fromDatabase(v.departmentId,v.termId,v.name,policy);
+    validateRequest(input);
+    if(!input.courses.length)throw invalid('Import or enter courses first');
+    const result=buildDraftPlan(input);
+    const r=await pool.query<{id:string}>(`INSERT INTO scenarios
+      (department_id,term_id,name,state,solver_status,input_snapshot,result_snapshot,created_by)
+      VALUES($1,$2,$3,'DRAFT','NOT_RUN',$4,$5,$6) RETURNING id`,[
+      v.departmentId,v.termId,v.name,JSON.stringify(input),JSON.stringify(result),req.principal!.id
+    ]);
+    await audit(req.principal!.id,'CREATE','SCENARIO',r.rows[0]!.id);
+    return {id:r.rows[0]!.id,state:'DRAFT',solverStatus:'NOT_RUN',result};
+  });
+  app.get('/api/v1/scenarios/:id',async(req)=>find(req,params(req)));
+  app.post('/api/v1/scenarios/:id/solve',async(req)=>{
+    requireEditor(req);
+    const id=params(req),sc=await find(req,id);
+    if(sc.state!=='DRAFT')throw invalid('Only a DRAFT may be solved',409);
+    // Same existing Java Timefold executable; no greedy fallback on failure.
+    try {
+      validateRequest(sc.input_snapshot);
+      const result=await optimizeWithTimefold(sc.input_snapshot);
+      const saved=await pool.query(`UPDATE scenarios SET result_snapshot=$2,solver_status='COMPLETED',
+        solver_details=$3 WHERE id=$1 AND state='DRAFT' RETURNING id`,[
+        id,JSON.stringify(result),JSON.stringify({mode:'Timefold',at:new Date().toISOString()})
+      ]);
+      if(!saved.rowCount)throw invalid('Scenario state changed while solving',409);
+      await audit(req.principal!.id,'SOLVE','SCENARIO',id,{gaps:result.gaps.length});
+      return {id,result,solverStatus:'COMPLETED'};
+    } catch(e){
+      await pool.query(`UPDATE scenarios SET solver_status='FAILED'
+        WHERE id=$1 AND state='DRAFT' AND solver_status<>'COMPLETED'`,[id]);
+      throw e;
+    }
+  });
+  app.post('/api/v1/scenarios/:id/review',async(req)=>{
+    requireEditor(req);const id=params(req),sc=await find(req,id);
+    if(sc.state!=='DRAFT'||sc.solver_status!=='COMPLETED')throw invalid('Solve successfully with Timefold before review',409);
+    await pool.query(`UPDATE scenarios SET state='UNDER_REVIEW' WHERE id=$1 AND state='DRAFT'`,[id]);
+    await audit(req.principal!.id,'SUBMIT_REVIEW','SCENARIO',id);
+    return {id,state:'UNDER_REVIEW'};
+  });
+  app.post('/api/v1/scenarios/:id/approve',async(req)=>{
+    if(!canApprove(req.principal!))throw invalid('Approver permission required',403);
+    const id=params(req),sc=await find(req,id);
+    if(sc.state!=='UNDER_REVIEW'||sc.solver_status!=='COMPLETED')throw invalid('Scenario not ready for approval',409);
+    const result=sc.result_snapshot;
+    if(result.gaps.length||result.sections.some(s=>s.state==='UNASSIGNED'))
+      throw invalid('Uncovered sections must be resolved before approval',409);
+    if(result.sessions.some(s=>!s.blockId))
+      throw invalid('Missing block identity: student conflict validation is incomplete',409);
+    if(result.notices.some(n=>/hard=[-][1-9]/.test(n)))
+      throw invalid('Hard constraint violations block approval',409);
+    // Re-check exact immutable input/output. Optimized result has already passed validation in applySolverChoice.
+    validateRequest(sc.input_snapshot);
+    const saved=await pool.query(`UPDATE scenarios SET state='APPROVED',approved_by=$2,approved_at=now(),
+      approved_snapshot=$3 WHERE id=$1 AND state='UNDER_REVIEW' RETURNING id`,[
+      id,req.principal!.id,JSON.stringify({input:sc.input_snapshot,result,revision:sc.revision})
+    ]);
+    if(!saved.rowCount)throw invalid('Concurrent approval state change',409);
+    await audit(req.principal!.id,'APPROVE','SCENARIO',id);
+    return {id,state:'APPROVED'};
+  });
+  app.post('/api/v1/scenarios/:id/reject',async(req)=>{
+    if(!canApprove(req.principal!))throw invalid('Approver permission required',403);
+    const id=params(req),sc=await find(req,id);
+    if(sc.state!=='UNDER_REVIEW')throw invalid('Review state required',409);
+    const note=z.object({reason:z.string().trim().min(4).max(1000)}).parse(req.body);
+    await pool.query(`UPDATE scenarios SET state='REJECTED' WHERE id=$1 AND state='UNDER_REVIEW'`,[id]);
+    await audit(req.principal!.id,'REJECT','SCENARIO',id,{reason:note.reason});
+    return {id,state:'REJECTED'};
+  });
+  app.post('/api/v1/scenarios/:id/revise',async(req)=>{
+    requireEditor(req);const id=params(req),sc=await find(req,id);
+    const result=buildDraftPlan(sc.input_snapshot);
+    const next=await pool.query<{id:string}>(`INSERT INTO scenarios
+      (department_id,term_id,name,state,solver_status,input_snapshot,result_snapshot,created_by,revision)
+      VALUES($1,$2,$3,'DRAFT','NOT_RUN',$4,$5,$6,$7) RETURNING id`,[
+      sc.department_id,sc.term_id,sc.name,JSON.stringify(sc.input_snapshot),JSON.stringify(result),
+      req.principal!.id,sc.revision+1
+    ]);
+    await audit(req.principal!.id,'REVISE','SCENARIO',next.rows[0]!.id,{parent:id});
+    return {id:next.rows[0]!.id,state:'DRAFT',revision:sc.revision+1};
+  });
+  app.get('/api/v1/scenarios/:id/export.csv',async(req,reply)=>{
+    const sc=await find(req,params(req));
+    const header=['المقرر','الشعبة','المدرب','القاعة','النمط','اليوم','البداية','النهاية','البلوك'];
+    const lines=[header.map(csvCell).join(',')];
+    for(const s of sc.result_snapshot.sessions){
+      lines.push([s.courseCode,s.sectionId,s.instructorId,s.roomId,s.mode,s.day,s.start,s.end,s.blockId].map(csvCell).join(','));
+    }
+    reply.header('content-type','text/csv; charset=utf-8');
+    reply.header('content-disposition','attachment; filename="tps-schedule.csv"');
+    return '\uFEFF'+lines.join('\r\n')+'\r\n';
+  });
+  app.get('/api/v1/scenarios/compare',async(req)=>{
+    const ids=(req.query as {ids?:string}).ids?.split(',')??[];
+    if(ids.length!==2)throw invalid('Provide exactly two scenario ids');
+    const a=await find(req,uuid.parse(ids[0])),b=await find(req,uuid.parse(ids[1]));
+    if(a.department_id!==b.department_id||a.term_id!==b.term_id)
+      throw invalid('Scenarios must share department and term');
+    const metric=(sc:Stored)=>({
+      id:sc.id,name:sc.name,sections:sc.result_snapshot.metrics.sectionCount,
+      uncovered:sc.result_snapshot.metrics.uncoveredSectionCount,
+      requiredHours:sc.result_snapshot.metrics.requiredContactHours,
+      coveredHours:sc.result_snapshot.metrics.assignedContactHours,
+      coverage:sc.result_snapshot.metrics.requiredContactHours>0
+        ?sc.result_snapshot.metrics.assignedContactHours/sc.result_snapshot.metrics.requiredContactHours:1,
+      load:sc.result_snapshot.instructorLoads.reduce((x,y)=>x+y.credited,0),
+      state:sc.state,solver:sc.solver_status
+    });
+    return {first:metric(a),second:metric(b)};
+  });
+}
