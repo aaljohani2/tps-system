@@ -90,5 +90,7 @@ jobs:
       - run: npm run build
       - run: python -m pip install openpyxl==3.1.5
       - run: node dist/src/api/migrate.js
+      - run: node dist/src/api/migrate.js
+      - run: node dist/src/api/check.js
       - run: mvn -B -ntp -f solver/pom.xml clean package
       - run: node --test dist/tests/api-postgres.test.js
