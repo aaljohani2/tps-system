@@ -1,5 +1,5 @@
 import {useState} from 'react';
-type Issue={code:string;severity:'BLOCKER'|'WARNING';message:string;sectionId?:string;courseCode?:string};
+type Issue={code:string;severity:string;message:string;sectionId?:string;courseCode?:string};
 const entries:Record<string,[string,string]>={
   SOLVER_NOT_COMPLETED:['المحرك لم يُكمل الحل','شغّل Timefold أو تحقق من سجل فشل المحرك.'],
   NO_SECTIONS:['لا توجد شعب','تحقق من بيانات الطلب والمقررات والبلوكات.'],
