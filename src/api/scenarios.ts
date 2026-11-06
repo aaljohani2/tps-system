@@ -13,6 +13,9 @@ import {assessReadiness} from './readiness.js';
 import type {Course,Instructor,PlanRequest,PlanResult,Policy,Room} from '../types.js';
 
 const uuid=z.string().uuid();
+// A single local API process owns each live Java child. Abandoned runs use
+// guarded recovery and cannot be mistaken for cancellable live processes.
+const activeSolverControllers=new Map<string,AbortController>();
 /** Bound work before invoking either the greedy baseline or the candidate-limited Java optimizer. */
 export function projectedSectionCount(input:PlanRequest):number{
   return input.courses.reduce((total,c)=>{
@@ -185,23 +188,61 @@ export async function registerScenarios(app:FastifyInstance):Promise<void>{
     }catch(e){await client.query('ROLLBACK');throw e;}
     finally{client.release();}
   });
+  app.post('/api/v1/scenarios/:id/runs/cancel',async(req)=>{
+    requireEditor(req);
+    const id=params(req),sc=await find(req,id);
+    if(sc.state!=='DRAFT'||sc.solver_status!=='RUNNING')
+      throw invalid('Only an active DRAFT solver can be cancelled',409);
+    const controller=activeSolverControllers.get(id);
+    if(!controller || controller.signal.aborted)
+      throw invalid('No attached live local solver process; use guarded recovery if applicable',409);
+    // Reserve cancellation in PostgreSQL first. A completed run cannot be erased.
+    const client=await pool.connect();
+    let runId:string;
+    try{
+      await client.query('BEGIN');
+      const updated=await client.query(`UPDATE scenarios SET solver_status='FAILED'
+        WHERE id=$1 AND state='DRAFT' AND solver_status='RUNNING' RETURNING id`,[id]);
+      if(!updated.rowCount)throw invalid('Solver already finished or changed state',409);
+      const cancelled=await client.query<{id:string}>(`UPDATE solver_runs SET
+        status='CANCELLED', finished_at=now(),
+        elapsed_ms=GREATEST(0,(EXTRACT(EPOCH FROM (now()-started_at))*1000)::integer),
+        error_message='Cancelled by authorized operator'
+        WHERE scenario_id=$1 AND status='RUNNING' RETURNING id`,[id]);
+      if(cancelled.rowCount!==1)throw invalid('Active run was not recorded; cancellation rolled back',409);
+      runId=cancelled.rows[0]!.id;
+      await client.query(`INSERT INTO audit_logs(user_id,action,entity_type,entity_id,details)
+        VALUES($1,'CANCEL_SOLVER','SCENARIO',$2,$3::jsonb)`,[
+          req.principal!.id,id,JSON.stringify({runId})
+        ]);
+      await client.query('COMMIT');
+    }catch(e){await client.query('ROLLBACK');throw e;}
+    finally{client.release();}
+    controller.abort();
+    return {id,runId,status:'CANCELLED',solverStatus:'FAILED'};
+  });
   app.post('/api/v1/scenarios/:id/solve',async(req)=>{
     requireEditor(req);
     const id=params(req),sc=await find(req,id);
     if(sc.state!=='DRAFT')throw invalid('Only a DRAFT may be solved',409);
+    // A cancelled run may release the DB claim before its previous Java child exits.
+    if(activeSolverControllers.has(id))throw invalid('Previous local solver is still terminating',409);
     // Claim the scenario atomically. Duplicate requests must not start parallel Java solvers.
     const claim=await pool.query(`UPDATE scenarios SET solver_status='RUNNING'
       WHERE id=$1 AND state='DRAFT' AND solver_status IN ('NOT_RUN','FAILED')
       RETURNING id`,[id]);
     if(!claim.rowCount)throw invalid('Solver already running or scenario already solved',409);
     let runId:string|null=null;
+    const controller=new AbortController();
+    activeSolverControllers.set(id,controller);
     const began=Date.now();
     try {
       const run=await pool.query<{id:string}>(`INSERT INTO solver_runs
         (scenario_id,requested_by) VALUES($1,$2) RETURNING id`,[id,req.principal!.id]);
       runId=run.rows[0]!.id;
       validateRequest(sc.input_snapshot);
-      const result=await optimizeWithTimefold(sc.input_snapshot);
+      const result=await optimizeWithTimefold(sc.input_snapshot,{signal:controller.signal});
+      if(controller.signal.aborted)throw invalid('Solver cancelled by operator',409);
       const elapsed=Date.now()-began;
       const scoreText=result.notices.find(n=>n.startsWith('Solver score: '))??'';
       const groups=/hard=([-]?[0-9]+), soft=([-]?[0-9]+)/.exec(scoreText);
@@ -235,7 +276,10 @@ export async function registerScenarios(app:FastifyInstance):Promise<void>{
       ]);
       await pool.query(`UPDATE scenarios SET solver_status='FAILED'
         WHERE id=$1 AND state='DRAFT' AND solver_status='RUNNING'`,[id]);
+      if(controller.signal.aborted)throw invalid('Solver cancelled by operator',409);
       throw e;
+    }finally{
+      activeSolverControllers.delete(id);
     }
   });
   app.post('/api/v1/scenarios/:id/review',async(req)=>{
