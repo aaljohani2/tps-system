@@ -25,7 +25,9 @@ export async function registerDashboard(app:FastifyInstance){
       (SELECT count(*) FROM scenarios WHERE department_id=$1 AND term_id=$2 AND state='APPROVED')::text AS approved`,
       [departmentId,termId]);
     const demand=await pool.query<{code:string;title:string;projected:number;block_total:number;source:string|null;confidence:string|null}>(`
-      SELECT c.code,c.title,COALESCE(e.projected_students,c.demand)::int AS projected,
+      SELECT c.code,c.title,COALESCE(e.projected_students,NULLIF(c.demand,0),
+        (SELECT sum(b.size) FROM block_course_assignments a JOIN student_blocks b ON b.id=a.block_id
+         WHERE a.course_id=c.id AND a.term_id=$2),0)::int AS projected,
         COALESCE((SELECT sum(b.size) FROM block_course_assignments a
           JOIN student_blocks b ON b.id=a.block_id WHERE a.course_id=c.id AND a.term_id=$2),0)::int AS block_total,
         e.source,e.confidence
