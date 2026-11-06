@@ -34,14 +34,63 @@ export function assessReadiness(input:PlanRequest,result:PlanResult,solverStatus
     `Uncovered ${gap.contactHours} weekly contact hours; equivalent load ${gap.equivalentLoad}.`,gap.sectionId,gap.courseCode);
   const roomMap=new Map(input.rooms.map(r=>[r.id,r]));
   const instructorMap=new Map(input.instructors.map(i=>[i.id,i]));
+  const sectionMap=new Map(result.sections.map(sec=>[sec.id,sec]));
+  const courseMap=new Map(input.courses.map(course=>[course.code,course]));
+  const inside=(windows:Array<{day:string;from:number;to:number}>|undefined,meeting:Session)=>{
+    return !windows || windows.some(w=>w.day===meeting.day&&w.from<=meeting.start&&w.to>=meeting.end);
+  };
+  const componentHours=(course:PlanRequest['courses'][number],sessions:Session[])=>{
+    const sum=(component:'THEORY'|'PRACTICAL',mode:'ONSITE'|'REMOTE')=>
+      sessions.filter(s=>s.component===component&&s.mode===mode).reduce((v,s)=>v+s.end-s.start,0);
+    if(course.mode==='HYBRID'){
+      const h=course.hybridSplit;
+      return !!h && sum('THEORY','ONSITE')===h.theoryOnsiteHours &&
+        sum('THEORY','REMOTE')===h.theoryRemoteHours &&
+        sum('PRACTICAL','ONSITE')===h.practicalOnsiteHours &&
+        sum('PRACTICAL','REMOTE')===h.practicalRemoteHours;
+    }
+    return sum('THEORY',course.mode==='REMOTE'?'REMOTE':'ONSITE')===course.theoryHours &&
+      sum('PRACTICAL',course.mode==='REMOTE'?'REMOTE':'ONSITE')===course.practicalHours;
+  };
+  for(const section of result.sections){
+    const course=courseMap.get(section.courseCode);
+    if(section.state==='SCHEDULED'&&course && !componentHours(course,scheduled.get(section.id)??[]))
+      add('COMPONENT_HOURS','Theory/practical or hybrid delivery hours are not correctly distributed.',section.id,section.courseCode);
+  }
   for(const session of result.sessions){
-    if(!instructorMap.has(session.instructorId))
+    const instructor=instructorMap.get(session.instructorId);
+    const course=courseMap.get(session.courseCode);
+    const section=sectionMap.get(session.sectionId);
+    if(!instructor)
       add('UNKNOWN_INSTRUCTOR','Session instructor missing from scenario.',session.sectionId,session.courseCode);
+    else{
+      if(!instructor.allowedModes.includes(course?.mode??'ONSITE') ||
+        (course?.mode==='HYBRID'&&(!instructor.allowedModes.includes('ONSITE')||!instructor.allowedModes.includes('REMOTE'))) ||
+        (instructor.eligibleCourseCodes&&!instructor.eligibleCourseCodes.includes(session.courseCode)) ||
+        (course?.assignedInstructorId && instructor.id!==course.assignedInstructorId))
+        add('INELIGIBLE_INSTRUCTOR','Instructor is not eligible or conflicts with a locked assignment.',session.sectionId,session.courseCode);
+      if(!inside(instructor.available,session))
+        add('INSTRUCTOR_UNAVAILABLE','Session falls outside instructor availability.',session.sectionId,session.courseCode);
+    }
+    if(!course||!section||section.courseCode!==session.courseCode||section.blockId!==session.blockId)
+      add('SESSION_COHORT_MISMATCH','Course, section and block identity do not match.',session.sectionId,session.courseCode);
+    if(!Number.isInteger(session.start*2)||!Number.isInteger(session.end*2)||
+      session.start>=session.end || session.end-session.start>input.policy.sessionMaxHours ||
+      !inside(input.policy.slots,session) ||
+      (session.day==='THU'&&session.end>10))
+      add('INVALID_TIME','Session is outside approved policy windows or half-hour granularity.',session.sectionId,session.courseCode);
+    if(course && (course.mode==='SELF_PACED' ||
+      (course.mode!=='HYBRID' && session.mode!==course.mode) ||
+      (course.mode==='HYBRID' && (session.mode==='ONSITE'?session.end>12:session.start<16||session.end>22))))
+      add('DELIVERY_MODE_VIOLATION','Session mode/time conflicts with approved delivery pattern.',session.sectionId,session.courseCode);
     if(session.mode==='ONSITE'){
       const room=session.roomId?roomMap.get(session.roomId):null;
-      const students=result.sections.find(s=>s.id===session.sectionId)?.students??0;
+      const students=section?.students??0;
       if(!room||room.capacity<students)
         add('ROOM_CAPACITY','Required room is missing or has insufficient capacity.',session.sectionId,session.courseCode);
+      else if(!inside(room.available,session) ||
+        !(room.type==='MULTI'||(session.component==='THEORY'?room.type==='CLASSROOM':room.type==='LAB')))
+        add('ROOM_INCOMPATIBLE','Room equipment/type or availability is unsuitable for component.',session.sectionId,session.courseCode);
     }else if(session.roomId!==null)
       add('REMOTE_ROOM','Remote session must not consume a physical room.',session.sectionId,session.courseCode);
   }
