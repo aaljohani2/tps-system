@@ -109,6 +109,10 @@ async function fromDatabase(departmentId:string,termId:string,name:string,policy
     eligibleCourseCodes:i.eligible_course_codes??undefined,specialties:i.specialties??[],available:i.available??undefined,
     overload:approvedExtra.get(i.code)
   }));
+  for(const course of courses){
+    if(course.assignedInstructorId&&!instructors.some(i=>i.id===course.assignedInstructorId))
+      throw invalid(`Locked instructor ${course.assignedInstructorId} for ${course.code} is inactive or missing; restore the trainer or explicitly revise the course assignment before scheduling`,409);
+  }
   const rooms:Room[]=roomsRaw.rows.map(r=>({
     id:r.code,name:r.name,type:r.type,capacity:r.capacity,equipmentCodes:r.equipment_codes??[],available:r.available??undefined
   }));
