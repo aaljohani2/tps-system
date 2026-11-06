@@ -90,3 +90,7 @@
 ## P0 increment: specialty and equipment enforcement (migration 0013)
 
 Source code and tests now model mandatory `requiredSpecialties`, `requiredEquipment`, instructor `specialties` and room `equipmentCodes`; all four scheduling/approval checks share a single rule. Await HEAD-matching CI before closure. Institutional credential verification, detailed inventory management, full CRUD/archive and Windows acceptance remain open.
+
+## Verified resource archival increment — 0014
+
+Source commit `dc8d477d5f3e3353ecd80638a4be23c6b46ce91f`, GitHub Actions `42272336053`: **7/7 successful**. Courses/instructors/rooms now have reversible audited archive/restore, role/scope and CSRF checks, default active lists, historical snapshots preserved, 409 for inactive locked trainer and for activation/archiving inconsistent with active curriculum plans. This closes resource lifecycle for these **three** entities only. Universal pagination/search and archival for additional academic entities, institutional qualifications approvals, security review and Windows acceptance remain open.
