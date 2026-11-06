@@ -41,7 +41,7 @@ Both keys are optional; bounds are 1–30 seconds and 1–24 candidates per trai
 
 - Several lists use fixed limits rather than uniform pagination; not all CRUD/soft-delete/search operations from the original mandate exist.
 - User-role and delivery-mode approval are **internal planning controls** and do not confer official training authority.
-- The old lowercase `docs/api.md` describes the historic v0.2 prototype; this file documents the current local V1 API.
+- The old lowercase `docs/legacy/api-v02.md` describes the historic v0.2 prototype; this file documents the current local V1 API.
 - API results in CI use synthetic fixtures; the unmocked 20-step browser journey and Windows acceptance remain outstanding.
 
 ## Resource archive/restore (migration 0014)
