@@ -74,3 +74,9 @@ test('pre-cancelled solver never spawns Java or reports a fictitious optimized r
     /Solver cancelled by operator/
   );
 });
+
+test('bounded optimization settings reject out-of-range values before opening Java',async()=>{
+  await assert.rejects(optimizeWithTimefold(fixture(),{seconds:31}),/seconds must be/);
+  await assert.rejects(optimizeWithTimefold(fixture(),{seconds:0}),/seconds must be/);
+  await assert.rejects(optimizeWithTimefold(fixture(),{candidatesPerInstructor:25}),/candidates per instructor/);
+});
