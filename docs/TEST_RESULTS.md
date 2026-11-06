@@ -39,3 +39,12 @@ After commit `28f64044`, development continued with schema 0004, academic UI, de
 - Commit `a9b9b9a2`: both GitHub Actions runs **42229654190** and **42229664267** completed successfully, including RTL Excel report worksheets, cross-scenario comparison fixtures, and XLSX-formula rejection.
 - Subsequent updates add the comparison download link and supporting integration test. Confirm the **final HEAD** matches a completed green GitHub run before reporting completion.
 - Windows local installation, full browser E2E and real institutional data verification remain untested.
+
+## Phase 10 & 11 verified engineering checkpoint — 2026-11-06
+
+- **Commit `20a9f9f81c237a343a482a645a4418918470edcd`** passed GitHub Actions runs **42238619762** and **42238626729**, including **all six jobs**:
+  `node-tests`, `api-postgres-integration`, `xlsx-import-tests`, `web-build`, `java-timefold`, `web-e2e-phase10-11`.
+- The Node tests include explicit room/trainer/block collision warnings, improved collision-resolving manual scheduling, unsafe-course-mode blockers and HTML/PDF print source escaping.
+- PostgreSQL integration tests include complete course CSV and actual XLSX preview/commit, exact file hash, school scope, immutable mode eligibility, master data and report export.
+- Playwright runs **three browser interaction tests** using mocked API responses for the four timetable views, warning navigation, stage-only drag/drop, rejected API save, viewer permissions and course import preview/commit UI. Mocked-browser interaction is not a substitute for a full real-API end-to-end user journey.
+- **Windows local installation/testing has not been conducted.** No main merge, no external deployment or Rayat changes.

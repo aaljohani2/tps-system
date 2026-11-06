@@ -12,8 +12,8 @@ Phase 10 adds complete course and instructor department template columns, indepe
 
 ## Engineering increment — preview-based bulk imports and richer reports (2026-11-06)
 
-- New forward-only migration **0009** adds `import_jobs`: 30-minute creator/scope-bound previews, SHA-256 exact-file check, one-time transaction commit and audit. No uploaded file contents or personal trainee records are persisted in this table.
-- **Four bulk import kinds:** trainers, college rooms, cohort blocks with term course links, and term-specific evidenced demand forecasts. Templates are available as CSV and styled right-to-left XLSX. Resource upserts preserve distinct instructor overload approval; rooms require shared college permissions.
+- New forward-only migrations **0009–0010** adds `import_jobs`: 30-minute creator/scope-bound previews, SHA-256 exact-file check, one-time transaction commit and audit. No uploaded file contents or personal trainee records are persisted in this table.
+- **Five bulk import kinds (including course catalog with separate proposed mode approval):** trainers, college rooms, cohort blocks with term course links, and term-specific evidenced demand forecasts. Templates are available as CSV and styled right-to-left XLSX. Resource upserts preserve distinct instructor overload approval; rooms require shared college permissions.
 - Previews parse up to **500 rows** and return row-level validation, duplicate and formula-like text errors; source/cohort/course/level links are checked against PostgreSQL. Commit rechecks source references and locks the approved preview in a single transaction. Existing course/block links are never silently deleted.
 - Arabic React page `/imports` connects downloads, file upload, row preview, errors and explicit commit. A failed validation saves nothing; changed files or replayed tokens are rejected.
 - Python XLSX converter enforces zip decompression/entry bounds, forbids formulas/macros, includes Arabic instruction sheet and does not execute workbook expressions.

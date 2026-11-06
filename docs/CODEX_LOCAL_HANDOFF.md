@@ -24,7 +24,11 @@ You are Codex on the user's Windows computer. **Your only tasks are to install a
 7. Include programs/plan versions, normalized blocks, source-based demand, half-hour slots, manual trainer locks, hybrid split, dashboard and user scope checks; never infer completion of the full mandate from the limited matrix.
 7. Validate `docs/ACCEPTANCE_MATRIX.md` A01–A20 locally, including mode-policy draft/approval, instructor/room editing, scenario forks and readiness blockers.
 7. Validate the full workflow: login → institution/college/department/term → import courses → instructors and rooms → mode policy → demand/blocks → sections → Timefold → timetable/gaps → fork/compare → review/approve → CSV/XLSX.
-8. Verify that a PostgreSQL container restart does not lose the synthetic scenario, policy and users; repeat migrations 0001–0009 idempotently.
+8. Verify that a PostgreSQL container restart does not lose the synthetic scenario, policy and users; repeat migrations 0001–0010 idempotently.
 9. Produce a written report with command, environment/version, test count, pass/fail/skip, errors and exact fixes **recommended but not performed**. Mark unsupported workflow steps as incomplete.
 
 Only local installation and testing are authorized. A passing test in GitHub Actions does **not** replace Windows-specific verification.
+
+## Additional bounded local acceptance — phases 10 and 11
+
+Once the remaining original-mandate development stages are finished, Codex may run local-only tests on a separate Windows test database. Use `docs/PHASE_10_11_CLOSEOUT.md` as the acceptance basis: verify five CSV/XLSX templates and exact-file confirmation, intentional 410 legacy write blocks, proposed course modes awaiting explicit approval, instructor department scope, actual Excel summary sheets, print-to-PDF, four weekly grid views, detailed blocker navigation, guarded drag/drop, verified manual conflict repair, immutable approved schedules and viewer access restrictions. Record failures and evidence; **do not edit code or run GitHub commits/PR merges**. No tests have been performed on the user's Windows machine yet.
