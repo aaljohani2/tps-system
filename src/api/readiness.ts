@@ -1,4 +1,5 @@
 import type {PlanRequest,PlanResult,Session} from '../types.js';
+import {trainerQualified,roomQualified} from '../eligibility.js';
 
 export interface ReadinessIssue{
   code:string;severity:'BLOCKER'|'WARNING';message:string;sectionId?:string;courseCode?:string;
@@ -68,10 +69,7 @@ export function assessReadiness(input:PlanRequest,result:PlanResult,solverStatus
     if(!instructor)
       add('UNKNOWN_INSTRUCTOR','Session instructor missing from scenario.',session.sectionId,session.courseCode);
     else{
-      if(!instructor.allowedModes.includes(course?.mode??'ONSITE') ||
-        (course?.mode==='HYBRID'&&(!instructor.allowedModes.includes('ONSITE')||!instructor.allowedModes.includes('REMOTE'))) ||
-        (instructor.eligibleCourseCodes&&!instructor.eligibleCourseCodes.includes(session.courseCode)) ||
-        (course?.assignedInstructorId && instructor.id!==course.assignedInstructorId))
+      if(course && !trainerQualified(instructor,course))
         add('INELIGIBLE_INSTRUCTOR','Instructor is not eligible or conflicts with a locked assignment.',session.sectionId,session.courseCode);
       if(!inside(instructor.available,session))
         add('INSTRUCTOR_UNAVAILABLE','Session falls outside instructor availability.',session.sectionId,session.courseCode);
@@ -92,8 +90,7 @@ export function assessReadiness(input:PlanRequest,result:PlanResult,solverStatus
       const students=section?.students??0;
       if(!room||room.capacity<students)
         add('ROOM_CAPACITY','Required room is missing or has insufficient capacity.',session.sectionId,session.courseCode);
-      else if(!inside(room.available,session) ||
-        !(room.type==='MULTI'||(session.component==='THEORY'?room.type==='CLASSROOM':room.type==='LAB')))
+      else if(!inside(room.available,session) || (course && !roomQualified(room,course,session.component,students)))
         add('ROOM_INCOMPATIBLE','Room equipment/type or availability is unsuitable for component.',session.sectionId,session.courseCode);
     }else if(session.roomId!==null)
       add('REMOTE_ROOM','Remote session must not consume a physical room.',session.sectionId,session.courseCode);
