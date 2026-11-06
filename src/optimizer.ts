@@ -68,6 +68,10 @@ function compatible(room: Room, component: Component, students: number): boolean
 /** Alternative atomic schedules for one trainer; never share the section with another trainer. */
 function makeSessions(c: Course, sec: Section, inst: Instructor, input: PlanRequest, seed: number): Session[] | null {
   const allocated: Session[] = [];
+  // Spread rooms across eligible instructors as well as temporal candidate seeds.
+  // Previously all instructors chose rooms[seed], so even 20 available rooms
+  // collapsed to one room per candidate seed and produced artificial shortages.
+  const instructorRoomOffset=Array.from(inst.id).reduce((h,ch)=>((h*33)+ch.charCodeAt(0))>>>0,0);
   const days = [...DAYS.slice(seed % DAYS.length), ...DAYS.slice(0, seed % DAYS.length)];
   for (const job of jobs(c)) {
     let hours = job.hours;
@@ -92,7 +96,7 @@ function makeSessions(c: Course, sec: Section, inst: Instructor, input: PlanRequ
               if (allocated.some(x => x.day === day && collide(x, {start, end}))) continue;
               const rooms = job.mode === 'REMOTE' ? [null] : input.rooms.filter(r => compatible(r, job.component, sec.students) && available(r.available, day, start, end));
               if (!rooms.length) continue;
-              const chosen = rooms[seed % rooms.length];
+              const chosen = rooms[(instructorRoomOffset+seed) % rooms.length];
               allocated.push({
                 id: `${sec.id}-P${seed + 1}-${allocated.length + 1}`, sectionId: sec.id,
                 courseCode: c.code, component: job.component, mode: job.mode,
