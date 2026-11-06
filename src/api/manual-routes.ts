@@ -53,7 +53,7 @@ export async function registerManualScheduling(app:FastifyInstance):Promise<void
       const version=scenario.edit_version+1;
       await client.query(`UPDATE scenarios SET result_snapshot=$2::jsonb,edit_version=$3,
         solver_details=COALESCE(solver_details,'{}'::jsonb) ||
-          jsonb_build_object('manualEdits',$3,'lastManualEditAt',now())
+          jsonb_build_object('manualEdits',$3::integer,'lastManualEditAt',now())
         WHERE id=$1`,[id,JSON.stringify(next),version]);
       await client.query(`INSERT INTO scenario_session_edits
         (scenario_id,edit_version,session_id,before_snapshot,after_snapshot,reason,edited_by)
