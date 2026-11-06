@@ -10,8 +10,8 @@ const modeLabel:Record<string,string>={ONSITE:'حضوري',REMOTE:'متزامن 
 const clock=(v:number)=>String(Math.floor(v)).padStart(2,'0')+':'+(v%1===0.5?'30':'00');
 const half=(value:number)=>Math.round(value*2)/2;
 const dayOrder=(day:string)=>weekdays.findIndex(([v])=>v===day);
-export default function WeeklyGrid({scenario,issues,onPropose,focusSection}:{
- scenario:Scenario;issues:Issue[];onPropose:(m:GridProposal)=>void;focusSection?:string|null;
+export default function WeeklyGrid({scenario,issues,onPropose,focusSection,canEdit:authorized}:{
+ scenario:Scenario;issues:Issue[];onPropose:(m:GridProposal)=>void;focusSection?:string|null;canEdit:boolean;
 }){
   const plan=scenario.result_snapshot;
   const data=scenario.input_snapshot as Input|undefined;
@@ -47,7 +47,7 @@ export default function WeeklyGrid({scenario,issues,onPropose,focusSection}:{
   const selected=plan.sessions.find(s=>s.id===focus);
   const selectedIssues=issues.filter(i=>selected&&(i.sectionId===selected.sectionId||
     (!i.sectionId&&i.courseCode===selected.courseCode)));
-  const canEdit=scenario.state==='DRAFT'&&scenario.solver_status==='COMPLETED';
+  const canEdit=authorized&&scenario.state==='DRAFT'&&scenario.solver_status==='COMPLETED';
   const stage=(sessionId:string,day:string,start:number)=>{
     if(!canEdit)return;
     const meeting=plan.sessions.find(s=>s.id===sessionId);

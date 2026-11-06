@@ -195,7 +195,7 @@ function Timetable({p}:{p:Plan}){
       <td>{s.instructorId}</td><td>{s.roomId??'عن بُعد'}</td><td><span className="tag">{labels[s.mode]}</span></td><td>{s.blockId??'غير محدد'}</td></tr>)}</tbody></table></div>
   </div>;
 }
-function ScenarioPage({ctx,notify}:{ctx:Context;notify:Message}){
+function ScenarioPage({ctx,notify,user}:{ctx:Context;notify:Message;user:Auth}){
   const qc=useQueryClient(),list=useQuery({queryKey:['scenarios',ctx.departmentId,ctx.termId],
     queryFn:()=>api<Scenario[]>('/scenarios?departmentId='+ctx.departmentId+'&termId='+ctx.termId),enabled:!!ctx.departmentId&&!!ctx.termId});
   const [name,setName]=useState('السيناريو الحضوري'),[selected,setSelected]=useState(''),[working,setWorking]=useState(false),[second,setSecond]=useState('');
@@ -223,21 +223,23 @@ function ScenarioPage({ctx,notify}:{ctx:Context;notify:Message}){
     setForkBlocks(Object.fromEntries(input.courses.map(c=>[c.code,c.blocks?.join(',')??''])));
     setForkBlockSizes(Object.fromEntries(input.courses.map(c=>[c.code,c.blockSizes?.join(',')??''])));
   },[selected,one.data]);
+  const canEdit=['SYSTEM_ADMIN','COLLEGE_ADMIN','DEPARTMENT_HEAD','SCHEDULER'].includes(user.role);
+  const canApprove=['SYSTEM_ADMIN','COLLEGE_ADMIN','APPROVER'].includes(user.role);
   const rows=list.data??[],current=one.data,p=current?.result_snapshot;
   const originalCourses=((current?.input_snapshot as {courses?:Array<{code:string;title:string;demand:number;blocks?:string[];blockSizes?:number[]}>}|undefined)?.courses??[]);
   return <section className="panel"><h2>٥. إنشاء الشعب وتشغيل Timefold</h2>
     <p className="hint">إنشاء السيناريو يحسب مسودة Greedy مع إظهار العجز. زر Timefold وحده ينفذ التحسين؛ لا يُخفى تعطل Java.</p>
     <div className="actions"><input placeholder="اسم السيناريو" value={name} onChange={e=>setName(e.target.value)}/>
-      <button className="primary" disabled={working||!ctx.termId} onClick={()=>run(async()=>{
+      <button className="primary" disabled={working||!ctx.termId||!canEdit} onClick={()=>run(async()=>{
         const s=await post<{id:string}>('/scenarios',{departmentId:ctx.departmentId,termId:ctx.termId,name});setSelected(s.id);
       })}>إنشاء السيناريو والشعب</button></div>
     <div className="actions"><Select label="السيناريو الحالي" items={rows.map(s=>({id:s.id,name:s.name+' — '+s.state+' / '+s.solver_status}))}
       value={selected} onChange={setSelected}/></div>
     {current&&p&&<><div className="actions"><span className="status">الحالة: {current.state} — المحرك: {current.solver_status}</span>
-      <button disabled={working||current.state!=='DRAFT'} onClick={()=>run(()=>post('/scenarios/'+selected+'/solve',{}))}>تشغيل Timefold</button>
-      <button disabled={working||current.state!=='DRAFT'||current.solver_status!=='COMPLETED'} onClick={()=>run(()=>post('/scenarios/'+selected+'/review',{}))}>إرسال للمراجعة</button>
-      <button disabled={working||current.state!=='UNDER_REVIEW'} onClick={()=>run(()=>post('/scenarios/'+selected+'/approve',{}))}>اعتماد السيناريو</button>
-      <button disabled={working} onClick={()=>run(async()=>{const s=await post<{id:string}>('/scenarios/'+selected+'/revise',{});setSelected(s.id);})}>إنشاء مراجعة جديدة</button>
+      <button disabled={working||!canEdit||current.state!=='DRAFT'} onClick={()=>run(()=>post('/scenarios/'+selected+'/solve',{}))}>تشغيل Timefold</button>
+      <button disabled={working||!canEdit||current.state!=='DRAFT'||current.solver_status!=='COMPLETED'} onClick={()=>run(()=>post('/scenarios/'+selected+'/review',{}))}>إرسال للمراجعة</button>
+      <button disabled={working||!canApprove||current.state!=='UNDER_REVIEW'} onClick={()=>run(()=>post('/scenarios/'+selected+'/approve',{}))}>اعتماد السيناريو</button>
+      <button disabled={working||!canEdit} onClick={()=>run(async()=>{const s=await post<{id:string}>('/scenarios/'+selected+'/revise',{});setSelected(s.id);})}>إنشاء مراجعة جديدة</button>
       <a href={'/api/v1/scenarios/'+selected+'/export.csv'} target="_blank" rel="noreferrer">تصدير CSV</a>
       <a href={'/api/v1/scenarios/'+selected+'/export.xlsx'} target="_blank" rel="noreferrer">تصدير Excel</a></div>
       <Metrics p={p}/>
@@ -253,9 +255,9 @@ function ScenarioPage({ctx,notify}:{ctx:Context;notify:Message}){
       }}/>
       <SolverRunsPanel scenario={current} notify={notify}/>
       <div className="subhead"><h3>الجداول الأسبوعية التفاعلية</h3></div>
-      <WeeklyGrid scenario={current} issues={readiness.data?.issues??[]} onPropose={setGridProposal} focusSection={focusSection}/>
+      <WeeklyGrid scenario={current} issues={readiness.data?.issues??[]} onPropose={setGridProposal} focusSection={focusSection} canEdit={canEdit}/>
       <details><summary>عرض تفصيلي إضافي — قائمة جميع الجلسات</summary><Timetable p={p}/></details>
-      <ManualScheduleEditor scenario={current} notify={notify} proposal={gridProposal}/>
+      <ManualScheduleEditor scenario={current} notify={notify} proposal={gridProposal} canEdit={canEdit}/>
       <h3>كشف العجز</h3>{p.gaps.length?<div className="table-wrap"><table><thead><tr><th>الشعبة</th><th>المقرر</th><th>السبب</th><th>ساعات التدريب</th><th>النصاب المطلوب</th></tr></thead>
         <tbody>{p.gaps.map(g=><tr key={g.sectionId}><td>{g.sectionId}</td><td>{g.courseCode}</td><td>{g.reason}</td><td>{g.contactHours}</td><td>{g.equivalentLoad}</td></tr>)}</tbody></table></div>:<p className="success">لا يوجد عجز مسجل في النتيجة الحالية. يلزم التحقق من هوية البلوكات قبل اعتمادها.</p>}
       <h3>أنصبة المدربين</h3><div className="table-wrap"><table><thead><tr><th>المدرب</th><th>الساعات الفعلية</th><th>النصاب المكافئ</th><th>المتبقي</th></tr></thead><tbody>
@@ -321,7 +323,7 @@ export default function App(){
     <Route path="/demand" element={ctx.departmentId&&ctx.termId?<DemandPage ctx={ctx} notify={notify}/>:<NeedContext/>}/>
     <Route path="/resources" element={ctx.departmentId?<ResourcesEditor ctx={ctx} user={user} notify={notify}/>:<NeedContext/>}/>
     <Route path="/policy" element={ctx.termId&&ctx.departmentId?<PolicyPage ctx={ctx} user={user} notify={notify}/>:<NeedContext/>}/>
-    <Route path="/scheduling" element={ctx.termId&&ctx.departmentId?<ScenarioPage ctx={ctx} notify={notify}/>:<NeedContext/>}/>
+    <Route path="/scheduling" element={ctx.termId&&ctx.departmentId?<ScenarioPage ctx={ctx} notify={notify} user={user}/>:<NeedContext/>}/>
     <Route path="*" element={<Navigate to="/context"/>}/></Routes>
     <footer>محرك Timefold لتوليد الجداول · البيانات محفوظة في PostgreSQL المحلي · الأوقات بتوقيت السعودية</footer>
   </main></div>;

@@ -6,9 +6,9 @@ type Input={instructors:Array<{id:string;name:string}>;rooms:Array<{id:string;na
 type MoveEdit={id:number;edit_version:number;session_id:string;reason:string;edited_at:string};
 const names:Record<string,string>={SUN:'الأحد',MON:'الإثنين',TUE:'الثلاثاء',WED:'الأربعاء',THU:'الخميس'};
 const clock=(hour:number)=>String(Math.floor(hour)).padStart(2,'0')+':'+(hour%1===0.5?'30':'00');
-export default function ManualScheduleEditor({scenario,notify,proposal}:{
+export default function ManualScheduleEditor({scenario,notify,proposal,canEdit:authorized}:{
   scenario:Scenario;notify:(message:string)=>void;
-  proposal?:{sessionId:string;day:string;start:number;nonce:number}|null;
+  proposal?:{sessionId:string;day:string;start:number;nonce:number}|null;canEdit:boolean;
 }){
   const qc=useQueryClient();
   const plan=scenario.result_snapshot as Plan;
@@ -38,7 +38,7 @@ export default function ManualScheduleEditor({scenario,notify,proposal}:{
     setRoom(s.roomId??'');setInstructor(s.instructorId);
   },[proposal?.nonce,proposal?.sessionId,proposal?.day,proposal?.start]);
   const current=sessions.find(x=>x.id===chosen);
-  const editable=scenario.state==='DRAFT'&&scenario.solver_status==='COMPLETED';
+  const editable=authorized&&scenario.state==='DRAFT'&&scenario.solver_status==='COMPLETED';
   async function save(){
     if(!current||!editable)return;
     setSaving(true);
