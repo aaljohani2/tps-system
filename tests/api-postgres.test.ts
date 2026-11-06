@@ -160,6 +160,37 @@ test('authenticated end-to-end workflow persists a synthetic TPS scenario in Pos
     const forkRecord=await pool.query('SELECT parent_scenario_id,solver_status FROM scenarios WHERE id=$1',[fork.id]);
     assert.equal(forkRecord.rows[0]?.parent_scenario_id,created.id);
     assert.equal(forkRecord.rows[0]?.solver_status,'NOT_RUN');
+    // Structural records: program → versioned curriculum → cohort → normalized block → term-linked course.
+    const program=await write('/programs',{departmentId:department.id,code:'PRG-'+uniq,name:'برنامج اصطناعي'});
+    const plan=await write('/plans',{programId:program.id,code:'PLAN-'+uniq,versionLabel:'نسخة اختبار 1'});
+    const planItem=await write('/plans/'+plan.id+'/items',{courseId:course.id,level:1,isRequired:true});
+    assert.equal(planItem.level,1);
+    const group=await write('/cohorts',{departmentId:department.id,programId:program.id,
+      code:'GROUP-'+uniq,name:'فوج اختبار',level:1});
+    const block=await write('/blocks',{cohortId:group.id,code:'B1',name:'البلوك الأول',size:20});
+    const blockLink=await write('/assignments',{blockId:block.id,courseId:course.id,termId:term.id});
+    assert.ok(blockLink.id);
+    const demandSet=await app.inject({method:'PUT',url:'/api/v1/demand',headers:{cookie:session,'x-csrf-token':csrf},
+      payload:{courseId:course.id,termId:term.id,baseStudents:19,repeatRate:0.05,source:'Synthetic admission forecast',confidence:'HIGH'}});
+    assert.equal(demandSet.statusCode,200,demandSet.body);
+    assert.equal(demandSet.json().projected_students,20);
+    const structured=await write('/scenarios',{departmentId:department.id,termId:term.id,name:'بلوكات علائقية'});
+    assert.equal(structured.result.sections.length,1);
+    assert.equal(structured.result.sections[0].students,20);
+    assert.equal(structured.result.sections[0].blockId,'GROUP-'+uniq+'::B1');
+    const structuredRow=await pool.query('SELECT input_snapshot FROM scenarios WHERE id=$1',[structured.id]);
+    assert.deepEqual(structuredRow.rows[0]?.input_snapshot.courses[0].blockSizes,[20]);
+    const mismatchSet=await app.inject({method:'PUT',url:'/api/v1/demand',headers:{cookie:session,'x-csrf-token':csrf},
+      payload:{courseId:course.id,termId:term.id,baseStudents:20,repeatRate:0.05,source:'Synthetic revised forecast',confidence:'MEDIUM'}});
+    assert.equal(mismatchSet.statusCode,200,mismatchSet.body);
+    assert.equal(mismatchSet.json().projected_students,21);
+    const mismatch=await app.inject({method:'POST',url:'/api/v1/scenarios',
+      headers:{cookie:session,'x-csrf-token':csrf},
+      payload:{departmentId:department.id,termId:term.id,name:'يجب رفض عدم التطابق'}});
+    assert.equal(mismatch.statusCode,409,'A scenario must reject inconsistent block totals');
+    const prior=await pool.query('SELECT input_snapshot FROM scenarios WHERE id=$1',[structured.id]);
+    assert.equal(prior.rows[0]?.input_snapshot.courses[0].demand,20,'saved snapshots cannot change with forecasts');
+
     const next=await write('/scenarios/'+created.id+'/revise',{});
     assert.equal(next.revision,2);
     const compare=await app.inject({url:'/api/v1/scenarios/compare?ids='+created.id+','+next.id,headers:{cookie:session}});
