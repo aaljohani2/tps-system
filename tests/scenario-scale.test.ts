@@ -72,3 +72,22 @@ test('larger synthetic Timefold workload records coverage, runtime and resource 
   console.log(JSON.stringify({scale:'50/12/30/6/30',elapsedMs,sections:result.sections.length,
     sessions:result.sessions.length,gaps:result.gaps.length,memoryRssMB:Math.round(process.memoryUsage().rss/1048576)}));
 });
+
+test('deliberately infeasible single-room workload keeps unmet sections visible', {
+  skip:!existsSync(solverJar)
+},async()=>{
+  const input=fixture(8,4,1,4,8);
+  input.policy.slots=[{day:'SUN',from:8,to:10}];
+  const result=await optimizeWithTimefold(input,{
+    jar:solverJar,seconds:2,candidatesPerInstructor:8,timeoutMs:20000
+  });
+  assert.equal(result.metrics.sectionCount,8);
+  assert.equal(result.sections.filter(s=>s.state==='SCHEDULED').length,1);
+  assert.equal(result.metrics.uncoveredSectionCount,7);
+  assert.equal(result.gaps.length,7);
+  assert.equal(result.sessions.length,1);
+  assert.equal(result.metrics.assignedContactHours+result.metrics.uncoveredContactHours,
+    result.metrics.requiredContactHours);
+  console.log(JSON.stringify({adversarial:'8 courses/1 room/one 2h slot',
+    scheduled:result.sessions.length,gaps:result.gaps.length}));
+});
