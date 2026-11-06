@@ -16,6 +16,7 @@ const uuid=z.string().uuid();
 export function projectedSectionCount(input:PlanRequest):number{
   return input.courses.reduce((total,c)=>{
     if(c.demand===0)return total;
+    if(c.blockSizes)return total+c.blockSizes.length;
     if(c.mode==='SELF_PACED')return total+1;
     const cap=input.policy.capacities[c.mode];
     const limit=c.theoryHours>0&&c.practicalHours>0?Math.min(cap.theory!,cap.practical!):
@@ -227,7 +228,8 @@ export async function registerScenarios(app:FastifyInstance):Promise<void>{
       overrides:z.array(z.object({
         code:z.string().min(1),
         demand:z.number().int().min(0).max(5000),
-        blocks:z.array(z.string().trim().min(1).max(100)).max(250)
+        blocks:z.array(z.string().trim().min(1).max(100)).max(250),
+        blockSizes:z.array(z.number().int().positive().max(5000)).max(250).optional()
       }).strict()).max(250)
     }).strict().parse(req.body);
     const known=new Set(sc.input_snapshot.courses.map(c=>c.code));
@@ -244,7 +246,13 @@ export async function registerScenarios(app:FastifyInstance):Promise<void>{
     source.scenarioName=input.name;
     source.courses=source.courses.map(c=>{
       const override=overrideMap.get(c.code);
-      return override?{...c,demand:override.demand,blocks:override.blocks}:c;
+      if(!override)return c;
+      const changed=override.demand!==c.demand||
+        JSON.stringify(override.blocks)!==JSON.stringify(c.blocks??[]);
+      if(c.blockSizes && changed && !override.blockSizes)
+        throw invalid('Provide explicit block sizes when changing a normalized cohort course',400);
+      return {...c,demand:override.demand,blocks:override.blocks,
+        blockSizes:override.blockSizes??c.blockSizes};
     });
     validateRequest(source);
     const result=boundedDraft(source);
