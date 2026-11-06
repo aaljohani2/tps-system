@@ -374,6 +374,86 @@ test('authenticated end-to-end workflow persists a synthetic TPS scenario in Pos
     const prior=await pool.query('SELECT input_snapshot FROM scenarios WHERE id=$1',[structured.id]);
     assert.equal(prior.rows[0]?.input_snapshot.courses.find((c:{code:string})=>c.code==='TEST-101')?.demand,20,'saved snapshots cannot change with forecasts');
 
+
+    // CSV bulk flow: preview, error feedback, exact-file transaction and anti-replay.
+    const scope='departmentId='+department.id+'&termId='+term.id;
+    const batchHeaders={cookie:session,'x-csrf-token':csrf,'content-type':'text/csv'};
+    const csvUpload=(kind:string,stage:string,csv:string,extra='')=>app.inject({
+      method:'POST',url:'/api/v1/import/batch/'+kind+'/'+stage+'?'+scope+extra,
+      headers:batchHeaders,payload:Buffer.from(csv,'utf8')
+    });
+    const invalidResource=await csvUpload('rooms','preview',
+      'code,name,type,capacity,building,available\\nR-IMP,Bad room,LAB,0,B1,\\n');
+    assert.equal(invalidResource.statusCode,200,invalidResource.body);
+    assert.equal(invalidResource.json().ready,false);
+    assert.equal(invalidResource.json().importId,null);
+    assert.equal(invalidResource.json().errors[0].row,2);
+    const safeCsv='code,name,type,capacity,building,available\\nR-IMP-'+uniq+',قاعة دفعة,CLASSROOM,36,B1,\\n';
+    const beforeImport=await pool.query('SELECT count(*)::int AS n FROM rooms WHERE college_id=$1',[college.id]);
+    const roomPreview=await csvUpload('rooms','preview',safeCsv);
+    assert.equal(roomPreview.statusCode,200,roomPreview.body);
+    assert.equal(roomPreview.json().ready,true);
+    const afterPreview=await pool.query('SELECT count(*)::int AS n FROM rooms WHERE college_id=$1',[college.id]);
+    assert.equal(afterPreview.rows[0].n,beforeImport.rows[0].n,'Preview must never write records');
+    const tampered=await csvUpload('rooms','commit',
+      safeCsv.replace('قاعة دفعة','قاعة أخرى'),'&importId='+roomPreview.json().importId);
+    assert.equal(tampered.statusCode,409,'Import commit must match the previewed file bytes');
+    const roomCommit=await csvUpload('rooms','commit',safeCsv,'&importId='+roomPreview.json().importId);
+    assert.equal(roomCommit.statusCode,200,roomCommit.body);
+    assert.equal(roomCommit.json().status,'COMMITTED');
+    assert.equal(roomCommit.json().imported,1);
+    const replay=await csvUpload('rooms','commit',safeCsv,'&importId='+roomPreview.json().importId);
+    assert.equal(replay.statusCode,409,'A preview can be committed once only');
+    const roomRecord=await pool.query('SELECT capacity FROM rooms WHERE college_id=$1 AND code=$2',
+      [college.id,'R-IMP-'+uniq]);
+    assert.equal(roomRecord.rows[0].capacity,36);
+    const noSharedRoomImport=await app.inject({method:'POST',
+      url:'/api/v1/import/batch/rooms/preview?'+scope,
+      headers:{cookie:limitedCookie,'x-csrf-token':limitedCsrf,'content-type':'text/csv'},
+      payload:Buffer.from(safeCsv)});
+    assert.equal(noSharedRoomImport.statusCode,403,'Department head cannot import shared college rooms');
+    const noCSRFImport=await app.inject({method:'POST',
+      url:'/api/v1/import/batch/rooms/preview?'+scope,
+      headers:{cookie:session,'content-type':'text/csv'},payload:Buffer.from(safeCsv)});
+    assert.equal(noCSRFImport.statusCode,403);
+    const xlsxTemplate=await app.inject({
+      url:'/api/v1/import/batch/instructors/template.xlsx',headers:{cookie:session}});
+    assert.equal(xlsxTemplate.statusCode,200,xlsxTemplate.body);
+    assert.equal(xlsxTemplate.rawPayload.subarray(0,2).toString('ascii'),'PK');
+    const trainerCsv='code,name,maxLoad,eligibleCourseCodes,allowedModes,available\\nI-IMP-'+uniq+
+      ',مدرب اصطناعي للدفعة,18,TEST-101,ONSITE,\\n';
+    const trainerPreview=await csvUpload('instructors','preview',trainerCsv);
+    assert.equal(trainerPreview.statusCode,200,trainerPreview.body);
+    const trainerCommit=await csvUpload('instructors','commit',trainerCsv,
+      '&importId='+trainerPreview.json().importId);
+    assert.equal(trainerCommit.statusCode,200,trainerCommit.body);
+    const trainerImport=await pool.query('SELECT overload,max_load FROM instructors WHERE department_id=$1 AND code=$2',
+      [department.id,'I-IMP-'+uniq]);
+    assert.equal(trainerImport.rowCount,1);
+    assert.equal(trainerImport.rows[0].overload,null,'Bulk import cannot approve overload');
+    const blockCsv='cohortCode,code,name,size,courseCodes\\nGROUP-'+uniq+
+      ',B-IMP,بلوك تجريبي,10,TEST-101\\n';
+    const blockPreview=await csvUpload('blocks','preview',blockCsv);
+    assert.equal(blockPreview.statusCode,200,blockPreview.body);
+    const blockCommit=await csvUpload('blocks','commit',blockCsv,
+      '&importId='+blockPreview.json().importId);
+    assert.equal(blockCommit.statusCode,200,blockCommit.body);
+    const blockPersisted=await pool.query(`SELECT b.size FROM student_blocks b JOIN cohorts co ON co.id=b.cohort_id
+      WHERE co.department_id=$1 AND co.code=$2 AND b.code='B-IMP'`,[department.id,'GROUP-'+uniq]);
+    assert.equal(blockPersisted.rows[0].size,10);
+    const demandCsv='courseCode,level,baseStudents,repeatRate,source,confidence\\nADV-102,2,0,0.05,Academic forecast,HIGH\\n';
+    const demandPreview=await csvUpload('demand','preview',demandCsv);
+    assert.equal(demandPreview.statusCode,200,demandPreview.body);
+    const demandCommit=await csvUpload('demand','commit',demandCsv,
+      '&importId='+demandPreview.json().importId);
+    assert.equal(demandCommit.statusCode,200,demandCommit.body);
+    const demandRecord=await pool.query('SELECT source FROM demand_estimates WHERE course_id=$1 AND term_id=$2',
+      [advanced.id,term.id]);
+    assert.equal(demandRecord.rows[0].source,'Academic forecast');
+    const committedJobs=await pool.query(`SELECT count(*)::int AS n FROM import_jobs
+      WHERE created_by=(SELECT id FROM users WHERE username=$1) AND status='COMMITTED'`,[username]);
+    assert.equal(committedJobs.rows[0].n,4);
+
     const next=await write('/scenarios/'+created.id+'/revise',{});
     assert.equal(next.revision,2);
     const compare=await app.inject({url:'/api/v1/scenarios/compare?ids='+created.id+','+next.id,headers:{cookie:session}});
