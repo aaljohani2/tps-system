@@ -25,7 +25,7 @@ Node.js 22+, npm, Docker Desktop/Compose (or a separate local PostgreSQL), Java 
 
 Before pulling an existing Windows checkout, back up untracked local npm lockfiles, reports and database configuration; the branch now tracks `package-lock.json` and `frontend/package-lock.json`. Reproducible dependency installation uses `npm ci` at the root and `npm run web:install` in the frontend. Source CI cannot substitute for rerunning local Windows A01–A59. **For any operational or production plans, follow [production readiness and go/no-go](docs/PRODUCTION_READINESS.md) first.**
 
-See [local acceptance matrix](docs/ACCEPTANCE_MATRIX.md), [local deployment](docs/DEPLOYMENT_LOCAL.md), [implementation ledger](docs/IMPLEMENTATION_STATE.md), and [Codex local handoff](docs/CODEX_LOCAL_HANDOFF.md). **Do not interpret remote CI as proof that your local installation passed.**
+See [encrypted backup/isolated restore drill](docs/BACKUP_RESTORE.md), [production readiness](docs/PRODUCTION_READINESS.md) and [local acceptance matrix](docs/ACCEPTANCE_MATRIX.md), [local deployment](docs/DEPLOYMENT_LOCAL.md), [implementation ledger](docs/IMPLEMENTATION_STATE.md), and [Codex local handoff](docs/CODEX_LOCAL_HANDOFF.md). **Do not interpret remote CI as proof that your local installation passed.**
 
 ---
 
