@@ -291,3 +291,69 @@ jobs:
       - name: Leave synthetic CI Docker container (no persistent real data)
         if: always()
         run: docker compose down || true
+
+  local-production-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+          cache-dependency-path: solver/pom.xml
+      - run: npm ci --ignore-scripts --no-audit
+      - run: cd frontend && npm ci --ignore-scripts --no-audit
+      - run: npm run build && npm run web:build && npm run solver:build
+      - name: Configure isolated synthetic source DB (not the operational DB)
+        shell: bash
+        run: |
+          set -euo pipefail
+          PASS="$(openssl rand -hex 24)"
+          echo "::add-mask::$PASS"
+          printf 'TPS_DB_USER=tps\nTPS_DB_NAME=tps_ci_original\nTPS_DB_PASSWORD=%s\nTPS_DB_PORT=54329\nDATABASE_URL=postgres://tps:%s@127.0.0.1:54329/tps_ci_original\nHOST=127.0.0.1\nPORT=8787\n' "$PASS" "$PASS" > .env
+          docker compose up -d postgres
+          for i in {1..40}; do
+            if docker compose exec -T postgres pg_isready -U tps -d tps_ci_original; then exit 0; fi
+            sleep 2
+          done
+          exit 1
+      - name: Create isolated operational DB and prove repeatable initialization
+        run: |
+          npm run local:production:init
+          npm run local:production:init
+          npm run local:production:check
+          test "$(docker compose exec -T postgres psql -U tps -d tps_operational_local -At -c 'SELECT count(*) FROM schema_migrations')" -eq 14
+          test "$(docker compose exec -T postgres psql -U tps -d tps_operational_local -At -c 'SELECT count(*) FROM users')" -eq 0
+          test "$(docker compose exec -T postgres psql -U tps -d tps_operational_local -At -c 'SELECT count(*) FROM scenarios')" -eq 0
+          test "$(docker compose exec -T postgres psql -U tps -d tps_ci_original -At -c "SELECT count(*) FROM information_schema.tables WHERE table_schema='public'")" -eq 0
+      - name: Bootstrap local operational admin only on empty DB
+        shell: bash
+        run: |
+          set -euo pipefail
+          PASS="$(openssl rand -hex 24)"
+          echo "::add-mask::$PASS"
+          TPS_BOOTSTRAP_USERNAME=tps_ci_operational TPS_BOOTSTRAP_PASSWORD="$PASS" npm run local:production:bootstrap
+          test "$(docker compose exec -T postgres psql -U tps -d tps_operational_local -At -c 'SELECT count(*) FROM users')" -eq 1
+          if TPS_BOOTSTRAP_USERNAME=tps_ci_second TPS_BOOTSTRAP_PASSWORD="$PASS" npm run local:production:bootstrap; then
+            echo "Unsafe bootstrap: accepted a second initial admin"
+            exit 1
+          fi
+      - name: Run real local-production API on loopback and assert health profile
+        shell: bash
+        run: |
+          set -euo pipefail
+          nohup npm run local:production:start >/tmp/tps-local-production.log 2>&1 &
+          for i in {1..50}; do
+            if curl -fsS http://127.0.0.1:8787/health >/tmp/tps-local-prod-health.json; then break; fi
+            sleep 1
+          done
+          node -e "const fs=require('node:fs');const r=JSON.parse(fs.readFileSync('/tmp/tps-local-prod-health.json','utf8'));if(r.mode!=='local-production'||r.database!=='ok')process.exit(1); console.log('Verified isolated local-production health')"
+          test "$(docker compose exec -T postgres psql -U tps -d tps_operational_local -At -c 'SELECT count(*) FROM users')" -eq 1
+          git diff --exit-code
+      - if: always()
+        run: docker compose down || true
