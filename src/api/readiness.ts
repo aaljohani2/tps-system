@@ -36,6 +36,10 @@ export function assessReadiness(input:PlanRequest,result:PlanResult,solverStatus
   const instructorMap=new Map(input.instructors.map(i=>[i.id,i]));
   const sectionMap=new Map(result.sections.map(sec=>[sec.id,sec]));
   const courseMap=new Map(input.courses.map(course=>[course.code,course]));
+  for(const course of input.courses){
+    if(!course.eligibleModes.includes(course.mode))
+      add('COURSE_MODE_INELIGIBLE','Course '+course.code+' uses an unapproved delivery mode.',undefined,course.code);
+  }
   const inside=(windows:Array<{day:string;from:number;to:number}>|undefined,meeting:Session)=>{
     return !windows || windows.some(w=>w.day===meeting.day&&w.from<=meeting.start&&w.to>=meeting.end);
   };
@@ -98,10 +102,24 @@ export function assessReadiness(input:PlanRequest,result:PlanResult,solverStatus
     const a=result.sessions[i]!;
     for(let j=i+1;j<result.sessions.length;j++){
       const b=result.sessions[j]!;
-      if(overlap(a,b) && (a.instructorId===b.instructorId ||
-          (a.roomId!==null&&a.roomId===b.roomId) ||
-          (a.blockId!==null&&a.blockId===b.blockId)||a.sectionId===b.sectionId))
-        add('TIMETABLE_COLLISION',`Conflicting meetings: ${a.id} / ${b.id}`,a.sectionId,a.courseCode);
+      if(!overlap(a,b))continue;
+      const context=`${a.day} ${a.start}–${a.end} vs ${b.start}–${b.end}, sessions ${a.id} / ${b.id}`;
+      const reportBoth=(code:string,description:string)=>{
+        add(code,description+' | '+context,a.sectionId,a.courseCode);
+        if(b.sectionId!==a.sectionId)add(code,description+' | '+context,b.sectionId,b.courseCode);
+      };
+      if(a.instructorId===b.instructorId)
+        reportBoth('TRAINER_COLLISION','Trainer '+a.instructorId+' is scheduled simultaneously');
+      if(a.roomId!==null&&a.roomId===b.roomId)
+        reportBoth('ROOM_OCCUPIED','Room '+a.roomId+' is occupied by overlapping sessions');
+      if(a.blockId!==null&&a.blockId===b.blockId)
+        reportBoth('BLOCK_COLLISION','Cohort block '+a.blockId+' has another simultaneous class');
+      if(a.sectionId===b.sectionId)
+        reportBoth('SECTION_COLLISION','The same section has simultaneous components');
+      if(a.instructorId===b.instructorId ||
+        (a.roomId!==null&&a.roomId===b.roomId) ||
+        (a.blockId!==null&&a.blockId===b.blockId)||a.sectionId===b.sectionId)
+        reportBoth('TIMETABLE_COLLISION','Conflicting meetings');
     }
   }
   for(const instructor of result.instructorLoads)
