@@ -41,8 +41,12 @@ export async function registerSecurity(app:FastifyInstance):Promise<void>{
     const candidate=await pool.query<{id:string;username:string;password_hash:string;active:boolean}>(
       'SELECT id,username,password_hash,active FROM users WHERE username=$1',[parsed.data.username]);
     const u=candidate.rows[0];
-    if(!u || !u.active || !await argon2.verify(u.password_hash,parsed.data.password).catch(()=>false))
+    if(!u || !u.active || !await argon2.verify(u.password_hash,parsed.data.password).catch(()=>false)){
+      // Log only a one-way identifier: do not persist raw usernames or passwords on failed login.
+      await audit(u?.id??null,'FAILED_LOGIN','USER',u?.id??null,
+        {usernameHash:hash(parsed.data.username.toLowerCase()).slice(0,20)});
       return reply.code(401).send({error:'Invalid username or password'});
+    }
     const raw=randomBytes(32).toString('base64url');
     const csrf=randomBytes(24).toString('base64url');
     await pool.query('INSERT INTO user_sessions(id_hash,user_id,csrf_token,expires_at) VALUES($1,$2,$3,now()+interval \'8 hours\')',[hash(raw),u.id,csrf]);
