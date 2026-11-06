@@ -251,6 +251,13 @@ export async function registerCatalog(app:FastifyInstance){
       else await assertDepartment(req,prior.rows[0].scope_id);
       if(prior.rows[0].is_active===v.active)
         throw Object.assign(new Error('Resource already has this lifecycle state'),{statusCode:409});
+      if(kind==='courses'&&!v.active){
+        const activePlan=await client.query(`SELECT ci.plan_id FROM curriculum_items ci
+          JOIN curriculum_plans cp ON cp.id=ci.plan_id
+          WHERE ci.course_id=$1 AND cp.state='ACTIVE' LIMIT 1`,[id]);
+        if(activePlan.rowCount)
+          throw Object.assign(new Error('Course belongs to an ACTIVE curriculum plan; revise the plan before archiving'),{statusCode:409});
+      }
       const updated=await client.query<{id:string;is_active:boolean}>(`
         UPDATE ${kind} SET is_active=$2,updated_at=now() WHERE id=$1 RETURNING id,is_active`,[id,v.active]);
       await client.query(`INSERT INTO audit_logs(user_id,action,entity_type,entity_id,details)
