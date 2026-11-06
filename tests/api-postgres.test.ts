@@ -198,6 +198,19 @@ test('authenticated end-to-end workflow persists a synthetic TPS scenario in Pos
     assert.equal(stored.rowCount,1,'scenario must actually persist');
     const solve=await write('/scenarios/'+created.id+'/solve',{});
     assert.equal(solve.solverStatus,'COMPLETED','Timefold must run, not a disguised greedy fallback');
+    assert.ok(solve.runId,'Each optimization must persist its run identifier');
+    const runHistory=await app.inject({url:'/api/v1/scenarios/'+created.id+'/runs',
+      headers:{cookie:session}});
+    assert.equal(runHistory.statusCode,200,runHistory.body);
+    assert.equal(runHistory.json().length,1);
+    assert.equal(runHistory.json()[0].status,'COMPLETED');
+    assert.equal(runHistory.json()[0].id,solve.runId);
+    assert.ok(runHistory.json()[0].elapsed_ms>=0);
+    const cannotRecoverHealthy=await app.inject({method:'POST',
+      url:'/api/v1/scenarios/'+created.id+'/runs/recover',
+      headers:{cookie:session,'x-csrf-token':csrf},payload:{}});
+    assert.equal(cannotRecoverHealthy.statusCode,409,'A completed run cannot be marked abandoned');
+
     const solveAgain=await app.inject({method:'POST',url:'/api/v1/scenarios/'+created.id+'/solve',
       headers:{cookie:session,'x-csrf-token':csrf},payload:{}});
     assert.equal(solveAgain.statusCode,409,'a solved scenario must not be solved twice');
