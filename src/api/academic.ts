@@ -153,7 +153,7 @@ export async function registerAcademic(app:FastifyInstance){
        VALUES($1,$2,$3) ON CONFLICT(block_id,course_id,term_id) DO UPDATE SET block_id=EXCLUDED.block_id RETURNING *`,
       [v.blockId,v.courseId,v.termId]);
     await audit(req.principal!.id,'ASSIGN_BLOCK','BLOCK_COURSE_ASSIGNMENT',r.rows[0].id,
-      {courseCode:target.rows[0].code});
+      {courseCode:target.rows[0]!.code});
     return r.rows[0];
   });
   app.delete('/api/v1/assignments/:id',async(req)=>{
