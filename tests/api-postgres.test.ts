@@ -98,6 +98,9 @@ test('authenticated end-to-end workflow persists a synthetic TPS scenario in Pos
       headers:{cookie:session,'x-csrf-token':csrf},payload:{}});
     assert.equal(solveAgain.statusCode,409,'a solved scenario must not be solved twice');
     assert.equal(solve.result.gaps.length,0,JSON.stringify(solve.result.gaps));
+    const readiness=await app.inject({url:'/api/v1/scenarios/'+created.id+'/readiness',headers:{cookie:session}});
+    assert.equal(readiness.statusCode,200,readiness.body);
+    assert.equal(readiness.json().technicalReady,true,JSON.stringify(readiness.json().issues));
     await write('/scenarios/'+created.id+'/review',{});
     const approved=await write('/scenarios/'+created.id+'/approve',{});
     assert.equal(approved.state,'APPROVED');

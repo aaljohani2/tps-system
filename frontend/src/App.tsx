@@ -181,6 +181,9 @@ function ScenarioPage({ctx,notify}:{ctx:Context;notify:Message}){
   const one=useQuery({queryKey:['scenario',selected],queryFn:()=>api<Scenario>('/scenarios/'+selected),enabled:!!selected});
   const comparison=useQuery({queryKey:['comparison',selected,second],
     queryFn:()=>api<{first:Record<string,unknown>;second:Record<string,unknown>}>('/scenarios/compare?ids='+selected+','+second),enabled:!!selected&&!!second});
+  const readiness=useQuery({queryKey:['readiness',selected],
+    queryFn:()=>api<{technicalReady:boolean;issues:Array<{code:string;severity:string;message:string;sectionId?:string;courseCode?:string}>;byCourse:Array<{code:string;demand:number;sections:number;uncovered:number;missingBlocks:number}>}>(
+      '/scenarios/'+selected+'/readiness'),enabled:!!selected});
   async function run(job:()=>Promise<unknown>){
     setWorking(true);try{const r=await job();notify('اكتملت العملية');await qc.invalidateQueries();return r;}
     catch(e){notify('العملية لم تكتمل: '+String(e instanceof Error?e.message:e));}
@@ -210,7 +213,18 @@ function ScenarioPage({ctx,notify}:{ctx:Context;notify:Message}){
       <button disabled={working} onClick={()=>run(async()=>{const s=await post<{id:string}>('/scenarios/'+selected+'/revise',{});setSelected(s.id);})}>إنشاء مراجعة جديدة</button>
       <a href={'/api/v1/scenarios/'+selected+'/export.csv'} target="_blank" rel="noreferrer">تصدير CSV</a>
       <a href={'/api/v1/scenarios/'+selected+'/export.xlsx'} target="_blank" rel="noreferrer">تصدير Excel</a></div>
-      <Metrics p={p}/><div className="subhead"><h3>الجداول الأسبوعية</h3></div><Timetable p={p}/>
+      <Metrics p={p}/>
+      <h3>فحص جاهزية الاعتماد</h3>
+      <div className={readiness.data?.technicalReady?'alert success':'alert'}>
+        {readiness.data?.technicalReady?'اكتمل التحقق الفني من البيانات الأساسية، ويمكن طلب الاعتماد بحسب الصلاحيات.':
+          'لم يكتمل التحقق الفني؛ تعالج موانع الاعتماد أدناه قبل إصدار جدول معتمد.'}
+        {readiness.isError?' | تعذر تحميل فحص الجاهزية':''}
+      </div>
+      {readiness.data?.issues.length? <div className="table-wrap"><table><thead><tr><th>النوع</th><th>المشكلة</th><th>الشعبة</th><th>المقرر</th></tr></thead><tbody>
+        {readiness.data.issues.map((i,index)=><tr key={index}><td>{i.severity==='BLOCKER'?'مانع اعتماد':'تنبيه'}</td>
+          <td>{i.code} — {i.message}</td><td>{i.sectionId??'—'}</td><td>{i.courseCode??'—'}</td></tr>)}
+      </tbody></table></div>:null}
+      <div className="subhead"><h3>الجداول الأسبوعية</h3></div><Timetable p={p}/>
       <h3>كشف العجز</h3>{p.gaps.length?<div className="table-wrap"><table><thead><tr><th>الشعبة</th><th>المقرر</th><th>السبب</th><th>ساعات التدريب</th><th>النصاب المطلوب</th></tr></thead>
         <tbody>{p.gaps.map(g=><tr key={g.sectionId}><td>{g.sectionId}</td><td>{g.courseCode}</td><td>{g.reason}</td><td>{g.contactHours}</td><td>{g.equivalentLoad}</td></tr>)}</tbody></table></div>:<p className="success">لا يوجد عجز مسجل في النتيجة الحالية. يلزم التحقق من هوية البلوكات قبل اعتمادها.</p>}
       <h3>أنصبة المدربين</h3><div className="table-wrap"><table><thead><tr><th>المدرب</th><th>الساعات الفعلية</th><th>النصاب المكافئ</th><th>المتبقي</th></tr></thead><tbody>
