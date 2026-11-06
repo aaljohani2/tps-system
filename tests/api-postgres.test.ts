@@ -110,6 +110,18 @@ test('authenticated end-to-end workflow persists a synthetic TPS scenario in Pos
     assert.equal(Number(updatedTrainer.maxLoad),20);
     const updatedRoom=await patch('/rooms/'+room.id,{capacity:50,building:'T1'});
     assert.equal(updatedRoom.capacity,50);
+    const manual=await patch('/courses/'+course.id,{assignedInstructorId:'INS-1',exclusiveInstructor:true});
+    assert.equal(manual.assignedInstructorId,'INS-1');
+    assert.equal(manual.exclusiveInstructor,true);
+    const unknownLock=await app.inject({method:'PATCH',url:'/api/v1/courses/'+course.id,
+      headers:{cookie:session,'x-csrf-token':csrf},payload:{assignedInstructorId:'NONEXISTENT'}});
+    assert.equal(unknownLock.statusCode,409,'manual trainer must belong to department');
+    const wrongSplit=await app.inject({method:'PATCH',url:'/api/v1/courses/'+course.id,
+      headers:{cookie:session,'x-csrf-token':csrf},payload:{
+        hybridSplit:{theoryOnsiteHours:1,theoryRemoteHours:1,practicalOnsiteHours:0,practicalRemoteHours:0}
+      }});
+    assert.equal(wrongSplit.statusCode,409,'onsite course cannot have hybrid hours');
+
     const invalidWindow=await app.inject({method:'PATCH',url:'/api/v1/rooms/'+room.id,
       headers:{cookie:session,'x-csrf-token':csrf},payload:{available:[{day:'THU',from:8,to:12}]}});
     assert.equal(invalidWindow.statusCode,400,'Thursday room availability must respect schedule limits');
