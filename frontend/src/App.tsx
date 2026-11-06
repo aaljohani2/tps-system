@@ -206,14 +206,14 @@ function ScenarioPage({ctx,notify,user}:{ctx:Context;notify:Message;user:Auth}){
     [forkBlocks,setForkBlocks]=useState<Record<string,string>>({}),
     [forkBlockSizes,setForkBlockSizes]=useState<Record<string,string>>({});
   const one=useQuery({queryKey:['scenario',selected],queryFn:()=>api<Scenario>('/scenarios/'+selected),enabled:!!selected,
-    refetchInterval:working?1250:false});
+    refetchInterval:q=>q.state.data?.solver_status==='RUNNING'?1250:false});
   const comparison=useQuery({queryKey:['comparison',selected,second],
     queryFn:()=>api<{first:Record<string,unknown>;second:Record<string,unknown>}>('/scenarios/compare?ids='+selected+','+second),enabled:!!selected&&!!second});
   const readiness=useQuery({queryKey:['readiness',selected],
     queryFn:()=>api<{technicalReady:boolean;issues:Array<{code:string;severity:string;message:string;sectionId?:string;courseCode?:string}>;byCourse:Array<{code:string;demand:number;sections:number;uncovered:number;missingBlocks:number}>}>(
       '/scenarios/'+selected+'/readiness'),enabled:!!selected});
   async function run(job:()=>Promise<unknown>){
-    setWorking(true);try{const r=await job();notify('اكتملت العملية');await qc.invalidateQueries();return r;}
+    setWorking(true);try{const r=await job();notify(r&&typeof r==='object'&&'accepted' in r?'بدأ تحسين Timefold ويمكن متابعة الحالة أو إلغاؤه من سجل العمليات.':'اكتملت العملية');await qc.invalidateQueries();return r;}
     catch(e){notify('العملية لم تكتمل: '+String(e instanceof Error?e.message:e));await qc.invalidateQueries();}
     finally{setWorking(false);}
   }
@@ -245,7 +245,7 @@ function ScenarioPage({ctx,notify,user}:{ctx:Context;notify:Message;user:Auth}){
        <button disabled={working||!canEdit||current.state!=='DRAFT'||!['NOT_RUN','FAILED'].includes(current.solver_status)||
          !Number.isInteger(solverSeconds)||solverSeconds<1||solverSeconds>30||
          !Number.isInteger(candidateBreadth)||candidateBreadth<1||candidateBreadth>24}
-         onClick={()=>run(()=>post('/scenarios/'+selected+'/solve',{seconds:solverSeconds,candidatesPerInstructor:candidateBreadth}))}>تشغيل Timefold</button>
+         onClick={()=>run(()=>post('/scenarios/'+selected+'/solve/async',{seconds:solverSeconds,candidatesPerInstructor:candidateBreadth}))}>تشغيل Timefold</button>
       <button disabled={working||!canEdit||current.state!=='DRAFT'||current.solver_status!=='COMPLETED'} onClick={()=>run(()=>post('/scenarios/'+selected+'/review',{}))}>إرسال للمراجعة</button>
       <button disabled={working||!canApprove||current.state!=='UNDER_REVIEW'} onClick={()=>run(()=>post('/scenarios/'+selected+'/approve',{}))}>اعتماد السيناريو</button>
       <button disabled={working||!canEdit} onClick={()=>run(async()=>{const s=await post<{id:string}>('/scenarios/'+selected+'/revise',{});setSelected(s.id);})}>إنشاء مراجعة جديدة</button>
