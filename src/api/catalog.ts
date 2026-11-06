@@ -48,6 +48,20 @@ function requireCollegeEditor(req:FastifyRequest){
   requireEditor(req);
   if(req.principal!.departmentId&&req.principal!.role!=='SYSTEM_ADMIN')forbidden();
 }
+async function assertLockedTrainerQualified(departmentId:string,courseCode:string,
+  deliveryMode:string,requiredSpecialties:string[],trainerCode:string|null|undefined){
+  if(!trainerCode)return;
+  const trainer=await pool.query<{allowed_modes:string[];eligible_course_codes:string[]|null;specialties:string[]}>(`
+    SELECT allowed_modes,eligible_course_codes,specialties FROM instructors
+    WHERE department_id=$1 AND code=$2`,[departmentId,trainerCode]);
+  const found=trainer.rows[0];
+  if(!found)throw Object.assign(new Error('Assigned instructor not found in department'),{statusCode:409});
+  if(!found.allowed_modes.includes(deliveryMode) ||
+    (deliveryMode==='HYBRID'&&(!found.allowed_modes.includes('ONSITE')||!found.allowed_modes.includes('REMOTE'))) ||
+    (found.eligible_course_codes&&!found.eligible_course_codes.includes(courseCode)) ||
+    requiredSpecialties.some(x=>!found.specialties.includes(x)))
+    throw Object.assign(new Error('Assigned instructor does not meet course mode, eligibility or specialty requirements'),{statusCode:409});
+}
 export async function registerCatalog(app:FastifyInstance){
   app.get('/api/v1/institutions',async(req)=>{
     const p=req.principal!;
@@ -101,6 +115,7 @@ export async function registerCatalog(app:FastifyInstance){
   });
   app.post('/api/v1/courses',async(req)=>{
     requireEditor(req);const v=parse(course,req.body);await assertDepartment(req,v.departmentId);
+    await assertLockedTrainerQualified(v.departmentId,v.code,v.mode,v.requiredSpecialties,v.assignedInstructorId);
     const rows=await db.insert(courses).values({...v,hybridSplit:v.hybridSplit??null,assignedInstructorId:v.assignedInstructorId??null}).returning();
     await audit(req.principal!.id,'CREATE','COURSE',rows[0]!.id);return rows[0];
   });
@@ -118,17 +133,12 @@ export async function registerCatalog(app:FastifyInstance){
     if(!Object.keys(v).length)throw Object.assign(new Error('No changes supplied'),{statusCode:400});
     if(v.mode && !old.rows[0].eligible_modes.includes(v.mode))
       throw Object.assign(new Error('Delivery mode is not approved for this course'),{statusCode:409});
-    if(v.assignedInstructorId){
-      const inst=await pool.query<{allowed_modes:string[];eligible_course_codes:string[]|null}>(
-        'SELECT allowed_modes,eligible_course_codes FROM instructors WHERE department_id=$1 AND code=$2',
-        [old.rows[0].department_id,v.assignedInstructorId]);
-      if(!inst.rows[0])throw Object.assign(new Error('Assigned instructor not found in department'),{statusCode:409});
-      const current=await pool.query<{code:string;mode:string}>('SELECT code,mode FROM courses WHERE id=$1',[id]);
-      const needed=v.mode??current.rows[0]!.mode;
-      if(!inst.rows[0].allowed_modes.includes(needed) ||
-        (inst.rows[0].eligible_course_codes && !inst.rows[0].eligible_course_codes.includes(current.rows[0]!.code)))
-        throw Object.assign(new Error('Instructor is not eligible for requested course/mode'),{statusCode:409});
-    }
+    const currentLocked=await pool.query<{code:string;mode:string;assigned_instructor_id:string|null;required_specialties:string[]}>(`
+      SELECT code,mode,assigned_instructor_id,required_specialties FROM courses WHERE id=$1`,[id]);
+    const existingLock=currentLocked.rows[0]!;
+    await assertLockedTrainerQualified(old.rows[0].department_id,existingLock.code,
+      v.mode??existingLock.mode,v.requiredSpecialties??existingLock.required_specialties,
+      v.assignedInstructorId===undefined?existingLock.assigned_instructor_id:v.assignedInstructorId);
     const existing=await pool.query<{mode:string;theory_hours:number;practical_hours:number;hybrid_split:unknown}>(
       'SELECT mode,theory_hours,practical_hours,hybrid_split FROM courses WHERE id=$1',[id]);
     const effectiveMode=v.mode??existing.rows[0]!.mode;
