@@ -326,7 +326,7 @@ test('authenticated end-to-end workflow persists a synthetic TPS scenario in Pos
     assert.equal(dashboard.json().demand.projected,20);
     assert.equal(dashboard.json().demand.assignedBlocks,20);
     const structuredRow=await pool.query('SELECT input_snapshot FROM scenarios WHERE id=$1',[structured.id]);
-    assert.deepEqual(structuredRow.rows[0]?.input_snapshot.courses[0].blockSizes,[20]);
+    assert.deepEqual(structuredRow.rows[0]?.input_snapshot.courses.find((c:{code:string})=>c.code==='TEST-101')?.blockSizes,[20]);
     const unsafeNormalizedFork=await app.inject({method:'POST',
       url:'/api/v1/scenarios/'+structured.id+'/fork',
       headers:{cookie:session,'x-csrf-token':csrf},
@@ -349,7 +349,7 @@ test('authenticated end-to-end workflow persists a synthetic TPS scenario in Pos
       payload:{departmentId:department.id,termId:term.id,name:'يجب رفض عدم التطابق'}});
     assert.equal(mismatch.statusCode,409,'A scenario must reject inconsistent block totals');
     const prior=await pool.query('SELECT input_snapshot FROM scenarios WHERE id=$1',[structured.id]);
-    assert.equal(prior.rows[0]?.input_snapshot.courses[0].demand,20,'saved snapshots cannot change with forecasts');
+    assert.equal(prior.rows[0]?.input_snapshot.courses.find((c:{code:string})=>c.code==='TEST-101')?.demand,20,'saved snapshots cannot change with forecasts');
 
     const next=await write('/scenarios/'+created.id+'/revise',{});
     assert.equal(next.revision,2);
