@@ -196,6 +196,13 @@ test('authenticated end-to-end workflow persists a synthetic TPS scenario in Pos
     assert.deepEqual(policySnapshot.rows[0]?.input_snapshot.policy.enabledModes,['ONSITE','REMOTE']);
     const stored=await pool.query('SELECT id FROM scenarios WHERE id=$1',[created.id]);
     assert.equal(stored.rowCount,1,'scenario must actually persist');
+    const cancelWithoutCsrf=await app.inject({method:'POST',
+      url:'/api/v1/scenarios/'+created.id+'/runs/cancel',headers:{cookie:session},payload:{}});
+    assert.equal(cancelWithoutCsrf.statusCode,403,'Solver cancellation must require CSRF');
+    const cancelWithoutRunning=await app.inject({method:'POST',
+      url:'/api/v1/scenarios/'+created.id+'/runs/cancel',
+      headers:{cookie:session,'x-csrf-token':csrf},payload:{}});
+    assert.equal(cancelWithoutRunning.statusCode,409,'A non-running draft must never be cancelled');
     const solve=await write('/scenarios/'+created.id+'/solve',{});
     assert.equal(solve.solverStatus,'COMPLETED','Timefold must run, not a disguised greedy fallback');
     assert.ok(solve.runId,'Each optimization must persist its run identifier');
