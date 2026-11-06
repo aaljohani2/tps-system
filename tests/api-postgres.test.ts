@@ -509,6 +509,13 @@ test('authenticated end-to-end workflow persists a synthetic TPS scenario in Pos
     assert.equal(cannotActivate.statusCode,409,'Plan cannot omit a required prerequisite course');
     const activation=await write('/plans/'+plan.id+'/activate',{reason:'Synthetic internally approved curriculum version'});
     assert.equal(activation.state,'ACTIVE');
+    const archiveActivePlanCourse=await app.inject({method:'PATCH',
+      url:'/api/v1/courses/'+course.id+'/lifecycle',
+      headers:{cookie:session,'x-csrf-token':csrf},
+      payload:{active:false,reason:'Attempted archival of active plan course'}});
+    assert.equal(archiveActivePlanCourse.statusCode,409,
+      'Archiving a course from a currently active curriculum version must be rejected');
+
     const mutateActivatedPlan=await app.inject({method:'POST',url:'/api/v1/plans/'+plan.id+'/items',
       headers:{cookie:session,'x-csrf-token':csrf},
       payload:{courseId:advanced.id,level:1,isRequired:true}});
