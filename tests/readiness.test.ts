@@ -34,3 +34,15 @@ test('missing cohort, room capacity and overlapping meetings are separately flag
   for(const code of ['MISSING_BLOCK','ROOM_CAPACITY','INCOMPLETE_HOURS','TIMETABLE_COLLISION'])
     assert.ok(report.issues.some(i=>i.code===code),code);
 });
+
+test('approval is blocked by illegal time, wrong room type and trainer unavailability',()=>{
+  const input=fixture(),draft=buildDraftPlan(input);
+  input.rooms[0]!.type='LAB';
+  input.instructors[0]!.available=[{day:'SUN',from:15,to:16}];
+  draft.sessions[0]!.start=7;
+  draft.sessions[0]!.end=9;
+  const report=assessReadiness(input,draft,'COMPLETED');
+  assert.equal(report.technicalReady,false);
+  for(const expected of ['INVALID_TIME','ROOM_INCOMPATIBLE','INSTRUCTOR_UNAVAILABLE'])
+    assert.ok(report.issues.some(i=>i.code===expected),expected);
+});
