@@ -219,7 +219,8 @@ function ScenarioPage({ctx,notify}:{ctx:Context;notify:Message}){
     queryFn:()=>api<Scenario[]>('/scenarios?departmentId='+ctx.departmentId+'&termId='+ctx.termId),enabled:!!ctx.departmentId&&!!ctx.termId});
   const [name,setName]=useState('السيناريو الحضوري'),[selected,setSelected]=useState(''),[working,setWorking]=useState(false),[second,setSecond]=useState('');
   const [forkName,setForkName]=useState('سيناريو بديل'),[forkDemand,setForkDemand]=useState<Record<string,number>>({}),
-    [forkBlocks,setForkBlocks]=useState<Record<string,string>>({});
+    [forkBlocks,setForkBlocks]=useState<Record<string,string>>({}),
+    [forkBlockSizes,setForkBlockSizes]=useState<Record<string,string>>({});
   const one=useQuery({queryKey:['scenario',selected],queryFn:()=>api<Scenario>('/scenarios/'+selected),enabled:!!selected});
   const comparison=useQuery({queryKey:['comparison',selected,second],
     queryFn:()=>api<{first:Record<string,unknown>;second:Record<string,unknown>}>('/scenarios/compare?ids='+selected+','+second),enabled:!!selected&&!!second});
@@ -232,14 +233,15 @@ function ScenarioPage({ctx,notify}:{ctx:Context;notify:Message}){
     finally{setWorking(false);}
   }
   useEffect(()=>{
-    const input=one.data?.input_snapshot as {courses?:Array<{code:string;demand:number;blocks?:string[]}>}|undefined;
+    const input=one.data?.input_snapshot as {courses?:Array<{code:string;demand:number;blocks?:string[];blockSizes?:number[]}>}|undefined;
     if(!input?.courses)return;
     setForkName(one.data!.name+' — بديل');
     setForkDemand(Object.fromEntries(input.courses.map(c=>[c.code,c.demand])));
     setForkBlocks(Object.fromEntries(input.courses.map(c=>[c.code,c.blocks?.join(',')??''])));
+    setForkBlockSizes(Object.fromEntries(input.courses.map(c=>[c.code,c.blockSizes?.join(',')??''])));
   },[selected,one.data]);
   const rows=list.data??[],current=one.data,p=current?.result_snapshot;
-  const originalCourses=((current?.input_snapshot as {courses?:Array<{code:string;title:string;demand:number;blocks?:string[]}>}|undefined)?.courses??[]);
+  const originalCourses=((current?.input_snapshot as {courses?:Array<{code:string;title:string;demand:number;blocks?:string[];blockSizes?:number[]}>}|undefined)?.courses??[]);
   return <section className="panel"><h2>٥. إنشاء الشعب وتشغيل Timefold</h2>
     <p className="hint">إنشاء السيناريو يحسب مسودة Greedy مع إظهار العجز. زر Timefold وحده ينفذ التحسين؛ لا يُخفى تعطل Java.</p>
     <div className="actions"><input placeholder="اسم السيناريو" value={name} onChange={e=>setName(e.target.value)}/>
@@ -275,18 +277,23 @@ function ScenarioPage({ctx,notify}:{ctx:Context;notify:Message}){
       <details><summary>إنشاء سيناريو بديل مستقل من هذا السيناريو</summary>
         <p className="hint">غيّر الطلب المتوقع أو البلوكات هنا دون تعديل المقررات الرئيسية أو السيناريو الأصلي. يجب إعادة تشغيل Timefold للبديل؛ ولا تعني هذه العملية اعتماد الجدول.</p>
         <label>اسم السيناريو البديل<input value={forkName} onChange={e=>setForkName(e.target.value)}/></label>
-        <div className="table-wrap"><table><thead><tr><th>المقرر</th><th>الطلب المتوقع</th><th>بلوكات الفوج (فاصلة بين كل بلوك)</th></tr></thead><tbody>
+        <div className="table-wrap"><table><thead><tr><th>المقرر</th><th>الطلب المتوقع</th><th>بلوكات الفوج (فاصلة بين كل بلوك)</th><th>أحجام البلوكات (مطلوبة عند تغيير بلوكات موثّقة)</th></tr></thead><tbody>
         {originalCourses.map(c=><tr key={c.code}><td>{c.title}<small>{c.code}</small></td>
           <td><input type="number" min="0" max="5000" value={forkDemand[c.code]??c.demand}
             onChange={e=>setForkDemand(v=>({...v,[c.code]:Number(e.target.value)}))}/></td>
           <td><input className="medium" value={forkBlocks[c.code]??''}
-            onChange={e=>setForkBlocks(v=>({...v,[c.code]:e.target.value}))}/></td></tr>)}
+            onChange={e=>setForkBlocks(v=>({...v,[c.code]:e.target.value}))}/></td>
+          <td>{c.blockSizes&&<input className="medium" value={forkBlockSizes[c.code]??''}
+            onChange={e=>setForkBlockSizes(v=>({...v,[c.code]:e.target.value}))}
+            placeholder="20,25,..."/>}</td></tr>)}
         </tbody></table></div>
         <button className="primary" disabled={working||!forkName.trim()} onClick={()=>run(async()=>{
           const sourceId=selected;
           const fork=await post<{id:string}>('/scenarios/'+sourceId+'/fork',{name:forkName,
             overrides:originalCourses.map(c=>({code:c.code,demand:forkDemand[c.code]??c.demand,
-              blocks:(forkBlocks[c.code]??'').split(',').map(x=>x.trim()).filter(Boolean)}))});
+              blocks:(forkBlocks[c.code]??'').split(',').map(x=>x.trim()).filter(Boolean),
+              ...(c.blockSizes?{blockSizes:(forkBlockSizes[c.code]??'').split(',').filter(x=>x.trim()).map(x=>Number(x.trim()))}:{})
+            }))});
           setSelected(fork.id);setSecond(sourceId);
         })}>إنشاء البديل ومقارنته بالأصل</button>
       </details>
