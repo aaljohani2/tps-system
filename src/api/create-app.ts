@@ -11,6 +11,7 @@ import {registerPolicies} from './policies.js';
 import {registerAcademic} from './academic.js';
 import {registerDashboard} from './dashboard.js';
 import {registerUsers} from './users.js';
+import {registerManualScheduling} from './manual-routes.js';
 import {ZodError} from 'zod';
 
 export async function createApp(){
@@ -33,6 +34,7 @@ export async function createApp(){
   await registerUsers(app);
   await registerPolicies(app);
   await registerScenarios(app);
+  await registerManualScheduling(app);
   app.get('/health',async()=>{
     await pool.query('SELECT 1');
     return {status:'ok',database:'ok',storage:'PostgreSQL',mode:'local-only'};
