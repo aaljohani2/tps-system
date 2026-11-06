@@ -31,6 +31,35 @@ test('authenticated end-to-end workflow persists a synthetic TPS scenario in Pos
     const department=await write('/departments',{collegeId:college.id,name:'قسم اصطناعي'});
     const term=await write('/terms',{collegeId:college.id,code:'T-'+uniq,label:'فصل تجريبي',startsOn:'2027-01-17',endsOn:'2027-06-24'});
     const sibling=await write('/departments',{collegeId:college.id,name:'Sibling department '+uniq});
+    const collegeAdminPassword='synthetic-strong-account-secret';
+    const collegeAdmin=await write('/users',{username:'college_admin_'+uniq,password:collegeAdminPassword,
+      role:'COLLEGE_ADMIN',collegeId:college.id,departmentId:null});
+    assert.ok(collegeAdmin.id);
+    const adminLogin=await app.inject({method:'POST',url:'/api/v1/auth/login',
+      payload:{username:'college_admin_'+uniq,password:collegeAdminPassword}});
+    assert.equal(adminLogin.statusCode,200,adminLogin.body);
+    const adminCookie=String(adminLogin.headers['set-cookie']).split(';')[0];
+    const adminMe=await app.inject({url:'/api/v1/auth/me',headers:{cookie:adminCookie}});
+    const adminCsrf=adminMe.json().csrfToken as string;
+    const cannotGrantSystem=await app.inject({method:'POST',url:'/api/v1/users',
+      headers:{cookie:adminCookie,'x-csrf-token':adminCsrf},
+      payload:{username:'system_escalation_'+uniq,password:collegeAdminPassword,
+        role:'SYSTEM_ADMIN',collegeId:null,departmentId:null}});
+    assert.equal(cannotGrantSystem.statusCode,403,'College admin cannot escalate system roles');
+    const limited=await app.inject({method:'POST',url:'/api/v1/users',
+      headers:{cookie:adminCookie,'x-csrf-token':adminCsrf},
+      payload:{username:'viewer_'+uniq,password:collegeAdminPassword,
+        role:'VIEWER',collegeId:college.id,departmentId:department.id}});
+    assert.equal(limited.statusCode,200,limited.body);
+    assert.equal(limited.json().role,'VIEWER');
+    assert.equal(limited.json().password_hash,undefined,'password hash must not be exposed');
+    const disabled=await app.inject({method:'PATCH',url:'/api/v1/users/'+limited.json().id,
+      headers:{cookie:adminCookie,'x-csrf-token':adminCsrf},payload:{active:false}});
+    assert.equal(disabled.statusCode,200,disabled.body);
+    const deniedLogin=await app.inject({method:'POST',url:'/api/v1/auth/login',
+      payload:{username:'viewer_'+uniq,password:collegeAdminPassword}});
+    assert.equal(deniedLogin.statusCode,401,'Disabled user cannot login');
+
     const scopedLogin='head_'+uniq;
     await pool.query('INSERT INTO users(username,password_hash,role,college_id,department_id) VALUES($1,$2,$3,$4,$5)',
       [scopedLogin,await argon2.hash(password,{type:argon2.argon2id}),'DEPARTMENT_HEAD',college.id,department.id]);
