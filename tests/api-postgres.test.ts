@@ -176,6 +176,19 @@ test('authenticated end-to-end workflow persists a synthetic TPS scenario in Pos
         hybridSplit:{theoryOnsiteHours:1,theoryRemoteHours:1,practicalOnsiteHours:0,practicalRemoteHours:0}
       }});
     assert.equal(wrongSplit.statusCode,409,'onsite course cannot have hybrid hours');
+    // PATCH must not materialize Zod v4 defaults for omitted fields.
+    const preserved=await pool.query(
+      'SELECT blocks,required_specialties,required_equipment FROM courses WHERE id=$1',[course.id]);
+    assert.deepEqual(preserved.rows[0].blocks,['BLK-1'],
+      'Changing mode, requirements or instructor must never silently clear course blocks');
+    assert.deepEqual(preserved.rows[0].required_specialties,['ERP']);
+    assert.deepEqual(preserved.rows[0].required_equipment,['PC']);
+    const preservedTrainer=await pool.query('SELECT allowed_modes,specialties FROM instructors WHERE id=$1',[trainer.id]);
+    assert.deepEqual(preservedTrainer.rows[0].allowed_modes,['ONSITE','REMOTE']);
+    assert.deepEqual(preservedTrainer.rows[0].specialties,['ERP']);
+    const preservedRoom=await pool.query('SELECT equipment_codes FROM rooms WHERE id=$1',[room.id]);
+    assert.deepEqual(preservedRoom.rows[0].equipment_codes,['PC']);
+
 
     const invalidWindow=await app.inject({method:'PATCH',url:'/api/v1/rooms/'+room.id,
       headers:{cookie:session,'x-csrf-token':csrf},payload:{available:[{day:'THU',from:8,to:12}]}});
