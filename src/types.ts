@@ -19,6 +19,10 @@ export interface Course {
   practicalHours: number;
   mode: DeliveryMode;
   eligibleModes: DeliveryMode[];
+  /** Explicit instructor credentials required, all must be present. */
+  requiredSpecialties?: string[];
+  /** Physical equipment required for each onsite session, all must be present. */
+  requiredEquipment?: string[];
   /** Only permitted instructor for the course when set. */
   assignedInstructorId?: string;
   /** All covered sections must have the same instructor; others are explicitly left uncovered. */
@@ -36,6 +40,7 @@ export interface Instructor {
   maxLoad: number;
   allowedModes: DeliveryMode[];
   eligibleCourseCodes?: string[];
+  specialties?: string[];
   /** If present, the instructor must not be assigned any other courses. */
   exclusiveCourseCodes?: string[];
   available?: TimeWindow[];
@@ -47,6 +52,7 @@ export interface Room {
   name: string;
   type: RoomType;
   capacity: number;
+  equipmentCodes?: string[];
   available?: TimeWindow[];
 }
 export interface CapacityPolicy {theory: number | null; practical: number | null}
