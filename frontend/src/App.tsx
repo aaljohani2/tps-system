@@ -64,21 +64,34 @@ function ContextSetup({context,setContext,notify}:{context:Context;setContext:(c
 }
 function CoursePage({ctx,notify}:{ctx:Context;notify:Message}){
   const qc=useQueryClient(),q=useQuery({queryKey:['courses',ctx.departmentId],queryFn:()=>api<Entity[]>('/courses?departmentId='+ctx.departmentId),enabled:!!ctx.departmentId});
-  const [csv,setCsv]=useState(''),[preview,setPreview]=useState<{courses:Entity[];warnings:string[];ignored:unknown[]}|null>(null);
+  const [csv,setCsv]=useState(''),[file,setFile]=useState<File|null>(null),[preview,setPreview]=useState<{courses:Entity[];warnings:string[];ignored:unknown[]}|null>(null);
   const [code,setCode]=useState(''),[title,setTitle]=useState(''),[level,setLevel]=useState(1),[theory,setTheory]=useState(2),[practical,setPractical]=useState(0);
   async function run(task:()=>Promise<unknown>){try{await task();notify('تم حفظ البيانات');await qc.invalidateQueries();}catch(e){notify('فشل: '+String(e instanceof Error?e.message:e));}}
   async function pick(e:React.ChangeEvent<HTMLInputElement>){
     const f=e.target.files?.[0];if(!f)return;
-    if(!f.name.toLowerCase().endsWith('.csv')){notify('هذه الشاشة تقبل CSV فقط؛ دعم XLSX الجاري تطويره');return;}
-    setCsv(await f.text());setPreview(null);
+    if(!/\.(csv|xlsx)$/i.test(f.name)){notify('الصيغ المقبولة CSV وXLSX');return;}
+    setFile(f);setCsv(f.name.toLowerCase().endsWith('.csv')?await f.text():'');setPreview(null);
   }
   return <section className="panel">
     <h2>٢. استيراد وإدارة المقررات</h2>
-    <p className="hint">ارفع CSV للخطة، وعاين المقررات والأخطاء قبل التأكيد. يحتفظ النظام بالطلب السابق عند تحديث مقررات موجودة.</p>
-    <div className="actions"><a href="/api/v1/import/courses/template.csv">قالب استيراد CSV</a>
-      <input type="file" accept=".csv,text/csv" onChange={pick}/>
-      <button disabled={!csv||!ctx.departmentId} onClick={()=>run(async()=>{setPreview(await post('/import/courses/preview',{departmentId:ctx.departmentId,csv}));})}>معاينة</button>
-      <button className="primary" disabled={!preview} onClick={()=>run(async()=>{await post('/import/courses/commit',{departmentId:ctx.departmentId,csv});setPreview(null);})}>اعتماد الاستيراد</button>
+    <p className="hint">ارفع Excel أو CSV للخطة، وعاين المقررات والأخطاء قبل التأكيد. يحتفظ النظام بالطلب السابق عند تحديث مقررات موجودة.</p>
+    <div className="actions"><a href="/api/v1/import/courses/template.csv">قالب CSV</a>
+      <a href="/api/v1/import/courses/template.xlsx">قالب Excel</a>
+      <input type="file" accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={pick}/>
+      <button disabled={!file||!ctx.departmentId} onClick={()=>run(async()=>{
+        const xlsx=file!.name.toLowerCase().endsWith('.xlsx');
+        if(xlsx)setPreview(await api<{courses:Entity[];warnings:string[];ignored:unknown[]}>(
+          '/import/courses/preview-xlsx?departmentId='+ctx.departmentId,
+          {method:'POST',body:file!,headers:{'Content-Type':'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}}));
+        else setPreview(await post('/import/courses/preview',{departmentId:ctx.departmentId,csv}));
+      })}>معاينة</button>
+      <button className="primary" disabled={!preview} onClick={()=>run(async()=>{
+        const xlsx=file!.name.toLowerCase().endsWith('.xlsx');
+        if(xlsx)await api('/import/courses/commit-xlsx?departmentId='+ctx.departmentId,
+          {method:'POST',body:file!,headers:{'Content-Type':'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}});
+        else await post('/import/courses/commit',{departmentId:ctx.departmentId,csv});
+        setPreview(null);
+      })}>اعتماد الاستيراد</button>
     </div>
     {preview&&<div className="alert">الصفوف المقبولة: {preview.courses.length}، المستبعدة: {preview.ignored.length}. {preview.warnings.join(' | ')}</div>}
     <details><summary>إضافة مقرر يدويًا</summary>
@@ -183,7 +196,8 @@ function ScenarioPage({ctx,notify}:{ctx:Context;notify:Message}){
       <button disabled={working||current.state!=='DRAFT'||current.solver_status!=='COMPLETED'} onClick={()=>run(()=>post('/scenarios/'+selected+'/review',{}))}>إرسال للمراجعة</button>
       <button disabled={working||current.state!=='UNDER_REVIEW'} onClick={()=>run(()=>post('/scenarios/'+selected+'/approve',{}))}>اعتماد السيناريو</button>
       <button disabled={working} onClick={()=>run(async()=>{const s=await post<{id:string}>('/scenarios/'+selected+'/revise',{});setSelected(s.id);})}>إنشاء مراجعة جديدة</button>
-      <a href={'/api/v1/scenarios/'+selected+'/export.csv'} target="_blank" rel="noreferrer">تصدير CSV</a></div>
+      <a href={'/api/v1/scenarios/'+selected+'/export.csv'} target="_blank" rel="noreferrer">تصدير CSV</a>
+      <a href={'/api/v1/scenarios/'+selected+'/export.xlsx'} target="_blank" rel="noreferrer">تصدير Excel</a></div>
       <Metrics p={p}/><div className="subhead"><h3>الجداول الأسبوعية</h3></div><Timetable p={p}/>
       <h3>كشف العجز</h3>{p.gaps.length?<div className="table-wrap"><table><thead><tr><th>الشعبة</th><th>المقرر</th><th>السبب</th><th>ساعات التدريب</th><th>النصاب المطلوب</th></tr></thead>
         <tbody>{p.gaps.map(g=><tr key={g.sectionId}><td>{g.sectionId}</td><td>{g.courseCode}</td><td>{g.reason}</td><td>{g.contactHours}</td><td>{g.equivalentLoad}</td></tr>)}</tbody></table></div>:<p className="success">لا يوجد عجز مسجل في النتيجة الحالية. يلزم التحقق من هوية البلوكات قبل اعتمادها.</p>}
