@@ -30,6 +30,27 @@ test('authenticated end-to-end workflow persists a synthetic TPS scenario in Pos
     const college=await write('/colleges',{institutionId:institution.id,name:'كلية اختبار '+uniq});
     const department=await write('/departments',{collegeId:college.id,name:'قسم اصطناعي'});
     const term=await write('/terms',{collegeId:college.id,code:'T-'+uniq,label:'فصل تجريبي',startsOn:'2027-01-17',endsOn:'2027-06-24'});
+    const policyUrl='/api/v1/policies?departmentId='+department.id+'&termId='+term.id;
+    const policyInitial=await app.inject({url:policyUrl,headers:{cookie:session}});
+    assert.equal(policyInitial.statusCode,200,policyInitial.body);
+    assert.deepEqual(policyInitial.json().effectivePolicy.enabledModes,['ONSITE']);
+    const policy=policyInitial.json().effectivePolicy;
+    const policyWrite=await app.inject({method:'PUT',url:'/api/v1/policies',
+      headers:{cookie:session,'x-csrf-token':csrf},
+      payload:{departmentId:department.id,termId:term.id,
+        policy:{...policy,enabledModes:['ONSITE','REMOTE']},rationale:'Synthetic policy revision for automated testing'}});
+    assert.equal(policyWrite.statusCode,200,policyWrite.body);
+    assert.equal(policyWrite.json().draftRevision,1);
+    const pending=await app.inject({url:policyUrl,headers:{cookie:session}});
+    assert.equal(pending.json().pending,true);
+    assert.deepEqual(pending.json().effectivePolicy.enabledModes,['ONSITE'],'draft must not enable remote');
+    const approvedPolicy=await write('/policies/approve',{departmentId:department.id,termId:term.id});
+    assert.equal(approvedPolicy.approvedRevision,1);
+    const savedPolicy=await app.inject({url:policyUrl,headers:{cookie:session}});
+    assert.deepEqual(savedPolicy.json().effectivePolicy.enabledModes,['ONSITE','REMOTE']);
+    const cannotRepeat=await app.inject({method:'POST',url:'/api/v1/policies/approve',
+      headers:{cookie:session,'x-csrf-token':csrf},payload:{departmentId:department.id,termId:term.id}});
+    assert.equal(cannotRepeat.statusCode,409);
     const course=await write('/courses',{departmentId:department.id,code:'TEST-101',title:'اختبار التخطيط',
       level:1,theoryHours:2,practicalHours:0,demand:20,blocks:['BLK-1']});
     assert.equal(course.demand,20);
@@ -42,14 +63,40 @@ test('authenticated end-to-end workflow persists a synthetic TPS scenario in Pos
       payload:template});
     assert.equal(imported.statusCode,200,imported.body);
     assert.equal(imported.json().schemaVersion,'tps.catalog.v1');
-    await write('/instructors',{departmentId:department.id,code:'INS-1',name:'مدرب اصطناعي',maxLoad:18});
-    await write('/rooms',{collegeId:college.id,code:'R-1',name:'قاعة اختبار',type:'CLASSROOM',capacity:30});
+    const trainer=await write('/instructors',{departmentId:department.id,code:'INS-1',name:'مدرب اصطناعي',maxLoad:18});
+    const room=await write('/rooms',{collegeId:college.id,code:'R-1',name:'قاعة اختبار',type:'CLASSROOM',capacity:30});
+    const patch=async(url:string,payload:unknown)=>{
+      const response=await app.inject({method:'PATCH',url:'/api/v1'+url,
+        headers:{cookie:session,'x-csrf-token':csrf},payload:payload as Record<string,unknown>});
+      assert.equal(response.statusCode,200,response.body);
+      return response.json();
+    };
+    const updatedTrainer=await patch('/instructors/'+trainer.id,{maxLoad:20,
+      available:[{day:'SUN',from:8,to:16}],allowedModes:['ONSITE','REMOTE'],
+      overload:{additionalHours:2,reason:'Synthetic approved extra load'}});
+    assert.equal(Number(updatedTrainer.maxLoad),20);
+    const updatedRoom=await patch('/rooms/'+room.id,{capacity:50,building:'T1'});
+    assert.equal(updatedRoom.capacity,50);
+    const invalidWindow=await app.inject({method:'PATCH',url:'/api/v1/rooms/'+room.id,
+      headers:{cookie:session,'x-csrf-token':csrf},payload:{available:[{day:'THU',from:8,to:12}]}});
+    assert.equal(invalidWindow.statusCode,400,'Thursday room availability must respect schedule limits');
+
+    const injectedPolicy=await app.inject({method:'POST',url:'/api/v1/scenarios',
+      headers:{cookie:session,'x-csrf-token':csrf},
+      payload:{departmentId:department.id,termId:term.id,name:'Override attempt',policy:{enabledModes:['HYBRID']}}});
+    assert.equal(injectedPolicy.statusCode,400,'Policy override must be rejected');
     const created=await write('/scenarios',{departmentId:department.id,termId:term.id,name:'مسودة اصطناعية'});
     assert.equal(created.result.metrics.sectionCount,1);
+    const policySnapshot=await pool.query('SELECT policy_revision,input_snapshot FROM scenarios WHERE id=$1',[created.id]);
+    assert.equal(policySnapshot.rows[0]?.policy_revision,1);
+    assert.deepEqual(policySnapshot.rows[0]?.input_snapshot.policy.enabledModes,['ONSITE','REMOTE']);
     const stored=await pool.query('SELECT id FROM scenarios WHERE id=$1',[created.id]);
     assert.equal(stored.rowCount,1,'scenario must actually persist');
     const solve=await write('/scenarios/'+created.id+'/solve',{});
     assert.equal(solve.solverStatus,'COMPLETED','Timefold must run, not a disguised greedy fallback');
+    const solveAgain=await app.inject({method:'POST',url:'/api/v1/scenarios/'+created.id+'/solve',
+      headers:{cookie:session,'x-csrf-token':csrf},payload:{}});
+    assert.equal(solveAgain.statusCode,409,'a solved scenario must not be solved twice');
     assert.equal(solve.result.gaps.length,0,JSON.stringify(solve.result.gaps));
     await write('/scenarios/'+created.id+'/review',{});
     const approved=await write('/scenarios/'+created.id+'/approve',{});
