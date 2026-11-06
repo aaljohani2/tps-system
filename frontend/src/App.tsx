@@ -204,7 +204,8 @@ function ScenarioPage({ctx,notify,user}:{ctx:Context;notify:Message;user:Auth}){
   const [forkName,setForkName]=useState('سيناريو بديل'),[forkDemand,setForkDemand]=useState<Record<string,number>>({}),
     [forkBlocks,setForkBlocks]=useState<Record<string,string>>({}),
     [forkBlockSizes,setForkBlockSizes]=useState<Record<string,string>>({});
-  const one=useQuery({queryKey:['scenario',selected],queryFn:()=>api<Scenario>('/scenarios/'+selected),enabled:!!selected});
+  const one=useQuery({queryKey:['scenario',selected],queryFn:()=>api<Scenario>('/scenarios/'+selected),enabled:!!selected,
+    refetchInterval:working?1250:false});
   const comparison=useQuery({queryKey:['comparison',selected,second],
     queryFn:()=>api<{first:Record<string,unknown>;second:Record<string,unknown>}>('/scenarios/compare?ids='+selected+','+second),enabled:!!selected&&!!second});
   const readiness=useQuery({queryKey:['readiness',selected],
@@ -212,7 +213,7 @@ function ScenarioPage({ctx,notify,user}:{ctx:Context;notify:Message;user:Auth}){
       '/scenarios/'+selected+'/readiness'),enabled:!!selected});
   async function run(job:()=>Promise<unknown>){
     setWorking(true);try{const r=await job();notify('اكتملت العملية');await qc.invalidateQueries();return r;}
-    catch(e){notify('العملية لم تكتمل: '+String(e instanceof Error?e.message:e));}
+    catch(e){notify('العملية لم تكتمل: '+String(e instanceof Error?e.message:e));await qc.invalidateQueries();}
     finally{setWorking(false);}
   }
   useEffect(()=>{
@@ -255,7 +256,7 @@ function ScenarioPage({ctx,notify,user}:{ctx:Context;notify:Message;user:Auth}){
         setFocusSection(issue.sectionId??issue.courseCode??null);
         document.getElementById('weekly-grid')?.scrollIntoView({behavior:'smooth'});
       }}/>
-      <SolverRunsPanel scenario={current} notify={notify}/>
+      <SolverRunsPanel scenario={current} notify={notify} canEdit={canEdit}/>
       <div className="subhead"><h3>الجداول الأسبوعية التفاعلية</h3></div>
       <WeeklyGrid scenario={current} issues={readiness.data?.issues??[]} onPropose={setGridProposal} focusSection={focusSection} canEdit={canEdit}/>
       <details><summary>عرض تفصيلي إضافي — قائمة جميع الجلسات</summary><Timetable p={p}/></details>
