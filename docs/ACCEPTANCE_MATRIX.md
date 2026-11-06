@@ -5,7 +5,7 @@
 | ID | Action | Expected local result | Category |
 |---|---|---|---|
 | A01 | Install Node/React/Python/Java dependencies | No missing package; backend/frontend/Java compile | Environment |
-| A02 | Start loopback PostgreSQL and run all SQL migrations twice | 0001–0007 installed; second run idempotent | DB |
+| A02 | Start loopback PostgreSQL and run all SQL migrations twice | 0001–0008 installed; second run idempotent | DB |
 | A03 | Create first admin and login/logout | Argon2id hash; session cookie; no default password | Auth |
 | A04 | Make request without CSRF | 403, nothing changed | Security |
 | A05 | Create two colleges/departments; sign in as scoped head | Other departments inaccessible; shared college objects not modifiable | Tenant scope |
@@ -31,6 +31,11 @@
 | A24 | Create prerequisite cycle and activate incomplete plan | Circular prerequisites and missing earlier-level course block activation | Curriculum |
 | A25 | Modify activated plan item | HTTP 409 and prior curriculum remains unchanged | Curriculum |
 | A26 | Fork normalized cohort with new demand and no block sizes | Rejected; explicit matching block sizes accepted | Cohort integrity |
+
+| A27 | Run Java Timefold and inspect durable attempt history | RUNNING then COMPLETED/FAILED, run ID and duration/score persisted | Solver jobs |
+| A28 | Try recovering a healthy run, and recover an abandoned run aged >2 minutes | Healthy run 409; abandoned run moves to FAILED with audit | Solver recovery |
+| A29 | Invoke seed without explicit opt-in; then run twice in isolated test DB with opt-in | No execution by default; exactly one consistent synthetic fixture after both runs | Safe seed |
+| A30 | Attempt failed local login | Audit event stored with hashed user identifier; no raw password | Authentication |
 
 ## Inputs
 

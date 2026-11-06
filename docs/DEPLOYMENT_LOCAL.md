@@ -53,4 +53,16 @@ For browser tests, install Playwright browser binaries locally and configure `TP
 
 ## Recovery and persistence
 
-Restart PostgreSQL container without removing its named volume and verify that the same scenario record remains. Re-running `npm run db:migrate` must not modify existing records. The three tracked migrations are 0001–0007. Document pass/fail explicitly. Do not perform destructive recovery tests on user data.
+Restart PostgreSQL container without removing its named volume and verify that the same scenario record remains. Re-running `npm run db:migrate` must not modify existing records. The three tracked migrations are 0001–0008. Document pass/fail explicitly. Do not perform destructive recovery tests on user data.
+
+## Optional synthetic fixture — separate local TEST DB only
+
+Do not run seed against real institutional data or an existing active scheduling database. After creating an **isolated** testing database and explicit opt-in, run:
+
+```powershell
+$env:TPS_ALLOW_SYNTHETIC_SEED = '1'
+npm run db:seed
+Remove-Item Env:\\TPS_ALLOW_SYNTHETIC_SEED
+```
+
+The command is idempotent; it does **not** create passwords, trainer identities of real people, or learner records.

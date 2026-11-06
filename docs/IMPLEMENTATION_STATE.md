@@ -2,6 +2,13 @@
 
 Branch: `feat/full-stack-tps-v1`. Base commit: `3a1d84c` from the previously tested `feat/web-excel-import-v0.3`.
 
+## Engineering increment — synthetic seed and persistent solver runs (2026-11-06)
+
+- `npm run db:seed` is implemented as an **opt-in** idempotent fixture requiring `TPS_ALLOW_SYNTHETIC_SEED=1`. It creates one fictional college, department, program, plan, term, instructor, two rooms, one course and one block; no passwords or learner-level records. CI runs it twice against disposable PostgreSQL.
+- Migration **0008** records every Timefold attempt's run ID, operator, status, start/finish, duration, score, metrics and bounded error. API exposes scoped history and a guarded recovery operation for abandoned RUNNING jobs older than two minutes; runs are still initiated synchronously and **there is no cancellation/progress percentage or real-time streaming**.
+- Approved curriculum prerequisite relations now reject direct changes, and plan-item creation locks the draft version to avoid racing an activation.
+- The GitHub Actions jobs, not the user's Windows machine, validate these additions on synthetic data. They do not imply full institutional acceptance.
+
 ## Engineering increment — manual scheduling, governed loads and plan lifecycle (2026-11-06)
 
 - Migrations **0005–0007** are additive to PostgreSQL: scenario edit revisions + before/after audit, instructor load exception decision records, curriculum prerequisites and activation metadata.
@@ -31,7 +38,7 @@ Implemented in the codebase since the earlier checkpoint:
 
 ## Implemented in code (verification scope described below)
 
-- Local-only PostgreSQL Compose and non-destructive migrations 0001–0007; user sessions, audit log, institutions, colleges, departments, terms, courses, instructors, rooms, scenarios.
+- Local-only PostgreSQL Compose and non-destructive migrations 0001–0008; user sessions, audit log, institutions, colleges, departments, terms, courses, instructors, rooms, scenarios.
 - Node 22 / Fastify API with Argon2id login, scoped roles, CSRF tokens, rate limit and cookies.
 - Institution, college, department, term creation; course creation, demand and block editing; independent institutional-level course-mode eligibility approval; instructor/room creation and PATCH editing. Shared college records have stricter RBAC than department resources.
 - Department+term planning policies with pending and approved revisions; mode, capacity, load factors and time windows are validated. Scenario creation uses only approved policy (or ONSITE default), never unapproved client overrides.

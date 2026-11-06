@@ -20,3 +20,8 @@ After commit `28f64044`, development continued with schema 0004, academic UI, de
 - Commit `b789823e`: both GitHub Actions runs **42220124613** and **42220115899** succeeded with migration 0005/0006, manual edits and approved load exceptions; five jobs green.
 - Later revisions add normalized fork fixes and curriculum version activation (migration 0007). Check the **HEAD-matching** GitHub Actions run before declaring the new change verified.
 - Never equate this with local acceptance. Codex has not installed/tested the Windows checkout, and the operational E2E suite is incomplete.
+
+## Additional synthetic CI scope
+
+- Commit `f704bb1d`: two successful GitHub Actions runs **42221648859** and **42221662313**, including repeated opt-in synthetic database seeding.
+- Migration 0008, durable solver attempts/history and recovery were added in subsequent commits. Confirm the newest HEAD-matching CI run; do not infer a PASS from previous revisions.
