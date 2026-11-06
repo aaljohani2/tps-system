@@ -109,6 +109,12 @@ def read(path, kind):
         wb.close()
 
 if __name__ == "__main__":
+    # Windows may use a legacy console code page. The subprocess protocol is
+    # always UTF-8 JSON for reads and raw binary bytes for generated templates.
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="strict")
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(encoding="utf-8", errors="backslashreplace")
     try:
         action = sys.argv[1]
         kind = sys.argv[2]
