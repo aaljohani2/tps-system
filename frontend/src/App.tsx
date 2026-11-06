@@ -10,6 +10,7 @@ import DashboardPage from './DashboardPage';
 import UsersPage from './UsersPage';
 import ManualScheduleEditor from './ManualScheduleEditor';
 import SolverRunsPanel from './SolverRunsPanel';
+import BulkImportsPage from './BulkImportsPage';
 
 const labels:Record<string,string>={ONSITE:'حضوري',REMOTE:'عن بُعد',SELF_PACED:'ذاتي',HYBRID:'مدمج'};
 const days:Record<string,string>={SUN:'الأحد',MON:'الإثنين',TUE:'الثلاثاء',WED:'الأربعاء',THU:'الخميس'};
@@ -307,7 +308,7 @@ function ScenarioPage({ctx,notify}:{ctx:Context;notify:Message}){
     </>}
   </section>;
 }
-const nav=[['/context','الكلية والقسم والفصل'],['/dashboard','لوحة المؤشرات'],['/courses','المقررات والاستيراد'],['/academic','البرامج والأفواج والبلوكات'],['/demand','تقدير الطلب'],['/resources','المدربون والقاعات'],['/policy','الأنماط والأنصبة'],['/scheduling','الشعب والجدولة والاعتماد'],['/users','المستخدمون والصلاحيات']];
+const nav=[['/context','الكلية والقسم والفصل'],['/dashboard','لوحة المؤشرات'],['/courses','المقررات'],['/imports','الاستيراد الجماعي'],['/academic','البرامج والأفواج والبلوكات'],['/demand','تقدير الطلب'],['/resources','المدربون والقاعات'],['/policy','الأنماط والأنصبة'],['/scheduling','الشعب والجدولة والاعتماد'],['/users','المستخدمون والصلاحيات']];
 export default function App(){
   const qc=useQueryClient(),[user,setUser]=useState<Auth|null>(null),[initial,setInitial]=useState(true);
   const [ctx,setCtx]=useStore<Context>('tps-context',{collegeId:'',departmentId:'',termId:''});
@@ -327,6 +328,8 @@ export default function App(){
     <Route path="/context" element={<ContextSetup context={ctx} setContext={setCtx} notify={notify}/>}/>
     <Route path="/courses" element={ctx.departmentId?<CoursePage ctx={ctx} user={user} notify={notify}/>:<NeedContext/>}/>
     <Route path="/dashboard" element={ctx.departmentId&&ctx.termId?<DashboardPage ctx={ctx}/>:<NeedContext/>}/>
+    <Route path="/imports" element={ctx.departmentId&&ctx.termId?
+      <BulkImportsPage ctx={ctx} user={user} notify={notify}/>:<NeedContext/>}/>
     <Route path="/users" element={["SYSTEM_ADMIN","COLLEGE_ADMIN"].includes(user.role)?<UsersPage auth={user} notify={notify}/>:<Navigate to="/context" replace/>}/>
     <Route path="/academic" element={ctx.departmentId&&ctx.termId?<AcademicPage ctx={ctx} user={user} notify={notify}/>:<NeedContext/>}/>
     <Route path="/demand" element={ctx.departmentId&&ctx.termId?<DemandPage ctx={ctx} notify={notify}/>:<NeedContext/>}/>
