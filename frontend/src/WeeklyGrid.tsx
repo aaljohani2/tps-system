@@ -80,7 +80,7 @@ export default function WeeklyGrid({scenario,issues,onPropose,focusSection,canEd
             dayOrder(a.day)-dayOrder(b.day)||a.start-b.start||a.courseCode.localeCompare(b.courseCode));
           const continuing=shown.filter(s=>s.day===day&&s.start<t&&s.end>t).length;
           return <td key={day} className="week-slot"
-            onDragOver={e=>{if(canEdit&&dragged)e.preventDefault();}}
+            onDragOver={e=>{if(canEdit)e.preventDefault();}}
             onDrop={e=>{e.preventDefault();const id=e.dataTransfer.getData('text/plain')||dragged;
               setDragged('');if(id)stage(id,day,t);}}
             aria-label={day+' الساعة '+clock(t)}>

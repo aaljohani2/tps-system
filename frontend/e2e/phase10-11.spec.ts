@@ -86,7 +86,7 @@ test('weekly grid provides four views, per-session details, linked blockers and 
   await expect(page.getByText(/المحاسبة المالية/).first()).toBeVisible();
   await expect(page.getByRole('button',{name:/تعديل الموعد أو القاعة/})).toBeVisible();
   const movable=page.locator('.week-session').first();
-  const cell=page.locator('.week-slot').filter({has:movable}).first();
+  const cell=page.locator('.week-slot').nth(5); // Different half-hour cell: SUN 08:30
   await movable.dragTo(cell);
   await expect(page.getByText(/لم يتم حفظ أي تغيير بعد/)).toBeVisible();
   expect(count()).toBe(0);
