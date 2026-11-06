@@ -110,6 +110,20 @@ test('authenticated end-to-end workflow persists a synthetic TPS scenario in Pos
     const exportXlsx=await app.inject({url:'/api/v1/scenarios/'+created.id+'/export.xlsx',headers:{cookie:session}});
     assert.equal(exportXlsx.statusCode,200,exportXlsx.body);
     assert.equal(exportXlsx.rawPayload.subarray(0,2).toString('ascii'),'PK');
+    const fork=await write('/scenarios/'+created.id+'/fork',{
+      name:'Demand expansion (synthetic)',
+      overrides:[{code:'TEST-101',demand:50,blocks:['BLK-1','BLK-2']}]});
+    assert.equal(fork.result.metrics.sectionCount,2);
+    const persistedOriginal=await pool.query('SELECT input_snapshot FROM scenarios WHERE id=$1',[created.id]);
+    assert.equal(persistedOriginal.rows[0]?.input_snapshot.courses[0].demand,20,'fork must preserve original demand');
+    const forkComparison=await app.inject({url:'/api/v1/scenarios/compare?ids='+created.id+','+fork.id,
+      headers:{cookie:session}});
+    assert.equal(forkComparison.statusCode,200,forkComparison.body);
+    assert.equal(forkComparison.json().first.sections,1);
+    assert.equal(forkComparison.json().second.sections,2);
+    const forkRecord=await pool.query('SELECT parent_scenario_id,solver_status FROM scenarios WHERE id=$1',[fork.id]);
+    assert.equal(forkRecord.rows[0]?.parent_scenario_id,created.id);
+    assert.equal(forkRecord.rows[0]?.solver_status,'NOT_RUN');
     const next=await write('/scenarios/'+created.id+'/revise',{});
     assert.equal(next.revision,2);
     const compare=await app.inject({url:'/api/v1/scenarios/compare?ids='+created.id+','+next.id,headers:{cookie:session}});
