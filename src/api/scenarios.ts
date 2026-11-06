@@ -18,7 +18,7 @@ async function scope(req:FastifyRequest,departmentId:string){
 }
 interface Stored {
   id:string;department_id:string;term_id:string;name:string;state:string;solver_status:string;
-  input_snapshot:PlanRequest;result_snapshot:PlanResult;solver_details:unknown;approved_snapshot:unknown;revision:number;policy_revision:number;
+  input_snapshot:PlanRequest;result_snapshot:PlanResult;solver_details:unknown;approved_snapshot:unknown;revision:number;policy_revision:number;parent_scenario_id:string|null;
 }
 async function find(req:FastifyRequest,id:string):Promise<Stored>{
   const r=await pool.query<Stored>('SELECT * FROM scenarios WHERE id=$1',[id]);
@@ -66,7 +66,7 @@ export async function registerScenarios(app:FastifyInstance):Promise<void>{
     const departmentId=uuid.parse(q.departmentId);
     await scope(req,departmentId);
     const termId=q.termId?uuid.parse(q.termId):null;
-    const rows=await pool.query(`SELECT id,department_id,term_id,name,state,solver_status,revision,created_at,approved_at
+    const rows=await pool.query(`SELECT id,department_id,term_id,name,state,solver_status,revision,policy_revision,parent_scenario_id,created_at,approved_at
       FROM scenarios WHERE department_id=$1 AND ($2::uuid IS NULL OR term_id=$2)
       ORDER BY created_at DESC LIMIT 100`,[departmentId,termId]);
     return rows.rows;
@@ -131,8 +131,8 @@ export async function registerScenarios(app:FastifyInstance):Promise<void>{
     const result=sc.result_snapshot;
     if(result.gaps.length||result.sections.some(s=>s.state==='UNASSIGNED'))
       throw invalid('Uncovered sections must be resolved before approval',409);
-    if(result.sessions.some(s=>!s.blockId))
-      throw invalid('Missing block identity: student conflict validation is incomplete',409);
+    if(result.sections.some(s=>s.students>0 && !s.blockId))
+      throw invalid('Some sections have no cohort block ID: student conflict validation is incomplete',409);
     if(result.notices.some(n=>/hard=[-][1-9]/.test(n)))
       throw invalid('Hard constraint violations block approval',409);
     // Re-check exact immutable input/output. Optimized result has already passed validation in applySolverChoice.
@@ -165,6 +165,45 @@ export async function registerScenarios(app:FastifyInstance):Promise<void>{
     ]);
     await audit(req.principal!.id,'REVISE','SCENARIO',next.rows[0]!.id,{parent:id});
     return {id:next.rows[0]!.id,state:'DRAFT',revision:sc.revision+1};
+  });
+  app.post('/api/v1/scenarios/:id/fork',async(req)=>{
+    requireEditor(req);
+    const id=params(req),sc=await find(req,id);
+    const input=z.object({
+      name:z.string().trim().min(1).max(160),
+      overrides:z.array(z.object({
+        code:z.string().min(1),
+        demand:z.number().int().min(0).max(5000),
+        blocks:z.array(z.string().trim().min(1).max(100)).max(250)
+      }).strict()).max(250)
+    }).strict().parse(req.body);
+    const known=new Set(sc.input_snapshot.courses.map(c=>c.code));
+    const seen=new Set<string>();
+    for(const change of input.overrides){
+      if(!known.has(change.code) || seen.has(change.code))
+        throw invalid('Unknown or duplicate course override',400);
+      seen.add(change.code);
+      if(new Set(change.blocks).size!==change.blocks.length)
+        throw invalid('Duplicate cohort block IDs are not permitted for one course',400);
+    }
+    const overrideMap=new Map(input.overrides.map(o=>[o.code,o]));
+    const source:PlanRequest=structuredClone(sc.input_snapshot);
+    source.scenarioName=input.name;
+    source.courses=source.courses.map(c=>{
+      const override=overrideMap.get(c.code);
+      return override?{...c,demand:override.demand,blocks:override.blocks}:c;
+    });
+    validateRequest(source);
+    const result=buildDraftPlan(source);
+    const next=await pool.query<{id:string}>(`INSERT INTO scenarios
+      (department_id,term_id,name,state,solver_status,input_snapshot,result_snapshot,created_by,
+       revision,policy_revision,parent_scenario_id)
+      VALUES($1,$2,$3,'DRAFT','NOT_RUN',$4,$5,$6,1,$7,$8) RETURNING id`,[
+      sc.department_id,sc.term_id,input.name,JSON.stringify(source),JSON.stringify(result),
+      req.principal!.id,sc.policy_revision,sc.id
+    ]);
+    await audit(req.principal!.id,'FORK','SCENARIO',next.rows[0]!.id,{parent:id,overrides:input.overrides.length});
+    return {id:next.rows[0]!.id,state:'DRAFT',parentScenarioId:id,result};
   });
   app.get('/api/v1/scenarios/:id/export.csv',async(req,reply)=>{
     const sc=await find(req,params(req));
