@@ -2,9 +2,23 @@
 
 Branch: `feat/full-stack-tps-v1`. Base commit: `3a1d84c` from the previously tested `feat/web-excel-import-v0.3`.
 
+## Engineering increment — structured academic model (2026-11-06)
+
+Implemented in the codebase since the earlier checkpoint:
+- Forward-only migration **0004**: `training_programs`, `curriculum_plans`, `curriculum_items`, `cohorts`, `student_blocks`, `block_course_assignments` and `demand_estimates` (with recorded source, confidence and repeat-rate forecast).
+- Scope-controlled Fastify APIs and Arabic RTL pages for programs, plan versions, cohorts, blocks, course-to-block term assignments and sourced demand.
+- Snapshot generation uses normalized block sizes and cohort identities when assignments exist. Block totals must reconcile exactly with demand; a mismatch returns HTTP 409 rather than creating invented or duplicated sections.
+- **30-minute scheduling windows** accepted by TypeScript/Timefold/Java double-based session slots and rendered as HH:MM. Candidate-bounded Timefold remains experimental; half-hour support is not a guarantee of global optimization.
+- Course-level manual instructor locks and HYBRID theory/practical onsite/remote split editing with server-side validation.
+- Independent readiness validation now checks session duration/time window, trainer availability and eligibility, room type/availability, block identity and hybrid component-hour distribution.
+- Live PostgreSQL-scoped dashboard metrics and local administrative user lifecycle (create, deactivate/reactivate, scoped role changes, password reset; stronger-than-UI RBAC and session invalidation).
+- Synthetic regression tests for normalized blocks, cohort collisions, half-hour candidates, instructor locks, demand mismatches, dashboard and administrative privilege escalation.
+
+**Not complete:** official curriculum plan lifecycle/activation, prerequisites, detailed assessment of returning students, professional specialization matrix, approved overload workflow, editable weekly timetable with transactional rescheduling, long-running asynchronous solver jobs, bulk import for resources, full report suite, comprehensive browser E2E and Windows verification. Do not move PR to Ready or call the full 15-stage mandate complete.
+
 ## Implemented in code (verification scope described below)
 
-- Local-only PostgreSQL Compose and non-destructive migration 0001; user sessions, audit log, institutions, colleges, departments, terms, courses, instructors, rooms, scenarios.
+- Local-only PostgreSQL Compose and non-destructive migrations 0001–0004; user sessions, audit log, institutions, colleges, departments, terms, courses, instructors, rooms, scenarios.
 - Node 22 / Fastify API with Argon2id login, scoped roles, CSRF tokens, rate limit and cookies.
 - Institution, college, department, term creation; course creation, demand and block editing; independent institutional-level course-mode eligibility approval; instructor/room creation and PATCH editing. Shared college records have stricter RBAC than department resources.
 - Department+term planning policies with pending and approved revisions; mode, capacity, load factors and time windows are validated. Scenario creation uses only approved policy (or ONSITE default), never unapproved client overrides.
