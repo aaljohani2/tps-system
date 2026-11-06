@@ -7,13 +7,15 @@ import {pool} from './database.js';
 import {registerSecurity} from './security.js';
 import {registerCatalog} from './catalog.js';
 import {registerScenarios} from './scenarios.js';
+import {registerPolicies} from './policies.js';
+import {ZodError} from 'zod';
 
 export async function createApp(){
   const app=Fastify({logger:{redact:['req.headers.cookie','req.headers.authorization','req.body.password']},
     bodyLimit:Number(process.env.MAX_REQUEST_BYTES??'5242880')});
   app.setErrorHandler((error,req,reply)=>{
     const status=(error as {statusCode?:number}).statusCode;
-    const code=status&&status>=400&&status<500?status:500;
+    const code=error instanceof ZodError?400:status&&status>=400&&status<500?status:500;
     if(code===500)req.log.error(error);
     reply.code(code).send({error:code===500?'Internal server error':error.message,
       ...(code===400&&'details' in error?{details:(error as Error&{details?:unknown}).details}:{})});
@@ -23,6 +25,7 @@ export async function createApp(){
   app.addContentTypeParser('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',{parseAs:'buffer'},(_req,body,done)=>done(null,body));
   await registerSecurity(app);
   await registerCatalog(app);
+  await registerPolicies(app);
   await registerScenarios(app);
   app.get('/health',async()=>{
     await pool.query('SELECT 1');

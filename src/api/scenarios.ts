@@ -7,6 +7,7 @@ import {buildDraftPlan} from '../planner.js';
 import {optimizeWithTimefold} from '../optimizer.js';
 import {validateRequest} from '../validation.js';
 import {exportScenarioXlsx} from './excel.js';
+import {getEffectivePolicy} from './policies.js';
 import type {Course,Instructor,PlanRequest,PlanResult,Policy,Room} from '../types.js';
 
 const uuid=z.string().uuid();
@@ -17,7 +18,7 @@ async function scope(req:FastifyRequest,departmentId:string){
 }
 interface Stored {
   id:string;department_id:string;term_id:string;name:string;state:string;solver_status:string;
-  input_snapshot:PlanRequest;result_snapshot:PlanResult;solver_details:unknown;approved_snapshot:unknown;revision:number;
+  input_snapshot:PlanRequest;result_snapshot:PlanResult;solver_details:unknown;approved_snapshot:unknown;revision:number;policy_revision:number;
 }
 async function find(req:FastifyRequest,id:string):Promise<Stored>{
   const r=await pool.query<Stored>('SELECT * FROM scenarios WHERE id=$1',[id]);
@@ -53,7 +54,7 @@ async function fromDatabase(departmentId:string,termId:string,name:string,policy
   return {scenarioName:name,termId,courses,instructors,rooms,policy};
 }
 const selectInput=z.object({departmentId:uuid,termId:uuid,name:z.string().trim().min(1).max(160),
-  policy:z.unknown().optional()});
+}).strict();
 function csvCell(v:unknown):string{
   const raw=String(v??'');
   const guarded=/^[\s]*[=+@-]/.test(raw)?"'"+raw:raw;
@@ -76,15 +77,15 @@ export async function registerScenarios(app:FastifyInstance):Promise<void>{
     if(!parsed.success)throw invalid('Invalid scenario context');
     const v=parsed.data;
     await scope(req,v.departmentId);
-    const policy=v.policy===undefined?defaultPolicy():v.policy as Policy;
+    const {policy,revision}=await getEffectivePolicy(v.departmentId,v.termId);
     const input=await fromDatabase(v.departmentId,v.termId,v.name,policy);
     validateRequest(input);
     if(!input.courses.length)throw invalid('Import or enter courses first');
     const result=buildDraftPlan(input);
     const r=await pool.query<{id:string}>(`INSERT INTO scenarios
-      (department_id,term_id,name,state,solver_status,input_snapshot,result_snapshot,created_by)
-      VALUES($1,$2,$3,'DRAFT','NOT_RUN',$4,$5,$6) RETURNING id`,[
-      v.departmentId,v.termId,v.name,JSON.stringify(input),JSON.stringify(result),req.principal!.id
+      (department_id,term_id,name,state,solver_status,input_snapshot,result_snapshot,created_by,policy_revision)
+      VALUES($1,$2,$3,'DRAFT','NOT_RUN',$4,$5,$6,$7) RETURNING id`,[
+      v.departmentId,v.termId,v.name,JSON.stringify(input),JSON.stringify(result),req.principal!.id,revision
     ]);
     await audit(req.principal!.id,'CREATE','SCENARIO',r.rows[0]!.id);
     return {id:r.rows[0]!.id,state:'DRAFT',solverStatus:'NOT_RUN',result};
@@ -94,12 +95,16 @@ export async function registerScenarios(app:FastifyInstance):Promise<void>{
     requireEditor(req);
     const id=params(req),sc=await find(req,id);
     if(sc.state!=='DRAFT')throw invalid('Only a DRAFT may be solved',409);
-    // Same existing Java Timefold executable; no greedy fallback on failure.
+    // Claim the scenario atomically. Duplicate requests must not start parallel Java solvers.
+    const claim=await pool.query(`UPDATE scenarios SET solver_status='RUNNING'
+      WHERE id=$1 AND state='DRAFT' AND solver_status IN ('NOT_RUN','FAILED')
+      RETURNING id`,[id]);
+    if(!claim.rowCount)throw invalid('Solver already running or scenario already solved',409);
     try {
       validateRequest(sc.input_snapshot);
       const result=await optimizeWithTimefold(sc.input_snapshot);
       const saved=await pool.query(`UPDATE scenarios SET result_snapshot=$2,solver_status='COMPLETED',
-        solver_details=$3 WHERE id=$1 AND state='DRAFT' RETURNING id`,[
+        solver_details=$3 WHERE id=$1 AND state='DRAFT' AND solver_status='RUNNING' RETURNING id`,[
         id,JSON.stringify(result),JSON.stringify({mode:'Timefold',at:new Date().toISOString()})
       ]);
       if(!saved.rowCount)throw invalid('Scenario state changed while solving',409);
@@ -107,14 +112,15 @@ export async function registerScenarios(app:FastifyInstance):Promise<void>{
       return {id,result,solverStatus:'COMPLETED'};
     } catch(e){
       await pool.query(`UPDATE scenarios SET solver_status='FAILED'
-        WHERE id=$1 AND state='DRAFT' AND solver_status<>'COMPLETED'`,[id]);
+        WHERE id=$1 AND state='DRAFT' AND solver_status='RUNNING'`,[id]);
       throw e;
     }
   });
   app.post('/api/v1/scenarios/:id/review',async(req)=>{
     requireEditor(req);const id=params(req),sc=await find(req,id);
     if(sc.state!=='DRAFT'||sc.solver_status!=='COMPLETED')throw invalid('Solve successfully with Timefold before review',409);
-    await pool.query(`UPDATE scenarios SET state='UNDER_REVIEW' WHERE id=$1 AND state='DRAFT'`,[id]);
+    const updated=await pool.query(`UPDATE scenarios SET state='UNDER_REVIEW' WHERE id=$1 AND state='DRAFT' AND solver_status='COMPLETED' RETURNING id`,[id]);
+    if(!updated.rowCount)throw invalid('Scenario changed during review request',409);
     await audit(req.principal!.id,'SUBMIT_REVIEW','SCENARIO',id);
     return {id,state:'UNDER_REVIEW'};
   });
@@ -133,7 +139,7 @@ export async function registerScenarios(app:FastifyInstance):Promise<void>{
     validateRequest(sc.input_snapshot);
     const saved=await pool.query(`UPDATE scenarios SET state='APPROVED',approved_by=$2,approved_at=now(),
       approved_snapshot=$3 WHERE id=$1 AND state='UNDER_REVIEW' RETURNING id`,[
-      id,req.principal!.id,JSON.stringify({input:sc.input_snapshot,result,revision:sc.revision})
+      id,req.principal!.id,JSON.stringify({input:sc.input_snapshot,result,revision:sc.revision,policyRevision:sc.policy_revision})
     ]);
     if(!saved.rowCount)throw invalid('Concurrent approval state change',409);
     await audit(req.principal!.id,'APPROVE','SCENARIO',id);
@@ -152,10 +158,10 @@ export async function registerScenarios(app:FastifyInstance):Promise<void>{
     requireEditor(req);const id=params(req),sc=await find(req,id);
     const result=buildDraftPlan(sc.input_snapshot);
     const next=await pool.query<{id:string}>(`INSERT INTO scenarios
-      (department_id,term_id,name,state,solver_status,input_snapshot,result_snapshot,created_by,revision)
-      VALUES($1,$2,$3,'DRAFT','NOT_RUN',$4,$5,$6,$7) RETURNING id`,[
+      (department_id,term_id,name,state,solver_status,input_snapshot,result_snapshot,created_by,revision,policy_revision)
+      VALUES($1,$2,$3,'DRAFT','NOT_RUN',$4,$5,$6,$7,$8) RETURNING id`,[
       sc.department_id,sc.term_id,sc.name,JSON.stringify(sc.input_snapshot),JSON.stringify(result),
-      req.principal!.id,sc.revision+1
+      req.principal!.id,sc.revision+1,sc.policy_revision
     ]);
     await audit(req.principal!.id,'REVISE','SCENARIO',next.rows[0]!.id,{parent:id});
     return {id:next.rows[0]!.id,state:'DRAFT',revision:sc.revision+1};
