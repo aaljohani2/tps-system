@@ -33,6 +33,15 @@ test('authenticated end-to-end workflow persists a synthetic TPS scenario in Pos
     const course=await write('/courses',{departmentId:department.id,code:'TEST-101',title:'اختبار التخطيط',
       level:1,theoryHours:2,practicalHours:0,demand:20,blocks:['BLK-1']});
     assert.equal(course.demand,20);
+    const {readFile}=await import('node:fs/promises');
+    const template=await readFile('web/templates/TPS_Course_Demand_144720.xlsx');
+    const imported=await app.inject({method:'POST',
+      url:'/api/v1/import/courses/preview-xlsx?departmentId='+department.id,
+      headers:{cookie:session,'x-csrf-token':csrf,
+        'content-type':'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'},
+      payload:template});
+    assert.equal(imported.statusCode,200,imported.body);
+    assert.equal(imported.json().schemaVersion,'tps.catalog.v1');
     await write('/instructors',{departmentId:department.id,code:'INS-1',name:'مدرب اصطناعي',maxLoad:18});
     await write('/rooms',{collegeId:college.id,code:'R-1',name:'قاعة اختبار',type:'CLASSROOM',capacity:30});
     const created=await write('/scenarios',{departmentId:department.id,termId:term.id,name:'مسودة اصطناعية'});
