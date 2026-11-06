@@ -41,6 +41,13 @@ function parse<T extends z.ZodTypeAny>(schema:T,body:unknown):z.infer<T>{
   if(!result.success)throw Object.assign(new Error('Invalid input'),{statusCode:400,details:result.error.flatten()});
   return result.data;
 }
+// In Zod v4 a .partial() can materialize inner defaults. PATCH changes
+// exclusively the properties explicitly supplied by the client.
+function suppliedOnly<T extends Record<string,unknown>>(parsed:T,body:unknown):T{
+  const source=body as Record<string,unknown>;
+  return Object.fromEntries(Object.entries(parsed).filter(([key])=>
+    Object.prototype.hasOwnProperty.call(source,key))) as T;
+}
 function forbidden(){throw Object.assign(new Error('Scope denied'),{statusCode:403});}
 async function assertDepartment(req:FastifyRequest,departmentId:string){if(!await allowedDepartment(req.principal!,departmentId))forbidden();}
 async function assertCollege(req:FastifyRequest,collegeId:string){if(!await allowedCollege(req.principal!,collegeId))forbidden();}
@@ -127,10 +134,10 @@ export async function registerCatalog(app:FastifyInstance){
     if(!old.rows[0])throw Object.assign(new Error('Not found'),{statusCode:404});
     await assertDepartment(req,old.rows[0].department_id);
     // Eligibility cannot be granted by a normal course edit, including the UI mode selector.
-    const v=parse(courseBase.omit({departmentId:true,eligibleModes:true}).partial().extend({
+    const v=suppliedOnly(parse(courseBase.omit({departmentId:true,eligibleModes:true}).partial().extend({
       assignedInstructorId:z.string().trim().min(1).max(60).nullable().optional(),
       hybridSplit:courseBase.shape.hybridSplit.nullable().optional()
-    }).strict(),req.body);
+    }).strict(),req.body),req.body);
     if(!Object.keys(v).length)throw Object.assign(new Error('No changes supplied'),{statusCode:400});
     if(v.mode && !old.rows[0].eligible_modes.includes(v.mode))
       throw Object.assign(new Error('Delivery mode is not approved for this course'),{statusCode:409});
@@ -196,10 +203,10 @@ export async function registerCatalog(app:FastifyInstance){
     const found=await pool.query<{department_id:string}>('SELECT department_id FROM instructors WHERE id=$1',[id]);
     if(!found.rows[0])throw Object.assign(new Error('Instructor not found'),{statusCode:404});
     await assertDepartment(req,found.rows[0].department_id);
-    const v=parse(instructor.omit({departmentId:true,overload:true}).partial().extend({
+    const v=suppliedOnly(parse(instructor.omit({departmentId:true,overload:true}).partial().extend({
       eligibleCourseCodes:z.array(z.string()).nullable().optional(),
       available:windows.nullable()
-    }).strict(),req.body);
+    }).strict(),req.body),req.body);
     if(!Object.keys(v).length)throw Object.assign(new Error('No changes supplied'),{statusCode:400});
     const values={...v,maxLoad:v.maxLoad===undefined?undefined:String(v.maxLoad)};
     const updated=await db.update(instructors).set(values).where(eq(instructors.id,id)).returning();
@@ -224,7 +231,7 @@ export async function registerCatalog(app:FastifyInstance){
     const found=await pool.query<{college_id:string}>('SELECT college_id FROM rooms WHERE id=$1',[id]);
     if(!found.rows[0])throw Object.assign(new Error('Room not found'),{statusCode:404});
     await assertCollege(req,found.rows[0].college_id);
-    const v=parse(room.omit({collegeId:true}).partial().extend({available:windows.nullable()}).strict(),req.body);
+    const v=suppliedOnly(parse(room.omit({collegeId:true}).partial().extend({available:windows.nullable()}).strict(),req.body),req.body);
     if(!Object.keys(v).length)throw Object.assign(new Error('No changes supplied'),{statusCode:400});
     const updated=await db.update(rooms).set(v).where(eq(rooms.id,id)).returning();
     await audit(req.principal!.id,'UPDATE','ROOM',id,{fields:Object.keys(v)});
