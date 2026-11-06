@@ -233,7 +233,8 @@ export function applySolverChoice(input: PlanRequest, payload: SolverPayload, re
 }
 
 /** Explicit invocation only. If Java/JAR is unavailable, fail without pretending the greedy preview was optimized. */
-export async function optimizeWithTimefold(input: PlanRequest, opts: {jar?: string; timeoutMs?: number} = {}): Promise<PlanResult> {
+export async function optimizeWithTimefold(input: PlanRequest, opts: {jar?: string; timeoutMs?: number; signal?: AbortSignal} = {}): Promise<PlanResult> {
+  if (opts.signal?.aborted) throw new Error('Solver cancelled by operator');
   const jar = resolve(opts.jar ?? process.env.TIMEFOLD_JAR ?? 'solver/target/tps-timefold-0.2.0-jar-with-dependencies.jar');
   await access(jar); // throws ENOENT when not installed
   const payload = prepareSolverPayload(input);
@@ -243,7 +244,16 @@ export async function optimizeWithTimefold(input: PlanRequest, opts: {jar?: stri
     const chunks: Buffer[] = [], errorChunks: Buffer[] = [];
     let size = 0, settled = false;
     const timer = setTimeout(() => {child.kill('SIGKILL'); settle(new Error('Solver timed out'));}, timeoutMs);
-    function settle(e?: Error, data?: string) {if (settled) return; settled = true; clearTimeout(timer); e ? reject(e) : ok(data ?? '');}
+    function settle(e?: Error, data?: string) {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      opts.signal?.removeEventListener('abort', cancelProcess);
+      e ? reject(e) : ok(data ?? '');
+    }
+    const cancelProcess = () => {child.kill('SIGKILL'); settle(new Error('Solver cancelled by operator'));};
+    opts.signal?.addEventListener('abort', cancelProcess, {once:true});
+    if (opts.signal?.aborted) cancelProcess();
     child.on('error', (e) => settle(e));
     child.stdout.on('data', b => {size += b.length; if (size > 8_000_000) {child.kill('SIGKILL'); settle(new Error('Solver response too large'));} else chunks.push(b);});
     child.stderr.on('data', b => {if (errorChunks.reduce((s,c) => s + c.length, 0) < 4096) errorChunks.push(b);});
@@ -251,6 +261,7 @@ export async function optimizeWithTimefold(input: PlanRequest, opts: {jar?: stri
     child.stdin.on('error', () => {});
     child.stdin.end(JSON.stringify(payload));
   });
+  if (opts.signal?.aborted) throw new Error('Solver cancelled by operator');
   const parsed: unknown = JSON.parse(stdout);
   if (!parsed || typeof parsed !== 'object' || !('choices' in parsed) || !Array.isArray(parsed.choices) ||
       !('hardScore' in parsed) || typeof parsed.hardScore !== 'number' || !('softScore' in parsed) || typeof parsed.softScore !== 'number')
