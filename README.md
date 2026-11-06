@@ -2,7 +2,7 @@
 
 نظام عربي قابل للتوسع لتقدير الطلب على المقررات، وتوليد الشعب، وإسناد المدربين، وفحص القيود الزمنية والمكانية، وإظهار العجز **دون إخفائه**.
 
-> **الحالة: Prototype v0.1 / Draft only.** لم يُعتمد النظام للتشغيل الفعلي، ولا ينشر أي شعب إلى رايات. يعمل المحرك الحالي بخوارزمية تجريبية حتمية (greedy) ويحتاج لاحقًا إلى ربط Timefold Solver قبل اعتباره محرك التحسين النهائي.
+> **الحالة: Prototype v0.2 / Draft only.** لم يُعتمد النظام للتشغيل الفعلي، ولا ينشر أي شعب إلى رايات. يعمل المحرك الحالي بخوارزمية تجريبية حتمية (greedy) ويحتاج لاحقًا إلى ربط Timefold Solver تجريبي يختار بين بدائل محدودة للشعب، لكن بناءه Java لم يُتحقق منه بعد؛ لا يُعتبر محرك تحسين إنتاجيًا.
 
 ## قواعد الطبقات
 
@@ -48,6 +48,8 @@ curl -X POST http://127.0.0.1:8787/api/v1/plans/preview \
 
 ```text
 src/
+  optimizer.ts       Timefold candidate generation and runtime bridge
+  importer.ts        CSV curriculum import
   types.ts          Domain contracts / models
   policy.ts         Four-mode default policy
   validation.ts     Input and eligibility validation
@@ -56,7 +58,8 @@ src/
   demo.ts           CLI sample runner
 web/                 Arabic RTL prototype
 examples/            Synthetic example data
-scripts/             (reserved for import/exports in future phases)
+scripts/             Python XLSX importer and tests
+solver/              Java 21 Timefold candidate optimizer (Maven)
 tests/               Node built-in test runner
 docs/                Requirements, architecture, ADRs, API, security, roadmap
 .github/workflows/   CI build + tests
@@ -66,7 +69,9 @@ docs/                Requirements, architecture, ADRs, API, security, roadmap
 
 **تم تنفيذه واختباره محليًا:** السعات والطبقات الأربع كقواعد نطاق، بوابات التفعيل والأهلية، تكوين الأزواج، نصاب عملي البعد، أنصبة المدربين واستثناءاتها، الكشف عن العجز، مواقع المحاضرات، إتاحة البلوكات، قيد الخميس، وعرض النتائج داخل واجهة محلية.
 
-**لم يُنفّذ بعد:** Timefold Solver، استيراد XLSX/CSV من رايات، المصادقة والصلاحيات، التخزين الدائم، تزامن البيانات متعددة الأقسام، مقارنة السيناريوهات المعتمدة، اعتماد الجداول وإصدار ملفات رايات الرسمية، وتوليد الحل الأمثل.
+**نُفذ في v0.2 مبدئيًا:** استيراد كتالوج المقررات من CSV؛ ومحول XLSX محلي، وواجهة Timefold Java مع مدخلات ومخرجات JSON وقيود أساسية. **لم يتم اختبار Java فعليًا في البيئة الحالية** لغياب Maven/اتصال الحزم؛ تحققت فقط اختبارات Node/Python.
+
+**لم يُنفّذ بعد:** التشغيل المؤكد لمحرك Timefold في بيئة CI، تقارير التسجيل من رايات، المصادقة والصلاحيات، التخزين الدائم، تزامن البيانات متعددة الأقسام، مقارنة السيناريوهات المعتمدة، اعتماد الجداول وإصدار ملفات رايات الرسمية، وتوليد الحل الأمثل.
 
 لا توجد دعوى بأن النتائج «خالية من تعارض المتدربين» إذا لم تُزود هوية البلوك/الفوج؛ المحرك يعطي تنبيهًا بهذا القيد.
 
@@ -80,3 +85,13 @@ docs/                Requirements, architecture, ADRs, API, security, roadmap
 - [خارطة الطريق](docs/roadmap.md)
 
 **الترخيص:** لم يُحدد بعد، والمستودع خاص حاليًا؛ لا يُفترض نشره أو فتح ترخيص دون قرار مالك المشروع.
+
+## تحديث v0.2 — استيراد البيانات ومحرك Timefold
+
+```bash
+npm run import:csv -- source.csv catalog.json
+python scripts/import_xlsx.py source.xlsx --out catalog.json
+cd solver && mvn -B -ntp clean package
+```
+
+لتحسين الجدول بعد بناء المحرك: POST `/api/v1/plans/optimize`، أو استخدم زر «تحسين بـ Timefold» في الواجهة المحلية. **الفشل ظاهر ولا يتم استبداله بنتيجة المحرك التجريبي بصمت**. انظر [توثيق الربط](docs/timefold-integration.md) و[توثيق الاستيراد](docs/importing-data.md).

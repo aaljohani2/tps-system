@@ -7,16 +7,19 @@
   <link rel="stylesheet" href="/style.css">
 </head>
 <body>
-<header class="site-head"><div><div class="eyebrow">Training Planning & Scheduling</div><h1>تخطيط وجدولة التدريب</h1><p>نموذج تأسيسي — النتائج مسودات تخطيطية وليست جداول معتمدة في رايات.</p></div><span class="badge">TPS 0.1 · تجريبي</span></header>
+<header class="site-head"><div><div class="eyebrow">Training Planning & Scheduling</div><h1>تخطيط وجدولة التدريب</h1><p>نموذج تأسيسي — النتائج مسودات تخطيطية وليست جداول معتمدة في رايات.</p></div><span class="badge">TPS 0.2 · تجريبي</span></header>
 <main>
   <section class="card">
     <h2>أنماط التدريب</h2><p class="muted">الحضوري هو النمط الأساسي. تفعيل النمط في السياسات وحده لا يكفي؛ يجب اعتماد أهلية المقرر له في المدخلات.</p>
     <div class="modes"><article><strong>01 · حضوري</strong><div>نظري 45 / عملي 30</div><small>أساسي</small></article><article><strong>02 · عن بُعد</strong><div>نظري 120 / عملي 120</div><small>اختياري</small></article><article><strong>03 · تدريب ذاتي</strong><div>السعة مفتوحة</div><small>اختياري</small></article><article><strong>04 · مدمج</strong><div>نظري 45 / عملي 45</div><small>اختياري</small></article></div>
   </section>
   <section class="card">
-    <h2>تجربة محرك التخطيط</h2>
+    <h2>تجربة التخطيط والاستيراد</h2>
     <p class="muted">ارفع ملف مدخلات JSON وفق نموذج API أو شغّل المثال الاصطناعي. لا ترفع بيانات متدربين شخصية إلى هذه النسخة التجريبية.</p>
+    <div class="row"><label class="upload">استيراد خطة CSV <input id="catalog" type="file" accept=".csv,text/csv"></label><button id="catalog-import" type="button">قراءة المقررات</button></div>
+    <p class="muted" id="catalog-status">استيراد CSV ينشئ مدخلات المقررات فقط دون مدربين أو قاعات، ودون اعتماد نمط غير حضوري. لتحويل XLSX استخدم أداة الاستيراد الموثقة.</p>
     <div class="row"><label class="upload">اختيار ملف JSON <input id="file" type="file" accept=".json,application/json"></label><button id="demo" type="button">تحميل المثال</button><button class="primary" id="run" type="button">بناء مسودة الجدول</button></div>
+<div class="row"><button id="optimize" type="button">تحسين بـ Timefold (إذا كان مشغّلًا)</button></div>
     <div class="editor-label">مدخلات السيناريو <span id="filename">لا يوجد ملف محمّل</span></div>
     <textarea id="payload" spellcheck="false" dir="ltr" placeholder="JSON ..." aria-label="مدخلات JSON"></textarea>
     <div id="error" class="error" role="alert" hidden></div>

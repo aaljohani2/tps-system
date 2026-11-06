@@ -11,3 +11,8 @@ coverage/
 *.csv
 *.pdf
 private-data/
+
+solver/target/
+__pycache__/
+*.pyc
+.venv/

@@ -1,4 +1,4 @@
-# API v0.1 (developer preview)
+# API v0.2 (developer preview)
 
 **No authentication; local-only use.** Default `HOST=127.0.0.1`, `PORT=8787`. Responses are JSON. The only write-like operation generates an **in-memory draft**; no persistent records are created.
 
@@ -7,7 +7,9 @@
 | GET | `/` | RTL prototype frontend |
 | GET | `/health` | Basic process health |
 | GET | `/api/v1/policy/default` | Default four-layer configuration |
-| POST | `/api/v1/plans/preview` | Validate scenario, build and return a draft timetable |
+| POST | `/api/v1/plans/preview` | Validate scenario and build greedy draft only |
+| POST | `/api/v1/plans/optimize` | Invoke Timefold Java 21 candidate optimizer if locally installed, otherwise explicit error (never fallback) |
+| POST | `/api/v1/catalog/import-csv` | Import curriculum CSV (text/csv), returns course catalog with zero enrollment |
 
 `POST` requires `Content-Type: application/json` and a `PlanRequest` JSON object. Working synthetic request: `examples/onsite.json`.
 
@@ -24,3 +26,9 @@ For `HYBRID`, `hybridSplit` must explicitly allocate all theoretical and practic
 Result includes `status: "DRAFT"`, `sections`, `sessions`, `gaps`, `instructorLoads`, `metrics`, `notices`. `gaps` are **not** removed for aesthetic completeness.
 
 Invalid data return `400 {"error":"..."}`. JSON bigger than `MAX_REQUEST_BYTES` is rejected. TLS, RBAC and persistence are not implemented.
+
+## Timefold optimize contract
+
+`/optimize` takes the exact `PlanRequest` from `/preview`. Local Java 21 and built JAR are required. Returns the same `PlanResult` shape with an explicit solver notice, or `503` if the solver is missing / invalid / times out. `timefold.v1` internal JSON is documented in `docs/timefold-integration.md`. A candidate pool constrains the optimization search space; global optimality is not asserted.
+
+`/catalog/import-csv` accepts `Content-Type: text/csv`, requires a schema with Arabic training-course headers, and returns `tps.catalog.v1` with `courses`, `ignored`, `warnings`. Never infer registration numbers or authorize remote teaching from an imported catalog.

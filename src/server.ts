@@ -3,6 +3,9 @@ import {readFile} from 'node:fs/promises';
 import {fileURLToPath} from 'node:url';
 import {resolve} from 'node:path';
 import {buildDraftPlan} from './planner.js';
+import {validateRequest} from './validation.js';
+import {importCurriculumCsv} from './importer.js';
+import {optimizeWithTimefold} from './optimizer.js';
 import {defaultPolicy} from './policy.js';
 import type {PlanRequest} from './types.js';
 
@@ -14,7 +17,7 @@ function reply(res: ServerResponse, status: number, payload: unknown): void {
     'access-control-allow-origin': 'http://localhost:8787'});
   res.end(JSON.stringify(payload));
 }
-async function readJson(req: IncomingMessage): Promise<unknown> {
+async function readRaw(req: IncomingMessage): Promise<Buffer> {
   const chunks: Buffer[] = [];
   let size = 0;
   for await (const chunk of req) {
@@ -23,8 +26,9 @@ async function readJson(req: IncomingMessage): Promise<unknown> {
     if (size > maxBytes) throw new Error('Request body exceeds size limit.');
     chunks.push(b);
   }
-  return JSON.parse(Buffer.concat(chunks).toString('utf8'));
+  return Buffer.concat(chunks);
 }
+async function readJson(req: IncomingMessage): Promise<unknown> {return JSON.parse((await readRaw(req)).toString('utf8'));}
 const publicFiles: Record<string, {file: string; type: string}> = {
   '/': {file: 'web/index.html', type: 'text/html; charset=utf-8'},
   '/app.js': {file: 'web/app.js', type: 'text/javascript; charset=utf-8'},
@@ -40,8 +44,27 @@ export const app = createServer(async (req, res) => {
       return res.end(content);
     } catch {return reply(res, 500, {error:'Static asset missing'});}
   }
-  if (req.method === 'GET' && req.url === '/health') return reply(res, 200, {status: 'ok', version: '0.1.0'});
+  if (req.method === 'GET' && req.url === '/health') return reply(res, 200, {status: 'ok', version: '0.2.0'});
   if (req.method === 'GET' && req.url === '/api/v1/policy/default') return reply(res, 200, defaultPolicy());
+  if (req.method === 'POST' && req.url === '/api/v1/catalog/import-csv') {
+    if (!(req.headers['content-type'] ?? '').startsWith('text/csv')) return reply(res, 415, {error: 'text/csv required'});
+    try {
+      const bytes = await readRaw(req);
+      return reply(res, 200, importCurriculumCsv(bytes.toString('utf8')));
+    } catch (e) {return reply(res, 400, {error: e instanceof Error ? e.message : 'Invalid CSV'});}
+  }
+  if (req.method === 'POST' && req.url === '/api/v1/plans/optimize') {
+    if (!(req.headers['content-type'] ?? '').startsWith('application/json')) return reply(res, 415, {error: 'JSON required'});
+    try {
+      const data = await readJson(req);
+      validateRequest(data as PlanRequest);
+      return reply(res, 200, await optimizeWithTimefold(data as PlanRequest));
+    } catch (e) {
+      const message = e instanceof Error ? e.message : 'Timefold unavailable';
+      const status = /ENOENT|timed out|Solver exited|Timefold|JAR|jar|spawn/.test(message) ? 503 : 400;
+      return reply(res, status, {error: message, note: 'No optimizer fallback: call /api/v1/plans/preview for explicitly labeled greedy draft.'});
+    }
+  }
   if (req.method === 'POST' && req.url === '/api/v1/plans/preview') {
     if (!(req.headers['content-type'] ?? '').startsWith('application/json')) return reply(res, 415, {error: 'JSON required'});
     try {

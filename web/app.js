@@ -41,15 +41,30 @@ $('file').addEventListener('change',async event=>{
 $('demo').addEventListener('click',async()=>{
   try{const r=await fetch('/example.json');if(!r.ok)throw new Error('تعذر تحميل المثال');$('payload').value=JSON.stringify(await r.json(),null,2);$('filename').textContent='مثال اصطناعي';$('error').hidden=true}catch(e){$('error').textContent=e.message;$('error').hidden=false}
 });
-$('run').addEventListener('click',async()=>{
+$('catalog-import').addEventListener('click',async()=>{
+  try {
+    const file=$('catalog').files?.[0];if(!file)throw new Error('اختر ملف CSV أولًا.');
+    const response=await fetch('/api/v1/catalog/import-csv',{method:'POST',headers:{'content-type':'text/csv; charset=utf-8'},body:await file.text()});
+    const catalog=await response.json();if(!response.ok)throw new Error(catalog.error??'فشل قراءة الخطة');
+    const policy=await (await fetch('/api/v1/policy/default')).json();
+    const scenario={scenarioName:'مسودة مستوردة من '+file.name,termId:'144720',courses:catalog.courses,
+      instructors:[],rooms:[],policy};
+    $('payload').value=JSON.stringify(scenario,null,2);$('filename').textContent=file.name;
+    $('catalog-status').textContent=`${catalog.courses.length} مقررًا مقروءًا، ${catalog.ignored.length} مستبعدًا. لم تُستورد أعداد التسجيل ولا المدربون والقاعات. ${catalog.warnings.join(' | ')}`;
+    $('error').hidden=true;
+  }catch(e){$('error').textContent=e.message;$('error').hidden=false;}
+});
+async function runPlanning(endpoint){
   try{
     const body=$('payload').value.trim();if(!body)throw new Error('حمّل المثال أو اختر ملفًا أولًا.');
-    const response=await fetch('/api/v1/plans/preview',{method:'POST',headers:{'content-type':'application/json'},body});
+    const response=await fetch(endpoint,{method:'POST',headers:{'content-type':'application/json'},body});
     const data=await response.json();if(!response.ok)throw new Error(data.error??'خطأ في التخطيط');
     current=data;active='sections';document.querySelectorAll('[data-tab]').forEach(b=>b.classList.toggle('selected',b.dataset.tab===active));
     $('error').hidden=true;render();
-  }catch(e){$('error').textContent=e.message;$('error').hidden=false}
-});
+  }catch(e){$('error').textContent=e.message;$('error').hidden=false;}
+}
+$('optimize').addEventListener('click',()=>runPlanning('/api/v1/plans/optimize'));
+$('run').addEventListener('click',()=>runPlanning('/api/v1/plans/preview'));
 document.querySelectorAll('[data-tab]').forEach(button=>button.addEventListener('click',()=>{
   active=button.dataset.tab;
   document.querySelectorAll('[data-tab]').forEach(b=>b.classList.toggle('selected',b===button));render();

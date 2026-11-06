@@ -3,8 +3,8 @@
 | Release | Scope | Status |
 |---|---|---|
 | Bootstrap 0.1 | Repository, domain model, policy, input checks, draft planner, tests, API, RTL preview | Implemented as prototype |
-| 0.1 hardening | Course demand estimates, real CSV/XLSX import, hour fractions, robust conflict proofs, output XLSX, UI forms | Next |
-| 0.2 | Timefold Java 21 optimizer adapter; hard/soft constraint score; stable solver runs; exclusive course assignment across instructor workloads | Planned |
+| 0.1 hardening | CSV and XLSX catalog import, explicit warnings, no automatic learner counts | Partial: import implemented and locally tested; demand/exports pending |
+| 0.2 | Java 21 Timefold candidate optimizer, Node bridge, input/output checks, tests | Implemented in code; Java compilation/runtime and CI verification pending |
 | 0.3 | Optional remote and its practical weighted load, course-level authorization, virtual capacity 120 | Domain rules available; production policy/solver pending |
 | 0.4 | Optional self-paced, supervision-load rules, asynchronous assessment | Domain rules available; approval workflow pending |
 | 0.5 | Optional hybrid, morning/on-site and 16–22 remote sessions, explicit hour split | Domain rules available; timetable optimizer pending |
@@ -17,3 +17,8 @@
 - `Operations`: Persistent scenario store, authenticated RTL admin, RBAC and audit log.
 
 **Definition of done:** deterministic regression fixtures, zero hard violations in approved outputs, explicit uncovered demand and documented authorization. Test with sanitized term 144720 data, **not** personal student data.
+
+### Current blockers (v0.2)
+- Java Maven unavailable in local execution environment; cannot claim Timefold binary works until Java CI is green.
+- GitHub Actions previously showed `startup_failure` before starting jobs; verify repository Actions permissions/runners.
+- Optimizer explores **bounded atomic alternatives** and is not guaranteed to optimize across all possible room/timeslot combinations.
