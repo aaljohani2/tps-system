@@ -86,3 +86,7 @@
 - **جاهز لاختبار قبول نهائي للأمر الشامل:** **لا**.
 - **جاهز للإنتاج أو للاعتماد المؤسسي:** **لا**.
 - نجاح CI الحالي يثبت فقط الاختبارات الموجودة، لا الميزات غير المكتوبة.
+
+## P0 increment: specialty and equipment enforcement (migration 0013)
+
+Source code and tests now model mandatory `requiredSpecialties`, `requiredEquipment`, instructor `specialties` and room `equipmentCodes`; all four scheduling/approval checks share a single rule. Await HEAD-matching CI before closure. Institutional credential verification, detailed inventory management, full CRUD/archive and Windows acceptance remain open.
