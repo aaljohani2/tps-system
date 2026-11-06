@@ -107,10 +107,40 @@ export async function registerCatalog(app:FastifyInstance){
     if(!old.rows[0])throw Object.assign(new Error('Not found'),{statusCode:404});
     await assertDepartment(req,old.rows[0].department_id);
     // Eligibility cannot be granted by a normal course edit, including the UI mode selector.
-    const v=parse(courseBase.omit({departmentId:true,eligibleModes:true}).partial().strict(),req.body);
+    const v=parse(courseBase.omit({departmentId:true,eligibleModes:true}).partial().extend({
+      assignedInstructorId:z.string().trim().min(1).max(60).nullable().optional(),
+      hybridSplit:courseBase.shape.hybridSplit.nullable().optional()
+    }).strict(),req.body);
     if(!Object.keys(v).length)throw Object.assign(new Error('No changes supplied'),{statusCode:400});
     if(v.mode && !old.rows[0].eligible_modes.includes(v.mode))
       throw Object.assign(new Error('Delivery mode is not approved for this course'),{statusCode:409});
+    if(v.assignedInstructorId){
+      const inst=await pool.query<{allowed_modes:string[];eligible_course_codes:string[]|null}>(
+        'SELECT allowed_modes,eligible_course_codes FROM instructors WHERE department_id=$1 AND code=$2',
+        [old.rows[0].department_id,v.assignedInstructorId]);
+      if(!inst.rows[0])throw Object.assign(new Error('Assigned instructor not found in department'),{statusCode:409});
+      const current=await pool.query<{code:string;mode:string}>('SELECT code,mode FROM courses WHERE id=$1',[id]);
+      const needed=v.mode??current.rows[0]!.mode;
+      if(!inst.rows[0].allowed_modes.includes(needed) ||
+        (inst.rows[0].eligible_course_codes && !inst.rows[0].eligible_course_codes.includes(current.rows[0]!.code)))
+        throw Object.assign(new Error('Instructor is not eligible for requested course/mode'),{statusCode:409});
+    }
+    const existing=await pool.query<{mode:string;theory_hours:number;practical_hours:number;hybrid_split:unknown}>(
+      'SELECT mode,theory_hours,practical_hours,hybrid_split FROM courses WHERE id=$1',[id]);
+    const effectiveMode=v.mode??existing.rows[0]!.mode;
+    const split=v.hybridSplit===undefined?existing.rows[0]!.hybrid_split:v.hybridSplit;
+    const theory=v.theoryHours??existing.rows[0]!.theory_hours,practical=v.practicalHours??existing.rows[0]!.practical_hours;
+    if(effectiveMode==='HYBRID'){
+      if(!split || typeof split!=='object')throw Object.assign(new Error('HYBRID requires a timed onsite/remote split'),{statusCode:409});
+      const h=split as {theoryOnsiteHours:number;theoryRemoteHours:number;practicalOnsiteHours:number;practicalRemoteHours:number};
+      if(h.theoryOnsiteHours+h.theoryRemoteHours!==theory ||
+        h.practicalOnsiteHours+h.practicalRemoteHours!==practical ||
+        h.theoryOnsiteHours+h.practicalOnsiteHours===0 ||
+        h.theoryRemoteHours+h.practicalRemoteHours===0)
+        throw Object.assign(new Error('Hybrid component hours must match totals and include both onsite and remote'),{statusCode:409});
+    }
+    if(effectiveMode!=='HYBRID' && split && v.hybridSplit!==null)
+      throw Object.assign(new Error('Non-hybrid delivery cannot retain a hybrid split'),{statusCode:409});
     const rows=await db.update(courses).set(v).where(eq(courses.id,id)).returning();
     await audit(req.principal!.id,'UPDATE','COURSE',id);return rows[0];
   });
