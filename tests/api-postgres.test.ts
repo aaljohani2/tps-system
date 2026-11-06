@@ -196,6 +196,24 @@ test('authenticated end-to-end workflow persists a synthetic TPS scenario in Pos
     assert.deepEqual(policySnapshot.rows[0]?.input_snapshot.policy.enabledModes,['ONSITE','REMOTE']);
     const stored=await pool.query('SELECT id FROM scenarios WHERE id=$1',[created.id]);
     assert.equal(stored.rowCount,1,'scenario must actually persist');
+
+    const pageSearch=await app.inject({url:'/api/v1/scenarios?departmentId='+department.id+
+      '&termId='+term.id+'&limit=1&offset=0&search='+encodeURIComponent('مسودة اصطناعية'),
+      headers:{cookie:session}});
+    assert.equal(pageSearch.statusCode,200,pageSearch.body);
+    assert.equal(pageSearch.json().length,1);
+    assert.equal(pageSearch.json()[0].id,created.id,'Scoped search must find the exact scenario');
+    const emptyPage=await app.inject({url:'/api/v1/scenarios?departmentId='+department.id+
+      '&termId='+term.id+'&limit=1&offset=9999',headers:{cookie:session}});
+    assert.equal(emptyPage.statusCode,200);
+    assert.deepEqual(emptyPage.json(),[],'Offset beyond result set returns an empty array');
+    const pageTooLarge=await app.inject({url:'/api/v1/scenarios?departmentId='+department.id+
+      '&limit=101',headers:{cookie:session}});
+    assert.equal(pageTooLarge.statusCode,400,'Page size must be bounded');
+    const pageOutOfScope=await app.inject({url:'/api/v1/scenarios?departmentId='+sibling.id+
+      '&limit=10',headers:{cookie:limitedCookie}});
+    assert.equal(pageOutOfScope.statusCode,403,'Paging must not bypass department scope');
+
     const cancelWithoutCsrf=await app.inject({method:'POST',
       url:'/api/v1/scenarios/'+created.id+'/runs/cancel',headers:{cookie:session},payload:{}});
     assert.equal(cancelWithoutCsrf.statusCode,403,'Solver cancellation must require CSRF');
