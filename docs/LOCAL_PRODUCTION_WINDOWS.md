@@ -106,3 +106,7 @@ A production-profile acceptance report `test-reports/TPS_LOCAL_PRODUCTION_ACCEPT
 - Operational decision: `GO — local production mode (loopback)`, `NO-GO — actual institutional personal data` until documented authorization and data protection requirements are met.
 
 **Never merge PR #8, expose a listener on 0.0.0.0, connect Rayat, seed the operational DB or delete/overwrite existing user data merely to make a local test pass.**
+
+## GitHub evidence before on-PC activation
+
+The latest **code** for this operating-mode increment is commit `2789af23fb788265f4da088e299b22e394fb9331`. Its `TPS checks` GitHub Actions run **42309548466 passed 10/10 jobs**, including `local-production-smoke`: independent schema and repeat initialization, dedicated admin bootstrap only once, isolated encrypted operational backup plus restore, and actual Fastify `/health.mode=local-production`. The separate dependency security gate on the same source changes also passed. **The owner's Windows workstation still needs Codex to activate and observe this mode; do not reuse the older V2 report of the synthetic instance as production activation proof.**
