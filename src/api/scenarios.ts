@@ -8,6 +8,7 @@ import {optimizeWithTimefold} from '../optimizer.js';
 import {validateRequest} from '../validation.js';
 import {exportScenarioXlsx} from './excel.js';
 import {getEffectivePolicy} from './policies.js';
+import {assessReadiness} from './readiness.js';
 import type {Course,Instructor,PlanRequest,PlanResult,Policy,Room} from '../types.js';
 
 const uuid=z.string().uuid();
@@ -91,6 +92,10 @@ export async function registerScenarios(app:FastifyInstance):Promise<void>{
     return {id:r.rows[0]!.id,state:'DRAFT',solverStatus:'NOT_RUN',result};
   });
   app.get('/api/v1/scenarios/:id',async(req)=>find(req,params(req)));
+  app.get('/api/v1/scenarios/:id/readiness',async(req)=>{
+    const sc=await find(req,params(req));
+    return assessReadiness(sc.input_snapshot,sc.result_snapshot,sc.solver_status);
+  });
   app.post('/api/v1/scenarios/:id/solve',async(req)=>{
     requireEditor(req);
     const id=params(req),sc=await find(req,id);
@@ -129,10 +134,9 @@ export async function registerScenarios(app:FastifyInstance):Promise<void>{
     const id=params(req),sc=await find(req,id);
     if(sc.state!=='UNDER_REVIEW'||sc.solver_status!=='COMPLETED')throw invalid('Scenario not ready for approval',409);
     const result=sc.result_snapshot;
-    if(result.gaps.length||result.sections.some(s=>s.state==='UNASSIGNED'))
-      throw invalid('Uncovered sections must be resolved before approval',409);
-    if(result.sections.some(s=>s.students>0 && !s.blockId))
-      throw invalid('Some sections have no cohort block ID: student conflict validation is incomplete',409);
+    const readiness=assessReadiness(sc.input_snapshot,result,sc.solver_status);
+    if(!readiness.technicalReady)
+      throw invalid('Scenario has unresolved readiness blockers: '+readiness.issues.map(x=>x.code).join(', '),409);
     if(result.notices.some(n=>/hard=[-][1-9]/.test(n)))
       throw invalid('Hard constraint violations block approval',409);
     // Re-check exact immutable input/output. Optimized result has already passed validation in applySolverChoice.
