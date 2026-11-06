@@ -10,6 +10,7 @@ import {registerScenarios} from './scenarios.js';
 import {registerPolicies} from './policies.js';
 import {registerAcademic} from './academic.js';
 import {registerDashboard} from './dashboard.js';
+import {registerUsers} from './users.js';
 import {ZodError} from 'zod';
 
 export async function createApp(){
@@ -29,6 +30,7 @@ export async function createApp(){
   await registerCatalog(app);
   await registerAcademic(app);
   await registerDashboard(app);
+  await registerUsers(app);
   await registerPolicies(app);
   await registerScenarios(app);
   app.get('/health',async()=>{

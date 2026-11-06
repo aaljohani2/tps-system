@@ -7,6 +7,7 @@ import ResourcesEditor from './ResourcesEditor';
 import AcademicPage from './AcademicPage';
 import DemandPage from './DemandPage';
 import DashboardPage from './DashboardPage';
+import UsersPage from './UsersPage';
 
 const labels:Record<string,string>={ONSITE:'حضوري',REMOTE:'عن بُعد',SELF_PACED:'ذاتي',HYBRID:'مدمج'};
 const days:Record<string,string>={SUN:'الأحد',MON:'الإثنين',TUE:'الثلاثاء',WED:'الأربعاء',THU:'الخميس'};
@@ -296,7 +297,7 @@ function ScenarioPage({ctx,notify}:{ctx:Context;notify:Message}){
     </>}
   </section>;
 }
-const nav=[['/context','الكلية والقسم والفصل'],['/dashboard','لوحة المؤشرات'],['/courses','المقررات والاستيراد'],['/academic','البرامج والأفواج والبلوكات'],['/demand','تقدير الطلب'],['/resources','المدربون والقاعات'],['/policy','الأنماط والأنصبة'],['/scheduling','الشعب والجدولة والاعتماد']];
+const nav=[['/context','الكلية والقسم والفصل'],['/dashboard','لوحة المؤشرات'],['/courses','المقررات والاستيراد'],['/academic','البرامج والأفواج والبلوكات'],['/demand','تقدير الطلب'],['/resources','المدربون والقاعات'],['/policy','الأنماط والأنصبة'],['/scheduling','الشعب والجدولة والاعتماد'],['/users','المستخدمون والصلاحيات']];
 export default function App(){
   const qc=useQueryClient(),[user,setUser]=useState<Auth|null>(null),[initial,setInitial]=useState(true);
   const [ctx,setCtx]=useStore<Context>('tps-context',{collegeId:'',departmentId:'',termId:''});
@@ -306,7 +307,7 @@ export default function App(){
   if(!user)return <Login onLogin={setUser}/>;
   const doLogout=async()=>{await post('/auth/logout',{});setCSRF('');setUser(null);await qc.clear();};
   return <div className="shell"><aside className="sidebar"><div className="brand"><strong>TPS</strong><small>تخطيط وجدولة التدريب</small></div>
-    <nav>{nav.map(([to,label],idx)=><NavLink key={to} to={to} className={({isActive})=>isActive?'active':''}>
+    <nav>{nav.filter(([to])=>to!=='/users'||['SYSTEM_ADMIN','COLLEGE_ADMIN'].includes(user.role)).map(([to,label],idx)=><NavLink key={to} to={to} className={({isActive})=>isActive?'active':''}>
       <span className="step">{idx+1}</span>{label}</NavLink>)}</nav>
     <div className="sidebar-footer"><span>{user.username}</span><small>{user.role}</small><button onClick={doLogout}>تسجيل الخروج</button></div>
   </aside><main className="content"><header className="top"><div><small>بيئة تطوير محلية — TPS V1</small>
@@ -316,6 +317,7 @@ export default function App(){
     <Route path="/context" element={<ContextSetup context={ctx} setContext={setCtx} notify={notify}/>}/>
     <Route path="/courses" element={ctx.departmentId?<CoursePage ctx={ctx} user={user} notify={notify}/>:<NeedContext/>}/>
     <Route path="/dashboard" element={ctx.departmentId&&ctx.termId?<DashboardPage ctx={ctx}/>:<NeedContext/>}/>
+    <Route path="/users" element={["SYSTEM_ADMIN","COLLEGE_ADMIN"].includes(user.role)?<UsersPage auth={user} notify={notify}/>:<Navigate to="/context" replace/>}/>
     <Route path="/academic" element={ctx.departmentId&&ctx.termId?<AcademicPage ctx={ctx} notify={notify}/>:<NeedContext/>}/>
     <Route path="/demand" element={ctx.departmentId&&ctx.termId?<DemandPage ctx={ctx} notify={notify}/>:<NeedContext/>}/>
     <Route path="/resources" element={ctx.departmentId?<ResourcesEditor ctx={ctx} user={user} notify={notify}/>:<NeedContext/>}/>
