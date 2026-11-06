@@ -221,9 +221,12 @@ test('authenticated end-to-end workflow persists a synthetic TPS scenario in Pos
       headers:{cookie:session,'x-csrf-token':csrf},
       payload:{active:false,reason:'Synthetic trainer temporary deactivation'}});
     assert.equal(archivedTrainer.statusCode,200,archivedTrainer.body);
-    const noTrainerScenario=await write('/scenarios',{departmentId:department.id,termId:term.id,
-      name:'Synthetic archived trainer'});
-    assert.equal(noTrainerScenario.result.gaps[0]?.reason,'NO_ELIGIBLE_INSTRUCTOR');
+    const noTrainerScenario=await app.inject({method:'POST',url:'/api/v1/scenarios',
+      headers:{cookie:session,'x-csrf-token':csrf},payload:{
+        departmentId:department.id,termId:term.id,name:'Synthetic archived locked trainer'
+      }});
+    assert.equal(noTrainerScenario.statusCode,409,
+      'An archived locked trainer requires explicit restoration or reassignment before scheduling');
     const restoredTrainer=await app.inject({method:'PATCH',
       url:'/api/v1/instructors/'+trainer.id+'/lifecycle',
       headers:{cookie:session,'x-csrf-token':csrf},
