@@ -237,7 +237,7 @@ export function applySolverChoice(input: PlanRequest, payload: SolverPayload, re
 }
 
 /** Explicit invocation only. If Java/JAR is unavailable, fail without pretending the greedy preview was optimized. */
-export async function optimizeWithTimefold(input: PlanRequest, opts: {jar?: string; timeoutMs?: number; signal?: AbortSignal; seconds?: number; candidatesPerInstructor?: number} = {}): Promise<PlanResult> {
+export async function optimizeWithTimefold(input: PlanRequest, opts: {jar?: string; timeoutMs?: number; signal?: AbortSignal; seconds?: number; candidatesPerInstructor?: number; onStage?: (stage:'PREPARING'|'SOLVING'|'VERIFYING')=>Promise<void>|void} = {}): Promise<PlanResult> {
   if (opts.signal?.aborted) throw new Error('Solver cancelled by operator');
   const seconds=opts.seconds??5;
   if (!Number.isInteger(seconds)||seconds<1||seconds>30)
@@ -247,10 +247,14 @@ export async function optimizeWithTimefold(input: PlanRequest, opts: {jar?: stri
     throw new Error('Solver candidates per instructor must be between 1 and 24');
   const jar = resolve(opts.jar ?? process.env.TIMEFOLD_JAR ?? 'solver/target/tps-timefold-0.2.0-jar-with-dependencies.jar');
   await access(jar); // throws ENOENT when not installed
+  await opts.onStage?.('PREPARING');
+  if (opts.signal?.aborted) throw new Error('Solver cancelled by operator');
   const payload = prepareSolverPayload(input,candidateCount);
   payload.seconds=seconds;
   const timeoutMs = Math.min(Math.max(opts.timeoutMs ?? Math.max(20000,(seconds+10)*1000), 1000), 60000);
   if(timeoutMs<=seconds*1000)throw new Error('Solver process timeout must exceed requested solve duration');
+  await opts.onStage?.('SOLVING');
+  if (opts.signal?.aborted) throw new Error('Solver cancelled by operator');
   const stdout = await new Promise<string>((ok, reject) => {
     const child = spawn('java', ['-jar', jar], {stdio: ['pipe', 'pipe', 'pipe'], env: process.env});
     const chunks: Buffer[] = [], errorChunks: Buffer[] = [];
@@ -273,6 +277,8 @@ export async function optimizeWithTimefold(input: PlanRequest, opts: {jar?: stri
     child.stdin.on('error', () => {});
     child.stdin.end(JSON.stringify(payload));
   });
+  if (opts.signal?.aborted) throw new Error('Solver cancelled by operator');
+  await opts.onStage?.('VERIFYING');
   if (opts.signal?.aborted) throw new Error('Solver cancelled by operator');
   const parsed: unknown = JSON.parse(stdout);
   if (!parsed || typeof parsed !== 'object' || !('choices' in parsed) || !Array.isArray(parsed.choices) ||
