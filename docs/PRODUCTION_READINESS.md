@@ -6,6 +6,13 @@
 ## Verified local context
 Codex's Windows local acceptance report, supplied 2026-11-06, verified React/Fastify/PostgreSQL/Java Timefold, saved approved schedules, CSV/XLSX/PDF and persistence after a PostgreSQL restart. Its baseline recorded **A01–A59: 57 pass / 2 fail**, both Arabic XLSX import without UTF-8 environment overrides. It also identified unsafe PowerShell 5.1 exit handling, npm advisories, an npm 11 manifest mutation, NTFS case-colliding docs, a stale Playwright selector and piped bootstrap input. Remediation was undertaken on GitHub; **the Windows machine must retest the new HEAD, not reuse the old report**.
 
+## Latest source evidence (not a substitute for on-device acceptance)
+
+- Source commit `c077e431749a7236d4add6cc4e14b2528b757b4c`: TPS checks GitHub Actions **42285459292**, eight of eight successful (including Windows regression and unmocked browser integration).
+- npm security gate GitHub Actions **42285459720**, successful; root and frontend npm audit reported zero vulnerabilities. This does not establish a pentest or infrastructure clearance.
+- Both root and frontend package-lock v3 files are committed. Local Codex must preserve and back up **pre-existing untracked** lockfiles before updating the checkout and re-run A01–A59 without an environment workaround.
+- **Current decision:** GO for **synthetic loopback local pilot only** after safe pull and smoke test; **NO-GO for real institutional production** without the remaining evidence and approvals below.
+
 ## Release gates (all must be evidenced)
 1. **Code and dependencies:** latest GitHub `TPS checks` including **Windows regression** and unmocked Chromium/Timefold pass; `TPS production dependency security gate` passes with zero reported high/critical advisories. Record both workflow IDs and commit SHA. No force upgrades or suppressed failures.
 2. **Reproducibility:** tracked, reviewed `package-lock.json` and `frontend/package-lock.json`; `npm ci` succeeds on Node 22/24 without changing manifests. Capture tested Java/Python/Docker versions and dependency integrity.
