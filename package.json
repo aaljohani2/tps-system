@@ -22,6 +22,10 @@
     "db:backup": "node --env-file=.env scripts/backup-restore.mjs backup",
     "db:backup:verify": "node --env-file=.env scripts/backup-restore.mjs verify",
     "db:restore:test": "node --env-file=.env scripts/backup-restore.mjs restore-test",
+    "local:production:init": "node --env-file=.env scripts/local-production.mjs init",
+    "local:production:check": "node --env-file=.env scripts/local-production.mjs check",
+    "local:production:bootstrap": "node --env-file=.env scripts/local-production.mjs bootstrap",
+    "local:production:start": "node --env-file=.env scripts/local-production.mjs start",
     "web:install": "cd frontend && npm ci",
     "web:build": "npm run build --prefix frontend",
     "e2e": "npm run e2e --prefix frontend"
