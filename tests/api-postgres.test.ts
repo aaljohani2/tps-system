@@ -232,6 +232,25 @@ test('authenticated end-to-end workflow persists a synthetic TPS scenario in Pos
       headers:{cookie:session,'x-csrf-token':csrf},
       payload:{active:true,reason:'Synthetic trainer reinstatement approval'}});
     assert.equal(restoredTrainer.statusCode,200,restoredTrainer.body);
+    const courseArchived=await app.inject({method:'PATCH',
+      url:'/api/v1/courses/'+course.id+'/lifecycle',
+      headers:{cookie:session,'x-csrf-token':csrf},
+      payload:{active:false,reason:'Synthetic deprecated course for archival test'}});
+    assert.equal(courseArchived.statusCode,200,courseArchived.body);
+    const inactiveCourses=await app.inject({url:'/api/v1/courses?departmentId='+department.id,
+      headers:{cookie:session}});
+    assert.ok(!inactiveCourses.json().some((x:{id:string})=>x.id===course.id));
+    const hiddenCourseScenario=await app.inject({method:'POST',url:'/api/v1/scenarios',
+      headers:{cookie:session,'x-csrf-token':csrf},payload:{
+        departmentId:department.id,termId:term.id,name:'Synthetic archived course not scheduled'
+      }});
+    assert.equal(hiddenCourseScenario.statusCode,400,
+      'Inactive courses must not reappear in future scenarios');
+    const courseRestored=await app.inject({method:'PATCH',
+      url:'/api/v1/courses/'+course.id+'/lifecycle',
+      headers:{cookie:session,'x-csrf-token':csrf},
+      payload:{active:true,reason:'Synthetic course restoration approved'}});
+    assert.equal(courseRestored.statusCode,200,courseRestored.body);
     const snapshotAfter=await pool.query('SELECT input_snapshot,result_snapshot FROM scenarios WHERE id=$1',[created.id]);
     assert.deepEqual(snapshotAfter.rows[0],beforeArchive.rows[0],
       'Historical scenario snapshots must remain unchanged after archiving resources');
