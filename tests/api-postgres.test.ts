@@ -496,7 +496,7 @@ test('authenticated end-to-end workflow persists a synthetic TPS scenario in Pos
     assert.equal(demandRecord.rows[0].source,'Academic forecast');
     const committedJobs=await pool.query(`SELECT count(*)::int AS n FROM import_jobs
       WHERE created_by=(SELECT id FROM users WHERE username=$1) AND status='COMMITTED'`,[username]);
-    assert.equal(committedJobs.rows[0].n,4);
+    assert.equal(committedJobs.rows[0].n,5,'All five bulk entities committed after separate previews');
 
     const next=await write('/scenarios/'+created.id+'/revise',{});
     assert.equal(next.revision,2);
