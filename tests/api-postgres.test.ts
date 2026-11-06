@@ -302,6 +302,19 @@ test('authenticated end-to-end workflow persists a synthetic TPS scenario in Pos
     assert.equal(dashboard.json().demand.assignedBlocks,20);
     const structuredRow=await pool.query('SELECT input_snapshot FROM scenarios WHERE id=$1',[structured.id]);
     assert.deepEqual(structuredRow.rows[0]?.input_snapshot.courses[0].blockSizes,[20]);
+    const unsafeNormalizedFork=await app.inject({method:'POST',
+      url:'/api/v1/scenarios/'+structured.id+'/fork',
+      headers:{cookie:session,'x-csrf-token':csrf},
+      payload:{name:'Unsupported block change',overrides:[
+        {code:'TEST-101',demand:40,blocks:['GROUP-'+uniq+'::B1','GROUP-'+uniq+'::B2']}
+      ]}});
+    assert.equal(unsafeNormalizedFork.statusCode,400,'Changing a normalized block requires exact sizes');
+    const normalizedFork=await write('/scenarios/'+structured.id+'/fork',{
+      name:'Synthetic cohort expansion',overrides:[
+        {code:'TEST-101',demand:40,blocks:['GROUP-'+uniq+'::B1','GROUP-'+uniq+'::B2'],
+          blockSizes:[20,20]}
+      ]});
+    assert.deepEqual(normalizedFork.result.sections.map((x:{students:number})=>x.students),[20,20]);
     const mismatchSet=await app.inject({method:'PUT',url:'/api/v1/demand',headers:{cookie:session,'x-csrf-token':csrf},
       payload:{courseId:course.id,termId:term.id,baseStudents:20,repeatRate:0.05,source:'Synthetic revised forecast',confidence:'MEDIUM'}});
     assert.equal(mismatchSet.statusCode,200,mismatchSet.body);
