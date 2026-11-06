@@ -96,6 +96,7 @@ jobs:
       - run: TPS_ALLOW_SYNTHETIC_SEED=1 node dist/src/api/seed.js
       - run: mvn -B -ntp -f solver/pom.xml clean package
       - run: node --test dist/tests/api-postgres.test.js
+      - run: node --test dist/tests/solver-cancel.test.js
 
   web-e2e-phase10-11:
     runs-on: ubuntu-latest
