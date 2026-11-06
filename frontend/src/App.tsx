@@ -69,6 +69,7 @@ function ContextSetup({context,setContext,notify}:{context:Context;setContext:(c
 }
 function CoursePage({ctx,user,notify}:{ctx:Context;user:Auth;notify:Message}){
   const qc=useQueryClient(),q=useQuery({queryKey:['courses',ctx.departmentId],queryFn:()=>api<Entity[]>('/courses?departmentId='+ctx.departmentId),enabled:!!ctx.departmentId});
+  const instructors=useQuery({queryKey:['instructors',ctx.departmentId],queryFn:()=>api<Entity[]>('/instructors?departmentId='+ctx.departmentId),enabled:!!ctx.departmentId});
   const [csv,setCsv]=useState(''),[file,setFile]=useState<File|null>(null),[preview,setPreview]=useState<{courses:Entity[];warnings:string[];ignored:unknown[]}|null>(null);
   const [code,setCode]=useState(''),[title,setTitle]=useState(''),[level,setLevel]=useState(1),[theory,setTheory]=useState(2),[practical,setPractical]=useState(0);
   async function run(task:()=>Promise<unknown>){try{await task();notify('تم حفظ البيانات');await qc.invalidateQueries();}catch(e){notify('فشل: '+String(e instanceof Error?e.message:e));}}
@@ -108,19 +109,25 @@ function CoursePage({ctx,user,notify}:{ctx:Context;user:Auth;notify:Message}){
         <label>العملي<input type="number" min="0" value={practical} onChange={e=>setPractical(+e.target.value)}/></label>
         <button onClick={()=>run(()=>post('/courses',{departmentId:ctx.departmentId,code,title,level,theoryHours:theory,practicalHours:practical,demand:0}))}>إضافة المقرر</button>
       </div></details>
-    <div className="table-wrap"><table><thead><tr><th>المقرر</th><th>المستوى</th><th>النظري</th><th>العملي</th><th>الطلب</th><th>البلوكات</th><th>النمط</th><th></th></tr></thead>
-    <tbody>{(q.data??[]).map(c=><CourseRow key={c.id} item={c}
+    <div className="table-wrap"><table><thead><tr><th>المقرر</th><th>المستوى</th><th>النظري</th><th>العملي</th><th>الطلب</th><th>البلوكات</th><th>النمط</th><th>الإسناد اليدوي / المدمج</th><th></th></tr></thead>
+    <tbody>{(q.data??[]).map(c=><CourseRow key={c.id} item={c} instructors={instructors.data??[]}
       canApprove={['SYSTEM_ADMIN','COLLEGE_ADMIN'].includes(user.role)}
       save={data=>run(()=>api('/courses/'+c.id,{method:'PATCH',body:JSON.stringify(data)}))}
       approve={data=>run(()=>api('/courses/'+c.id+'/eligibility',{method:'PUT',body:JSON.stringify(data)}))}/>)}</tbody></table></div>
   </section>;
 }
-function CourseRow({item,save,approve,canApprove}:{item:Entity;save:(d:unknown)=>void;approve:(d:unknown)=>void;canApprove:boolean}){
+function CourseRow({item,instructors,save,approve,canApprove}:{item:Entity;instructors:Entity[];save:(d:unknown)=>void;approve:(d:unknown)=>void;canApprove:boolean}){
   const [demand,setDemand]=useState(Number(item.demand??0)),[blocks,setBlocks]=useState((item.blocks as string[]|undefined)?.join(',')??'');
   const [mode,setMode]=useState(String(item.mode??'ONSITE'));
   const existing=(item.eligibleModes??['ONSITE']) as string[];
   const [eligibility,setEligibility]=useState<string[]>(existing);
   const [reason,setReason]=useState('');
+  const [assigned,setAssigned]=useState(String(item.assignedInstructorId??''));
+  const [exclusive,setExclusive]=useState(Boolean(item.exclusiveInstructor));
+  const h=(item.hybridSplit??{}) as Record<string,number>;
+  const [hybrid,setHybrid]=useState({theoryOnsiteHours:h.theoryOnsiteHours??0,
+    theoryRemoteHours:h.theoryRemoteHours??0,practicalOnsiteHours:h.practicalOnsiteHours??0,
+    practicalRemoteHours:h.practicalRemoteHours??0});
   return <tr><td><strong>{String(item.title)}</strong><small>{item.code}</small></td><td>{String(item.level)}</td>
     <td>{String(item.theoryHours)}</td><td>{String(item.practicalHours)}</td>
     <td><input className="small" type="number" min="0" value={demand} onChange={e=>setDemand(+e.target.value)}/></td>
@@ -134,7 +141,22 @@ function CourseRow({item,save,approve,canApprove}:{item:Entity;save:(d:unknown)=
         <label>مبرر اعتماد الأهلية<input value={reason} onChange={e=>setReason(e.target.value)}/></label>
         <button disabled={reason.trim().length<8} onClick={()=>approve({eligibleModes:eligibility,reason})}>حفظ الأهلية المعتمدة</button>
       </details>}</td>
-    <td><button onClick={()=>save({demand,blocks:blocks.split(',').map(x=>x.trim()).filter(Boolean),mode})}>حفظ</button></td>
+    <td><label>مدرب محدد
+      <select value={assigned} onChange={e=>setAssigned(e.target.value)}><option value="">إسناد آلي</option>
+        {instructors.map(i=><option key={i.id} value={String(i.code)}>{String(i.name)} — {String(i.code)}</option>)}
+      </select></label><label style={{flexDirection:'row',alignItems:'center',marginTop:8}}>
+        <input type="checkbox" checked={exclusive} onChange={e=>setExclusive(e.target.checked)}/>
+        مدرب واحد لكل شعب المقرر</label>
+      {mode==='HYBRID'&&<details><summary>توزيع ساعات النمط المدمج</summary>
+        {(['theoryOnsiteHours','theoryRemoteHours','practicalOnsiteHours','practicalRemoteHours'] as const).map(k=>
+          <label key={k}>{({theoryOnsiteHours:'نظري حضوري',theoryRemoteHours:'نظري عن بُعد',
+            practicalOnsiteHours:'عملي حضوري',practicalRemoteHours:'عملي عن بُعد'} as Record<string,string>)[k]}
+            <input type="number" min="0" value={hybrid[k]}
+              onChange={e=>setHybrid(v=>({...v,[k]:Number(e.target.value)}))}/></label>)}
+      </details>}</td>
+    <td><button onClick={()=>save({demand,blocks:blocks.split(',').map(x=>x.trim()).filter(Boolean),
+      mode,assignedInstructorId:assigned||null,exclusiveInstructor:exclusive,
+      ...(mode==='HYBRID'?{hybridSplit:hybrid}:{hybridSplit:null})})}>حفظ</button></td>
   </tr>;
 }
 function ResourcesPage({ctx,notify}:{ctx:Context;notify:Message}){
