@@ -8,6 +8,7 @@ import {access} from 'node:fs/promises';
 import {resolve} from 'node:path';
 import type {Component, Course, Day, Instructor, PlanRequest, PlanResult, Room, Section, Session, TimedMode, TimeWindow} from './types.js';
 import {buildDraftPlan} from './planner.js';
+import {trainerQualified,roomQualified} from './eligibility.js';
 
 const DAYS: Day[] = ['SUN', 'MON', 'TUE', 'WED', 'THU'];
 const round = (n: number) => Math.round((n + Number.EPSILON) * 1000) / 1000;
@@ -35,14 +36,7 @@ export interface SolverPayload {schemaVersion: 'tps.timefold.v1'; tasks: AtomicT
 export interface SolverChoice {taskId: string; candidateId: string}
 export interface SolverResponse {schemaVersion: 'tps.timefold.v1'; choices: SolverChoice[]; hardScore: number; softScore: number}
 
-function eligible(inst: Instructor, c: Course): boolean {
-  if (!inst.allowedModes.includes(c.mode)) return false;
-  if (c.mode === 'HYBRID' && (!inst.allowedModes.includes('ONSITE') || !inst.allowedModes.includes('REMOTE'))) return false;
-  if (inst.eligibleCourseCodes && !inst.eligibleCourseCodes.includes(c.code)) return false;
-  if (inst.exclusiveCourseCodes && !inst.exclusiveCourseCodes.includes(c.code)) return false;
-  if (c.assignedInstructorId && inst.id !== c.assignedInstructorId) return false;
-  return true;
-}
+function eligible(inst: Instructor, c: Course): boolean {return trainerQualified(inst,c);}
 function jobs(c: Course): Array<{component: Component; mode: TimedMode; hours: number}> {
   if (c.mode === 'SELF_PACED') return [];
   if (c.mode === 'HYBRID') {
@@ -62,8 +56,8 @@ function jobs(c: Course): Array<{component: Component; mode: TimedMode; hours: n
 function available(windows: TimeWindow[] | undefined, day: Day, start: number, end: number) {
   return !windows || windows.some(w => w.day === day && w.from <= start && end <= w.to);
 }
-function compatible(room: Room, component: Component, students: number): boolean {
-  return room.capacity >= students && (room.type === 'MULTI' || (component === 'THEORY' ? room.type === 'CLASSROOM' : room.type === 'LAB'));
+function compatible(room: Room, course: Course, component: Component, students: number): boolean {
+  return roomQualified(room,course,component,students);
 }
 /** Alternative atomic schedules for one trainer; never share the section with another trainer. */
 function makeSessions(c: Course, sec: Section, inst: Instructor, input: PlanRequest, seed: number): Session[] | null {
@@ -94,7 +88,7 @@ function makeSessions(c: Course, sec: Section, inst: Instructor, input: PlanRequ
               if (c.mode === 'HYBRID' && job.mode === 'REMOTE' && (start < 16 || end > 22)) continue;
               if (!available(inst.available, day, start, end)) continue;
               if (allocated.some(x => x.day === day && collide(x, {start, end}))) continue;
-              const rooms = job.mode === 'REMOTE' ? [null] : input.rooms.filter(r => compatible(r, job.component, sec.students) && available(r.available, day, start, end));
+              const rooms = job.mode === 'REMOTE' ? [null] : input.rooms.filter(r => compatible(r,c,job.component,sec.students) && available(r.available, day, start, end));
               if (!rooms.length) continue;
               const chosen = rooms[(instructorRoomOffset+seed) % rooms.length];
               allocated.push({
@@ -204,7 +198,7 @@ export function applySolverChoice(input: PlanRequest, payload: SolverPayload, re
     if (a.mode === 'ONSITE') {
       const room = input.rooms.find(r => r.id === a.roomId);
       const studentCount = draft.sections.find(s => s.id === a.sectionId)!.students;
-      if (!room || !compatible(room, a.component, studentCount) || !available(room.available, a.day, a.start, a.end)) throw new Error('Invalid room');
+      if (!room || !compatible(room,c,a.component,studentCount) || !available(room.available, a.day, a.start, a.end)) throw new Error('Invalid room');
     } else if (a.roomId !== null) throw new Error('Remote session has room');
   }
   for (let i = 0; i < sessions.length; i++) {
