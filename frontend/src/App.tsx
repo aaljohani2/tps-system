@@ -106,6 +106,8 @@ function CourseRow({item,instructors,save,approve,canApprove}:{item:Entity;instr
   const existing=(item.eligibleModes??['ONSITE']) as string[];
   const [eligibility,setEligibility]=useState<string[]>(existing);
   const [reason,setReason]=useState('');
+  const [specialties,setSpecialties]=useState((item.requiredSpecialties as string[]|undefined)?.join(',')??'');
+  const [equipment,setEquipment]=useState((item.requiredEquipment as string[]|undefined)?.join(',')??'');
   const [assigned,setAssigned]=useState(String(item.assignedInstructorId??''));
   const [exclusive,setExclusive]=useState(Boolean(item.exclusiveInstructor));
   const h=(item.hybridSplit??{}) as Record<string,number>;
@@ -125,7 +127,9 @@ function CourseRow({item,instructors,save,approve,canApprove}:{item:Entity;instr
         <label>مبرر اعتماد الأهلية<input value={reason} onChange={e=>setReason(e.target.value)}/></label>
         <button disabled={reason.trim().length<8} onClick={()=>approve({eligibleModes:eligibility,reason})}>حفظ الأهلية المعتمدة</button>
       </details>}</td>
-    <td><label>مدرب محدد
+    <td><label>التخصصات المطلوبة للمقرر (رموز مفصولة بفواصل)<input value={specialties} onChange={e=>setSpecialties(e.target.value)}/></label>
+      <label>التجهيزات المطلوبة للقاءات الحضورية<input value={equipment} onChange={e=>setEquipment(e.target.value)}/></label>
+      <label>مدرب محدد
       <select value={assigned} onChange={e=>setAssigned(e.target.value)}><option value="">إسناد آلي</option>
         {instructors.map(i=><option key={i.id} value={String(i.code)}>{String(i.name)} — {String(i.code)}</option>)}
       </select></label><label style={{flexDirection:'row',alignItems:'center',marginTop:8}}>
@@ -140,6 +144,8 @@ function CourseRow({item,instructors,save,approve,canApprove}:{item:Entity;instr
       </details>}</td>
     <td><button onClick={()=>save({demand,blocks:blocks.split(',').map(x=>x.trim()).filter(Boolean),
       mode,assignedInstructorId:assigned||null,exclusiveInstructor:exclusive,
+       requiredSpecialties:specialties.split(',').map(x=>x.trim()).filter(Boolean),
+       requiredEquipment:equipment.split(',').map(x=>x.trim()).filter(Boolean),
       ...(mode==='HYBRID'?{hybridSplit:hybrid}:{hybridSplit:null})})}>حفظ</button></td>
   </tr>;
 }
