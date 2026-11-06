@@ -24,7 +24,7 @@ export function moveScheduledSession(input:PlanRequest,original:PlanResult,move:
   const trainer=input.instructors.find(i=>i.id===move.instructorId);
   if(!course||!trainer)throw bad('Course or trainer does not exist in the immutable scenario snapshot');
   if(!trainerQualified(trainer,course))
-    throw bad('Selected instructor does not meet course, specialty or delivery qualification');
+    throw bad('Selected instructor violates locked course, specialty or delivery qualification');
   const oldTeacher=section.instructorId;
   if(!oldTeacher)throw bad('Section has no current instructor');
   const duration=target.end-target.start,end=number3(move.start+duration);
