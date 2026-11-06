@@ -7,6 +7,7 @@ import {buildDraftPlan} from '../planner.js';
 import {optimizeWithTimefold} from '../optimizer.js';
 import {validateRequest} from '../validation.js';
 import {exportScenarioXlsx} from './excel.js';
+import {renderPrintableScenario} from '../print-report.js';
 import {getEffectivePolicy} from './policies.js';
 import {assessReadiness} from './readiness.js';
 import type {Course,Instructor,PlanRequest,PlanResult,Policy,Room} from '../types.js';
@@ -343,6 +344,16 @@ export async function registerScenarios(app:FastifyInstance):Promise<void>{
     reply.header('content-type','text/csv; charset=utf-8');
     reply.header('content-disposition','attachment; filename="tps-schedule-'+state+'.csv"');
     return '\uFEFF'+lines.join('\r\n')+'\r\n';
+  });
+  app.get('/api/v1/scenarios/:id/print',async(req,reply)=>{
+    const sc=await find(req,params(req));
+    const readiness=assessReadiness(sc.input_snapshot,sc.result_snapshot,sc.solver_status);
+    const html=renderPrintableScenario({name:sc.name,state:sc.state,termId:sc.term_id,
+      policyRevision:sc.policy_revision,result:sc.result_snapshot,issues:readiness.issues});
+    reply.header('Content-Type','text/html; charset=utf-8');
+    reply.header('Content-Security-Policy',"default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; base-uri 'none'; form-action 'none'");
+    reply.header('Cache-Control','private, no-store');
+    return reply.send(html);
   });
   app.get('/api/v1/scenarios/:id/export.xlsx',async(req,reply)=>{
     const scenario=await find(req,params(req));

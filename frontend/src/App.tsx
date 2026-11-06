@@ -241,7 +241,9 @@ function ScenarioPage({ctx,notify,user}:{ctx:Context;notify:Message;user:Auth}){
       <button disabled={working||!canApprove||current.state!=='UNDER_REVIEW'} onClick={()=>run(()=>post('/scenarios/'+selected+'/approve',{}))}>اعتماد السيناريو</button>
       <button disabled={working||!canEdit} onClick={()=>run(async()=>{const s=await post<{id:string}>('/scenarios/'+selected+'/revise',{});setSelected(s.id);})}>إنشاء مراجعة جديدة</button>
       <a href={'/api/v1/scenarios/'+selected+'/export.csv'} target="_blank" rel="noreferrer">تصدير CSV</a>
-      <a href={'/api/v1/scenarios/'+selected+'/export.xlsx'} target="_blank" rel="noreferrer">تصدير Excel</a></div>
+      <a href={'/api/v1/scenarios/'+selected+'/export.xlsx'} target="_blank" rel="noreferrer">تصدير Excel</a>
+      <a href={'/api/v1/scenarios/'+selected+'/print'} target="_blank" rel="noreferrer">
+        تقرير مختصر للطباعة أو الحفظ PDF</a></div>
       <Metrics p={p}/>
       <h3>فحص جاهزية الاعتماد</h3>
       <div className={readiness.data?.technicalReady?'alert success':'alert'}>
