@@ -96,13 +96,14 @@ function CoursePage({ctx,user,notify}:{ctx:Context;user:Auth;notify:Message}){
     <div className="table-wrap"><table><thead><tr><th>المقرر</th><th>المستوى</th><th>النظري</th><th>العملي</th><th>الطلب</th><th>البلوكات</th><th>النمط</th><th>الإسناد اليدوي / المدمج</th><th></th></tr></thead>
     <tbody>{(q.data??[]).map(c=><CourseRow key={c.id} item={c} instructors={instructors.data??[]}
       canApprove={['SYSTEM_ADMIN','COLLEGE_ADMIN'].includes(user.role)}
+      canEdit={['SYSTEM_ADMIN','COLLEGE_ADMIN','DEPARTMENT_HEAD','SCHEDULER'].includes(user.role)}
       save={data=>run(()=>api('/courses/'+c.id,{method:'PATCH',body:JSON.stringify(data)}))}
       approve={data=>run(()=>api('/courses/'+c.id+'/eligibility',{method:'PUT',body:JSON.stringify(data)}))}
       lifecycle={(active,reason)=>run(()=>api('/courses/'+c.id+'/lifecycle',{method:'PATCH',body:JSON.stringify({active,reason})}))}/>)}</tbody></table></div>
   </section>;
 }
-function CourseRow({item,instructors,save,approve,lifecycle,canApprove}:{item:Entity;instructors:Entity[];
-  save:(d:unknown)=>void;approve:(d:unknown)=>void;lifecycle:(active:boolean,reason:string)=>void;canApprove:boolean}){
+function CourseRow({item,instructors,save,approve,lifecycle,canApprove,canEdit}:{item:Entity;instructors:Entity[];
+  save:(d:unknown)=>void;approve:(d:unknown)=>void;lifecycle:(active:boolean,reason:string)=>void;canApprove:boolean;canEdit:boolean}){
   const [demand,setDemand]=useState(Number(item.demand??0)),[blocks,setBlocks]=useState((item.blocks as string[]|undefined)?.join(',')??'');
   const [mode,setMode]=useState(String(item.mode??'ONSITE'));
   const existing=(item.eligibleModes??['ONSITE']) as string[];
@@ -146,13 +147,13 @@ function CourseRow({item,instructors,save,approve,lifecycle,canApprove}:{item:En
             <input type="number" min="0" value={hybrid[k]}
               onChange={e=>setHybrid(v=>({...v,[k]:Number(e.target.value)}))}/></label>)}
       </details>}</td>
-    <td><button disabled={!active} onClick={()=>save({demand,blocks:blocks.split(',').map(x=>x.trim()).filter(Boolean),
+    <td><button disabled={!active||!canEdit} onClick={()=>save({demand,blocks:blocks.split(',').map(x=>x.trim()).filter(Boolean),
       mode,assignedInstructorId:assigned||null,exclusiveInstructor:exclusive,
        requiredSpecialties:specialties.split(',').map(x=>x.trim()).filter(Boolean),
        requiredEquipment:equipment.split(',').map(x=>x.trim()).filter(Boolean),
       ...(mode==='HYBRID'?{hybridSplit:hybrid}:{hybridSplit:null})})}>حفظ</button>
       <label>مبرر الأرشفة أو الاستعادة<input value={archiveReason} onChange={e=>setArchiveReason(e.target.value)}/></label>
-      <button disabled={archiveReason.trim().length<8} onClick={()=>lifecycle(!active,archiveReason)}>{active?'أرشفة المقرر':'استعادة المقرر'}</button></td>
+      <button disabled={!canEdit||archiveReason.trim().length<8} onClick={()=>lifecycle(!active,archiveReason)}>{active?'أرشفة المقرر':'استعادة المقرر'}</button></td>
   </tr>;
 }
 function ResourcesPage({ctx,notify}:{ctx:Context;notify:Message}){
