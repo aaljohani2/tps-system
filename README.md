@@ -4,7 +4,7 @@
 
 ## Real local workflow
 
-Sign in → select institution, college, department and term → import courses (CSV/XLSX with preview/commit) → enter demand, instructors, rooms and blocks → generate draft sections → run Java Timefold → inspect sessions, loads and uncovered work → compare scenarios → review/approve if eligible → export CSV/Excel.
+Sign in → select institution, college, department and term → import courses (CSV/XLSX with preview/commit) → enter demand, instructors, rooms and blocks → generate draft sections → run Java Timefold → inspect readiness, sessions, loads and uncovered work → fork and compare scenarios → review/approve if eligible → export CSV/Excel.
 
 This release includes a React RTL frontend, Fastify API, PostgreSQL persistence, Argon2id session authentication, scoped routes, audit records and a Java Timefold bridge reused from the tested prototype. **Greedy output is explicitly a draft, never an optimized/approved result.**
 
@@ -21,7 +21,7 @@ Node.js 22+, npm, Docker Desktop/Compose (or a separate local PostgreSQL), Java 
 5. Set `TPS_BOOTSTRAP_PASSWORD` to a strong 16+ character value only in the current shell and run `npm run db:bootstrap`. Unset the variable afterward.
 6. Run `npm start` and visit `http://127.0.0.1:8787`.
 
-See [local deployment](docs/DEPLOYMENT_LOCAL.md), [implementation ledger](docs/IMPLEMENTATION_STATE.md), and [Codex local handoff](docs/CODEX_LOCAL_HANDOFF.md). **Do not interpret remote CI as proof that your local installation passed.**
+See [local acceptance matrix](docs/ACCEPTANCE_MATRIX.md), [local deployment](docs/DEPLOYMENT_LOCAL.md), [implementation ledger](docs/IMPLEMENTATION_STATE.md), and [Codex local handoff](docs/CODEX_LOCAL_HANDOFF.md). **Do not interpret remote CI as proof that your local installation passed.**
 
 ---
 

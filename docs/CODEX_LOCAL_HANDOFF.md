@@ -18,8 +18,9 @@ You are Codex on the user's Windows computer. **Your only tasks are to install a
 3. If the development branch is already checked out and safe, install project dependencies and compile frontend/backend/Java.
 4. With user's own secret `.env`, run local PostgreSQL migrations safely and `db:check`. Never display database passwords.
 5. Run TypeScript and existing Node tests, Python importer/exporter tests, Maven JUnit, API integration against a separate synthetic database, Playwright browser tests, and basic endpoint checks.
-6. Validate the full workflow: login → institution/college/department/term → import courses → instructors and rooms → demand/blocks → sections → Timefold → timetable/gaps → comparison → review/approve → CSV/XLSX.
-7. Verify that a PostgreSQL container restart does not lose the synthetic scenario and repeat migrations idempotently.
-8. Produce a written report with command, environment/version, test count, pass/fail/skip, errors and exact fixes **recommended but not performed**. Mark unsupported workflow steps as incomplete.
+6. Validate `docs/ACCEPTANCE_MATRIX.md` A01–A20 locally, including mode-policy draft/approval, instructor/room editing, scenario forks and readiness blockers.
+7. Validate the full workflow: login → institution/college/department/term → import courses → instructors and rooms → mode policy → demand/blocks → sections → Timefold → timetable/gaps → fork/compare → review/approve → CSV/XLSX.
+8. Verify that a PostgreSQL container restart does not lose the synthetic scenario, policy and users; repeat migrations 0001–0003 idempotently.
+9. Produce a written report with command, environment/version, test count, pass/fail/skip, errors and exact fixes **recommended but not performed**. Mark unsupported workflow steps as incomplete.
 
 Only local installation and testing are authorized. A passing test in GitHub Actions does **not** replace Windows-specific verification.

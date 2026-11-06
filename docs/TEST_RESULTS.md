@@ -3,9 +3,10 @@
 As of 2026-11-06:
 
 - Historical v0.3 base commit `3a1d84c`: Node, Python importer and Java Timefold GitHub CI success.
-- V1 commit `bbb62f1a`: GitHub CI tasks `node-tests`, `xlsx-import-tests`, `java-timefold`, `web-build`, `api-postgres-integration` succeeded on synthetic data (run 42208893085).
-- Later changes include XLSX import and export. **Do not infer validation of those later changes from the earlier successful run.** Record final latest-commit CI results separately.
-- User's Windows path `H:\\tps_system`: not accessed by ChatGPT; installation, Playwright and local Docker persistence tests not performed.
-- No real trainer, room or trainee personal data were used for tests.
+- V1 `bbb62f1a`: GitHub CI tasks `node-tests`, `xlsx-import-tests`, `java-timefold`, `web-build`, `api-postgres-integration` succeeded on synthetic data (run 42208893085).
+- V1 `75b73019`: all GitHub CI tasks passed, including term policy/snapshot migration and readiness checks (runs 42212547437 and 42212555263).
+- Subsequent commits added scoped authorization regression tests. Verify their latest CI independently; do not reuse earlier results.
+- User's Windows checkout `H:\\tps_system`: not accessed by ChatGPT; installation, Playwright and local Docker restart persistence tests not performed.
+- Tests use synthetic information only; never actual student personal records.
 
-This ledger distinguishes source implementation, remote CI and actual local device operation.
+Review `docs/ACCEPTANCE_MATRIX.md` before local testing. Distinguish source implementation, GitHub Actions (Linux) and the user's Windows environment.

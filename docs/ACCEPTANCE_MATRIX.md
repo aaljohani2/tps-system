@@ -1,0 +1,38 @@
+# TPS — Local acceptance matrix for Codex (synthetic data only)
+
+**Only install and run tests on the user's Windows PC.** Do not change source code, commit, push, merge or deploy. Use only fictional names and IDs.
+
+| ID | Action | Expected local result | Category |
+|---|---|---|---|
+| A01 | Install Node/React/Python/Java dependencies | No missing package; backend/frontend/Java compile | Environment |
+| A02 | Start loopback PostgreSQL and run all SQL migrations twice | 0001–0003 installed; second run idempotent | DB |
+| A03 | Create first admin and login/logout | Argon2id hash; session cookie; no default password | Auth |
+| A04 | Make request without CSRF | 403, nothing changed | Security |
+| A05 | Create two colleges/departments; sign in as scoped head | Other departments inaccessible; shared college objects not modifiable | Tenant scope |
+| A06 | Create a term with valid start/end, enter synthetic course | Course visible only in selected department | Catalog |
+| A07 | Upload CSV then XLSX template; preview before commit | Columns/errors visible, upsert does not destroy previous demand | Import |
+| A08 | Enter trainer, eligibility, base load, approved exception and availability | Values persist; invalid Thursday window rejected | Resources |
+| A09 | Enter room/lab capacity and edit availability | Resource reflected in planning; no unauthorized department-level edits | Resources |
+| A10 | Change policy in a draft (enable REMOTE) | Effective mode remains ONSITE until explicit approval | Policy |
+| A11 | Approve policy as authorized role | Future scenarios use approved revision; past snapshots unchanged | Policy |
+| A12 | Create synthetic scenario and plan sections | Sections generated, uncovered items shown explicitly | Scheduling |
+| A13 | Run Timefold; send second concurrent request | Single successful run, duplicate returns 409; never silent greedy fallback | Solver |
+| A14 | Evaluate readiness | Missing block, room capacity, uncovered hour, timetable collision block approval | Quality |
+| A15 | Fork from an existing scenario with different demand and blocks | Original unchanged, fork records parent ID, comparison differs | Scenarios |
+| A16 | Submit for review and approve feasible scenario | Only authorized approver; approved snapshot immutable | Governance |
+| A17 | Export DRAFT and APPROVED CSV/XLSX | State indicated in filename/data; Excel RTL and formula-safe | Exports |
+| A18 | Restart local PostgreSQL (without volume deletion) | Saved scenarios, users, policy revisions remain | Persistence |
+| A19 | Open React RTL flow on Chromium locally | No client errors; screens connect to API | Browser |
+| A20 | Try creating scenario with request-supplied unapproved policy | HTTP 400; no bypass | Security |
+
+## Inputs
+
+Use only synthetic: course TEST-101, cohort BLK-1, instructor I-1, room R-1; term dates should fall inside a fictional year/term. For a fork, increase demand enough to create two sections and supply two distinct block IDs.
+
+## Evidence and signoff
+
+For each row record: timestamp, machine versions, command/request used, pass/fail/skip, failure excerpts, screenshots if useful, and correction recommendation. Do not mark unrun tests as passing. Never perform destructive cleanup against an existing project checkout or database volume. A CI pass does not substitute for these local Windows checks.
+
+## Scope exclusions
+
+No Rayat API connection, no student personal records, no production deployment, no official institutional approval, and no claim that bounded Timefold candidate search always produces a global optimum.
