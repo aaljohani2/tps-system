@@ -695,7 +695,9 @@ export async function registerAutomaticPlanning(app:FastifyInstance){
         scenario:{state:scenario.state,solverStatus:scenario.solverStatus,
           metrics:scenario.result.metrics,gaps:scenario.result.gaps.length},
         demandRecords:importedDemand,cohorts:cohortCount,blocks:blockCount,
-        assignments:assignmentCount,instructorsImported:trainersAdded,instructorsSkipped:trainersSkipped,
+        assignments:assignmentCount,scheduledSections:scenario.result.metrics.sectionCount,
+        theorySectionsCombined:Math.max(0,assignmentCount-scenario.result.metrics.sectionCount),
+        instructorsImported:trainersAdded,instructorsSkipped:trainersSkipped,
         sourceClassification:input.sourceKind,sourceLevels:Object.keys(counts.counts).length,
         notice:'One atomic transaction: all source-derived records and the scenario draft were committed together. The Java solve starts separately.'};
       await client.query(`INSERT INTO smart_import_receipts(department_id,term_id,request_sha256,
