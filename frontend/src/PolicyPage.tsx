@@ -5,6 +5,8 @@ import {api,post,type Auth,type Context} from './api';
 type Mode='ONSITE'|'REMOTE'|'SELF_PACED'|'HYBRID';
 type Day='SUN'|'MON'|'TUE'|'WED'|'THU';
 type Policy={enabledModes:Mode[];capacities:Record<Mode,{theory:number|null;practical:number|null}>;
+  ignoreRoomCapacity?:boolean;
+  courseSectionCapacities?:Record<string,number>;
   remotePracticalLoadFactor:number;onsitePracticalLoadFactor:number;selfPacedLoadPerOffering:number|null;
   slots:{day:Day;from:number;to:number}[];sessionMaxHours:number};
 type RecordPolicy={effectivePolicy:Policy;approvedRevision:number;draftPolicy:Policy;draftRevision:number;pending:boolean;updatedAt:string|null;approvedAt:string|null};
@@ -44,6 +46,14 @@ export default function PolicyPage({ctx,user,notify}:{ctx:Context;user:Auth;noti
           onChange={e=>patch({enabledModes:e.target.checked?[...draft.enabledModes,mode]:draft.enabledModes.filter(m=>m!==mode)})}/>
         {names[mode]}</label>)}</div>
       <h3>سعات الشعب</h3>
+      {Object.entries(draft.courseSectionCapacities??{}).map(([code,capacity])=><label key={code}>
+        استثناء سعة المقرر — {code}<input type="number" min="1" max="5000" value={capacity}
+          onChange={e=>patch({courseSectionCapacities:{...draft.courseSectionCapacities,[code]:Number(e.target.value)}})}/>
+      </label>)}
+      <label style={{display:'flex',flexDirection:'row',alignItems:'center'}}>
+        <input type="checkbox" checked={draft.ignoreRoomCapacity===true} onChange={e=>patch({ignoreRoomCapacity:e.target.checked})}/>
+        تجاهل سعة القاعة في التخطيط، مع الالتزام بنوعها وتجهيزاتها ومنع تعارض استخدامها
+      </label>
       <div className="table-wrap"><table><thead><tr><th>النمط</th><th>سعة النظري</th><th>سعة العملي</th></tr></thead><tbody>
         {modes.filter(m=>m!=='SELF_PACED').map(mode=><tr key={mode}><td>{names[mode]}</td>{(['theory','practical'] as const).map(key=>
           <td key={key}><input aria-label={names[mode]+' '+key} type="number" min="1" max="500"

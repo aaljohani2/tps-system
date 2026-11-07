@@ -9,6 +9,8 @@ import {calculateAutomaticPlan,extractHistoricalCapacities,extractHistoricalCour
   type AutomaticCurriculum,type CapacitySettings,type LevelDemandInput,
   type OperationalCourseSetting} from '../automatic-planning.js';
 import {readAutomaticWorkbook,type WorkbookTable} from '../automatic-xlsx.js';
+import {readSmartCsv} from '../smart-csv.js';
+import {isGenericCollege,sameCollege} from '../import-scope.js';
 import {getEffectivePolicy} from './policies.js';
 import type {Policy} from '../types.js';
 
@@ -28,26 +30,12 @@ function tableCsv(table:string[][]):string{
 }
 async function tables(req:FastifyRequest):Promise<WorkbookTable[]>{
   const bytes=asBuffer(req),media=String(req.headers['content-type']??'').split(';')[0]?.toLowerCase();
-  if(media==='text/csv')return [{name:'CSV',rows:tableCsvToRows(bytes.toString('utf8'))}];
+  if(media==='text/csv')return [{name:'CSV',rows:readSmartCsv(bytes).rows}];
   if(media==='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')return readAutomaticWorkbook(bytes);
   throw fail('Only CSV and XLSX uploads are supported',415);
 }
 export function tableCsvToRows(raw:string):string[][]{
-  // Reuse the hardened CSV parser indirectly by importing the plan, while retaining
-  // this table only for historical-count discovery.
-  const parsed:string[][]=[];let row:string[]=[],cell='',quoted=false;
-  const text=raw.replace(/^\uFEFF/,'');
-  for(let i=0;i<text.length;i++){
-    const ch=text[i]!;
-    if(quoted){if(ch==='"'&&text[i+1]==='"'){cell+='"';i++;}else if(ch==='"')quoted=false;else cell+=ch;}
-    else if(ch==='"')quoted=true;else if(ch===','){row.push(cell);cell='';}
-    else if(ch==='\r'||ch==='\n'){if(ch==='\r'&&text[i+1]==='\n')i++;row.push(cell);if(row.some(x=>x.trim()))parsed.push(row);row=[];cell='';
-      if(parsed.length>100_001)throw fail('CSV exceeds 100000 data rows',413);}
-    else cell+=ch;
-  }
-  if(quoted)throw fail('Unclosed CSV quote');if(row.length||cell){row.push(cell);if(row.some(x=>x.trim()))parsed.push(row);}
-  if(parsed.some(values=>values.length>200))throw fail('CSV exceeds 200 columns',413);
-  return parsed;
+  return readSmartCsv(Buffer.from(raw,'utf8')).rows;
 }
 /** Keep only the selected institutional scope from mixed-college timetables.
  * Original trainee rows remain in memory; a preview never returns identifiers.
@@ -71,7 +59,7 @@ function filterTraineeTablesByScope(all:WorkbookTable[],departmentName:string,co
       if(!dept&&!college)return false;
       identified++;
       const goodDepartment=deptIdx<0||(!!dept&&comparable(dept)===comparable(departmentName));
-      const goodCollege=collegeIdx<0||(!!college&&comparable(college)===comparable(collegeName));
+      const goodCollege=collegeIdx<0||(!!college&&sameCollege(college,collegeName));
       if(goodDepartment&&goodCollege){matched++;return true;}
       return false;
     });
@@ -232,17 +220,22 @@ export async function registerAutomaticPlanning(app:FastifyInstance){
   app.post('/api/v1/automatic-planning/plan/commit',{bodyLimit:20*1024*1024},async req=>{
     requireEditor(req);await checkScope(req);
     const query=z.object({departmentId:uuid,programId:uuid,planCode:z.string().trim().min(1).max(60),
-      versionLabel:z.string().trim().min(1).max(120)}).parse(req.query);
+      versionLabel:z.string().trim().min(1).max(120),confirmGenericCollege:z.enum(['true','false']).default('false')}).parse(req.query);
     const owner=await pool.query<{department_id:string}>('SELECT department_id FROM training_programs WHERE id=$1',[query.programId]);
     if(!owner.rows[0])throw fail('Training program not found',404);
     if(owner.rows[0].department_id!==scopeId(req))throw fail('Program does not belong to selected department',409);
     const bytes=asBuffer(req),preview=findPlan(await tables(req));
-    const department=await pool.query<{name:string}>('SELECT name FROM departments WHERE id=$1',[query.departmentId]);
+    const department=await pool.query<{name:string;college_name:string}>(
+      'SELECT d.name,c.name college_name FROM departments d JOIN colleges c ON c.id=d.college_id WHERE d.id=$1',[query.departmentId]);
     if(!department.rows[0])throw fail('Department not found',404);
     const detectedDepartment=preview.curriculum.metadata.department;
     if(detectedDepartment&&normalizeArabic(detectedDepartment)!==normalizeArabic(department.rows[0].name)){
       throw fail(`The uploaded plan belongs to department "${detectedDepartment}", not the selected department`,409);
     }
+    const detectedCollege=preview.curriculum.metadata.college;
+    if(detectedCollege&&!sameCollege(detectedCollege,department.rows[0].college_name)&&
+      !(isGenericCollege(detectedCollege)&&query.confirmGenericCollege==='true'))
+      throw fail('Curriculum college must match the selected college; a generic label requires explicit confirmation',409);
     const client=await pool.connect();
     try{
       await client.query('BEGIN');
@@ -477,6 +470,7 @@ export async function registerAutomaticPlanning(app:FastifyInstance){
       scenarioName:z.string().trim().min(1).max(160),
       plan:upload,trainees:upload,resources:upload.optional(),
       sourceKind:z.enum(['ACTUAL_LEVEL_COUNTS','COURSE_REGISTRATIONS','HISTORICAL_WORKBOOK','LEVEL_TRANSITION']),
+      confirmGenericCollege:z.boolean().default(false),
       capacities:z.object({remoteTheory:z.number().int().positive(),
         onsiteTheory:z.number().int().positive(),practical:z.number().int().positive(),
         mixed:z.number().int().positive()}).strict(),
@@ -501,7 +495,7 @@ export async function registerAutomaticPlanning(app:FastifyInstance){
       throw fail('Combined source files exceed 25 MiB',413);
     const parse=async(part:z.infer<typeof upload>,bytes:Buffer):Promise<WorkbookTable[]>=>{
       if(part.name.toLowerCase().endsWith('.csv'))
-        return [{name:'CSV',rows:tableCsvToRows(bytes.toString('utf8'))}];
+        return [{name:'CSV',rows:readSmartCsv(bytes).rows}];
       return readAutomaticWorkbook(bytes);
     };
     const planPreview=findPlan(await parse(input.plan,planBytes));
@@ -526,8 +520,10 @@ export async function registerAutomaticPlanning(app:FastifyInstance){
     if(detectedDept&&normalizeArabic(detectedDept)!==normalizeArabic(department.rows[0].name))
       throw fail('Detected curriculum department conflicts with selected department',409);
     const detectedCollege=planPreview.curriculum.metadata.college;
-    if(detectedCollege&&normalizeArabic(detectedCollege)!==normalizeArabic(department.rows[0].college_name))
-      throw fail('Detected curriculum college conflicts with selected college',409);
+    if(detectedCollege&&!sameCollege(detectedCollege,department.rows[0].college_name)){
+      if(!isGenericCollege(detectedCollege))throw fail('Detected curriculum college conflicts with selected college',409);
+      if(!input.confirmGenericCollege)throw fail('Curriculum has a generic college label. Confirm the selected college explicitly.',409);
+    }
     const trainers=resourceBytes&&input.resources?
       findInstructors(await parse(input.resources,resourceBytes),department.rows[0].name):null;
     const historical=['HISTORICAL_WORKBOOK','LEVEL_TRANSITION'].includes(input.sourceKind);

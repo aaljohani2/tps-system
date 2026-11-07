@@ -2,6 +2,8 @@ import type {Component, Course, Day, DeliveryMode, Gap, Instructor, PlanRequest,
 import {validateRequest} from './validation.js';
 import {trainerQualified,roomQualified} from './eligibility.js';
 import {hasSharedBlock} from './cohort-grouping.js';
+import {sectionCapacity} from './section-capacity.js';
+import {courseType,typePreference,instructorTotals,exceedsTeachingLimits} from './instructor-rules.js';
 
 const round = (n: number) => Math.round((n + Number.EPSILON) * 1000) / 1000;
 const days: Day[] = ['SUN', 'MON', 'TUE', 'WED', 'THU'];
@@ -10,10 +12,7 @@ function inAvailability(windows: TimeWindow[] | undefined, day: Day, start: numb
   return !windows || windows.some(w => w.day === day && w.from <= start && w.to >= end);
 }
 function capacity(course: Course, input: PlanRequest): number | null {
-  if (course.mode === 'SELF_PACED') return null;
-  const cap = input.policy.capacities[course.mode];
-  if (course.theoryHours > 0 && course.practicalHours > 0) return Math.min(cap.theory!, cap.practical!);
-  return course.theoryHours > 0 ? cap.theory : cap.practical;
+  return sectionCapacity(course,input.policy);
 }
 function load(course: Course, input: PlanRequest): number {
   const p = input.policy;
@@ -70,7 +69,7 @@ function findSchedule(
                  hasSharedBlock(existing,s) ||
                  existing.sectionId === s.id))) continue;
               const eligibleRooms = job.mode === 'REMOTE' ? [null] : rooms.filter(r =>
-                roomQualified(r,c,job.component,s.students) &&
+                roomQualified(r,c,job.component,s.students,input.policy.ignoreRoomCapacity===true) &&
                 inAvailability(r.available, day, start, end) &&
                 !all().some(x => x.roomId === r.id && x.day === day && overlap({start, end}, x))
               );
@@ -102,6 +101,7 @@ export function buildDraftPlan(input: PlanRequest): PlanResult {
   const sections: Section[] = [];
   const sessions: Session[] = [];
   const gaps: Gap[] = [];
+  const externalSections:NonNullable<PlanResult['externalSections']>=[];
   const notices: string[] = [];
   const instructorLoads = new Map(input.instructors.map(i => [i.id, {credited: 0, contact: 0}]));
   const required: Array<{s: Section; course: Course}> = [];
@@ -111,6 +111,13 @@ export function buildDraftPlan(input: PlanRequest): PlanResult {
     if (c.demand === 0) continue;
     const cap = capacity(c, input);
     const count = c.blockSizes?.length ?? (cap === null ? 1 : Math.ceil(c.demand / cap));
+    if(c.assignmentScope==='EXTERNAL'){
+      for(let n=0;n<count;n++)externalSections.push({id:`${c.code}-EXT-${String(n+1).padStart(3,'0')}`,
+        courseCode:c.code,title:c.title,level:c.level,students:c.blockSizes?.[n]??Math.min(cap!,c.demand-n*cap!),
+        capacity:cap!,contactHours:c.theoryHours+c.practicalHours,responsibleDepartment:c.responsibleDepartment??null,
+        blockIds:c.blockGroups?.[n]??(c.blocks?.[n]?[c.blocks[n]!]:[]),status:'PENDING_EXTERNAL_ASSIGNMENT'});
+      continue;
+    }
     for (let n = 0; n < count; n++) {
       const students = c.blockSizes?.[n] ?? (cap === null ? c.demand : Math.min(cap, c.demand - n * cap));
       const sec: Section = {
@@ -128,10 +135,15 @@ export function buildDraftPlan(input: PlanRequest): PlanResult {
     }
   }
   const courseOwner = new Map<string, string>();
+  if(input.instructors.some(instructor=>instructor.teachingRules?.preferredCourseTypes?.includes('PRACTICAL')))
+    required.sort((a,b)=>Number(courseType(b.course)==='PRACTICAL')-Number(courseType(a.course)==='PRACTICAL'));
   for (const {s, course: c} of required) {
     const allowed = input.instructors.filter(i => canTeach(i, c) &&
       (!c.exclusiveInstructor || !courseOwner.has(c.code) || courseOwner.get(c.code) === i.id));
     const ranked = allowed.sort((a, b) => {
+      const preference=(instructor:Instructor)=>typePreference(instructor,c)+
+        (instructorTotals(instructor.id,sections).sections<(instructor.teachingRules?.preferredSections??0)?40:0);
+      const priority=preference(b)-preference(a);if(priority)return priority;
       // Preserve a fixed course owner. Otherwise prioritize more remaining weighted capacity.
       const ra = effectiveLimit(a) - (instructorLoads.get(a.id)?.credited ?? 0);
       const rb = effectiveLimit(b) - (instructorLoads.get(b.id)?.credited ?? 0);
@@ -141,6 +153,8 @@ export function buildDraftPlan(input: PlanRequest): PlanResult {
     let committed = false;
     for (const inst of ranked) {
       const state = instructorLoads.get(inst.id)!;
+      const owned=instructorTotals(inst.id,sections);
+      if(exceedsTeachingLimits(inst,owned.sections+1,owned.contact+s.contactHours))continue;
       if (state.credited + s.creditedLoad > effectiveLimit(inst) + 1e-8) continue;
       if (c.mode === 'SELF_PACED') {
         s.instructorId = inst.id;
@@ -173,10 +187,12 @@ export function buildDraftPlan(input: PlanRequest): PlanResult {
     notices.push('Optional training modes are local planning assumptions; confirm course eligibility and regulatory approval before publication.');
   }
   notices.push('Deterministic greedy draft; no optimality guarantee. No automatic publication to Rayat.');
+  if(externalSections.length)notices.push(`${externalSections.length} شعبة مقررات عامة بإسناد خارجي؛ لا تدخل في نصاب مدربي القسم أو عجزه، وما زالت بانتظار القسم المساند.`);
   const requiredHours = sections.reduce((sum, x) => sum + x.contactHours, 0);
   const assignedHours = sections.filter(s => s.state === 'SCHEDULED').reduce((sum, x) => sum + x.contactHours, 0);
   return {
     status: 'DRAFT', scenarioName: input.scenarioName, termId: input.termId, sections, sessions, gaps,
+    ...(externalSections.length?{externalSections}:{}),
     instructorLoads: input.instructors.map(i => {
       const state = instructorLoads.get(i.id)!;
       const exception = i.overload?.additionalHours ?? 0;

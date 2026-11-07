@@ -20,6 +20,9 @@ public final class SolverMain {
                 throw new IllegalArgumentException("Empty choices");
             if (t.getChoices().stream().anyMatch(c -> !t.getId().equals(c.sectionId())))
                 throw new IllegalArgumentException("Candidate section mismatch");
+            if(t.getInitialCandidateId()!=null)
+                t.setSelected(t.getChoices().stream().filter(c -> c.id().equals(t.getInitialCandidateId())).findFirst()
+                        .orElseThrow(() -> new IllegalArgumentException("Unknown initial candidate")));
         }
         var config = new SolverConfig()
                 .withSolutionClass(PlanningProblem.class)

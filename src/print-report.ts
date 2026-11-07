@@ -13,6 +13,9 @@ export function renderPrintableScenario(args:{
 }):string{
   const {name,state,termId,policyRevision,result,issues}=args;
   const counts=result.metrics;
+  const externalRows=(result.externalSections??[]).map(section=>'<tr>'+[
+    section.courseCode,section.title,section.level,section.students,section.capacity,'بانتظار إسناد خارجي'
+  ].map(value=>'<td>'+escapeHtml(value)+'</td>').join('')+'</tr>').join('');
   const rows=[
     ['حالة السيناريو',stateLabel(state)],['اسم السيناريو',name],
     ['معرّف الفصل التدريبي',termId],['إصدار السياسة',policyRevision],
@@ -22,6 +25,7 @@ export function renderPrintableScenario(args:{
     ['الساعات غير المغطاة',counts.uncoveredContactHours],
     ['عدد موانع الجاهزية',issues.filter(i=>i.severity==='BLOCKER').length]
   ];
+  if(result.externalSections?.length)rows.push(['شعب خارجية خارج نصاب القسم وعجزه',result.externalSections.length]);
   const gaps=result.gaps.map(g=>'<tr>'+
     [g.courseCode,g.sectionId,g.level,g.students,g.contactHours,g.equivalentLoad,g.reason]
       .map(value=>'<td>'+escapeHtml(value)+'</td>').join('')+'</tr>').join('');
@@ -50,6 +54,7 @@ export function renderPrintableScenario(args:{
   <p class="disclaimer">نسخة تخطيطية محلية من بيانات السيناريو المحفوظ في PostgreSQL.
     حالة اعتماد TPS داخلية ولا تمثل اعتمادًا مؤسسيًا أو رفعًا إلى رايات.</p>
   <h2>ملخص السيناريو</h2><table><tbody>${rows.map(([a,b])=>summary(String(a),b)).join('')}</tbody></table>
+  ${externalRows?'<h2>مقررات عامة بإسناد خارجي — خارج نصاب القسم وعجزه</h2><table><thead><tr><th>المقرر</th><th>الاسم</th><th>المستوى</th><th>المتدربون</th><th>السعة</th><th>الحالة</th></tr></thead><tbody>'+externalRows+'</tbody></table>':''}
   <h2>كشف العجز (${result.gaps.length})</h2>
   <table><thead><tr><th>المقرر</th><th>الشعبة</th><th>المستوى</th><th>المتدربون</th>
     <th>ساعات الاتصال</th><th>النصاب المكافئ</th><th>السبب</th></tr></thead>

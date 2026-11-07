@@ -18,6 +18,8 @@ const windows=z.array(z.object({day:z.enum(['SUN','MON','TUE','WED','THU']),
   .refine(w=>w.to>w.from && (w.day!=='THU'||w.to<=10),'Invalid availability time')).max(30).optional();
 const courseBase=z.object({
  departmentId:uuid,code,title:name,level:z.number().int().min(1).max(12),theoryHours:z.number().int().min(0),
+ assignmentScope:z.enum(['DEPARTMENT','EXTERNAL']).default('DEPARTMENT'),externalSectionCapacity:z.number().int().min(1).max(5000).default(40),
+ responsibleDepartment:z.string().trim().max(240).nullable().optional(),
  practicalHours:z.number().int().min(0),demand:z.number().int().min(0),mode:mode.default('ONSITE'),
  eligibleModes:z.array(mode).default(['ONSITE']),requiredSpecialties:codes.default([]),
  requiredEquipment:codes.default([]),blocks:z.array(z.string().min(1)).default([]),
@@ -27,11 +29,17 @@ const courseBase=z.object({
 });
 const course=courseBase.refine(v=>v.theoryHours+v.practicalHours>0,{message:'Contact hours required'});
 const instructor=z.object({departmentId:uuid,code,name,maxLoad:z.number().nonnegative(),
+ teachingRules:z.object({maxContactHours:z.number().nonnegative().max(168).optional(),
+  maxSections:z.number().int().nonnegative().max(250).optional(),preferredSections:z.number().int().nonnegative().max(250).optional(),
+  allowedCourseTypes:z.array(z.enum(['THEORY','PRACTICAL','MIXED'])).optional(),
+  preferredCourseTypes:z.array(z.enum(['THEORY','PRACTICAL','MIXED'])).optional()}).strict()
+   .refine(rules=>rules.maxSections===undefined||rules.preferredSections===undefined||rules.preferredSections<=rules.maxSections,
+    {message:'Preferred section count exceeds maximum'}).default({}),
  allowedModes:z.array(mode).default(['ONSITE']),eligibleCourseCodes:z.array(z.string()).optional(),
  specialties:codes.default([]),available:windows,
  overload:z.object({additionalHours:z.number().positive(),reason:name}).optional()});
-const room=z.object({collegeId:uuid,code,name,type:z.enum(['CLASSROOM','LAB','MULTI']),
- capacity:z.number().int().positive(),equipmentCodes:codes.default([]),building:z.string().max(240).optional(),available:windows});
+const room=z.object({collegeId:uuid,code,name,type:z.enum(['CLASSROOM','LAB','MULTI']).nullable(),
+ capacity:z.number().int().positive().nullable(),equipmentCodes:codes.default([]),building:z.string().max(240).optional(),available:windows});
 function query(req:FastifyRequest,key:string):string|undefined{
   const input=req.query as Record<string,unknown>;
   return typeof input[key]==='string'?input[key] as string:undefined;

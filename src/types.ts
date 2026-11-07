@@ -2,6 +2,14 @@
 export type DeliveryMode = 'ONSITE' | 'REMOTE' | 'SELF_PACED' | 'HYBRID';
 export type Day = 'SUN' | 'MON' | 'TUE' | 'WED' | 'THU';
 export type Component = 'THEORY' | 'PRACTICAL';
+export type CourseType = 'THEORY' | 'PRACTICAL' | 'MIXED';
+export interface InstructorTeachingRules {
+  maxContactHours?: number;
+  maxSections?: number;
+  preferredSections?: number;
+  allowedCourseTypes?: CourseType[];
+  preferredCourseTypes?: CourseType[];
+}
 export type RoomType = 'CLASSROOM' | 'LAB' | 'MULTI';
 export type TimedMode = 'ONSITE' | 'REMOTE';
 
@@ -33,13 +41,20 @@ export interface Course {
   blockSizes?: number[];
   /** The exact original blocks included in each section. Required when several blocks are combined. */
   blockGroups?: string[][];
+  /** A scenario-specific course limit within the snapshot policy envelope. */
+  sectionCapacity?: number;
   hybridSplit?: HybridSplit;
   departmentId?: string;
+  assignmentScope?: 'DEPARTMENT'|'EXTERNAL';
+  externalSectionCapacity?: number;
+  responsibleDepartment?: string|null;
 }
 export interface Instructor {
   id: string;
   name: string;
   maxLoad: number;
+  /** Actual weekly timetable limits are independent of weighted load. */
+  teachingRules?: InstructorTeachingRules;
   allowedModes: DeliveryMode[];
   eligibleCourseCodes?: string[];
   specialties?: string[];
@@ -52,13 +67,17 @@ export interface Instructor {
 export interface Room {
   id: string;
   name: string;
-  type: RoomType;
-  capacity: number;
+  type: RoomType | null;
+  capacity: number | null;
   equipmentCodes?: string[];
   available?: TimeWindow[];
 }
 export interface CapacityPolicy {theory: number | null; practical: number | null}
 export interface Policy {
+  /** Explicit local planning choice; room type/equipment/time constraints still apply. */
+  ignoreRoomCapacity?: boolean;
+  /** Explicit course exceptions may override the general section-capacity envelope. */
+  courseSectionCapacities?: Record<string,number>;
   enabledModes: DeliveryMode[];
   capacities: Record<DeliveryMode, CapacityPolicy>;
   remotePracticalLoadFactor: number;
@@ -75,6 +94,14 @@ export interface PlanRequest {
   instructors: Instructor[];
   rooms: Room[];
   policy: Policy;
+  /** Exact anonymous membership partitions permitting safe regrouping across course types. */
+  cohortBlocks?: Array<{ref:string;level:number;size:number}>;
+  projection?: {
+    key:string;label:string;sourceTermId:string;newIntake:number;
+    levelStudents:Record<number,number>;cooperativeStudents:number;cooperativeAdministrativeBlocks:number;
+    baseBlocksByLevel:Record<number,number>;assumptions:string[];
+    rules:{theory:number;mixed:number;practical:number;economics:number|null};
+  };
 }
 export interface Section {
   id: string;
@@ -118,6 +145,9 @@ export interface Gap {
   reason: 'NO_ELIGIBLE_INSTRUCTOR' | 'LOAD_LIMIT' | 'NO_FEASIBLE_TIMETABLE' | 'SELF_PACED_NO_LOAD_POLICY';
 }
 export interface PlanResult {
+  /** Pending support-department demand, excluded from this department's solver/load/gaps. */
+  externalSections?: Array<{id:string;courseCode:string;title:string;level:number;students:number;capacity:number;
+    contactHours:number;responsibleDepartment:string|null;blockIds:string[];status:'PENDING_EXTERNAL_ASSIGNMENT'}>;
   status: 'DRAFT';
   scenarioName: string;
   termId: string;

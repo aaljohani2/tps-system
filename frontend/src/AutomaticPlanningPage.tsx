@@ -1,6 +1,7 @@
 import {useEffect,useMemo,useState} from 'react';
 import {useQuery,useQueryClient} from '@tanstack/react-query';
-import {api,type Context} from './api';
+import {api,type Auth,type Context} from './api';
+import RayatResourceImport,{type ResourceFilePreview} from './RayatResourceImport';
 
 type Course={code:string;normalizedCode:string;title:string;level:number;theoryHours:number;practicalHours:number;
   tutorialHours:number;responsibleDepartment:string|null;alternativeGroup:string|null;specialKind:string};
@@ -30,7 +31,7 @@ const mime=(file:File)=>file.name.toLowerCase().endsWith('.csv')?'text/csv':'app
 const normalized=(value:string)=>value.normalize('NFKC').replace(/[أإآٱ]/g,'ا').replace(/ى/g,'ي').replace(/ة/g,'ه')
   .replace(/[ـًٌٍَُِّْ]/g,'').replace(/\s+/g,' ').trim().toLowerCase();
 
-export default function AutomaticPlanningPage({ctx,notify}:{ctx:Context;notify:(message:string)=>void}){
+export default function AutomaticPlanningPage({ctx,notify,user}:{ctx:Context;notify:(message:string)=>void;user:Auth}){
   const qc=useQueryClient();
   const programs=useQuery({queryKey:['programs',ctx.departmentId],queryFn:()=>api<Array<{id:string;code:string;name:string}>>('/programs?departmentId='+ctx.departmentId)});
   const [planFile,setPlanFile]=useState<File|null>(null),[dataFile,setDataFile]=useState<File|null>(null);
@@ -43,6 +44,9 @@ export default function AutomaticPlanningPage({ctx,notify}:{ctx:Context;notify:(
   const [scenarioName,setScenarioName]=useState('سيناريو التخطيط الآلي');
   const [newProgramName,setNewProgramName]=useState(''),[newProgramCode,setNewProgramCode]=useState('');
   const [detectedFiles,setDetectedFiles]=useState<DetectedFile[]>([]);
+  const [resourceCandidates,setResourceCandidates]=useState<Array<{file:File;preview:ResourceFilePreview}>>([]);
+  const [confirmGenericCollege,setConfirmGenericCollege]=useState(false);
+  const genericCollege=!!plan?.curriculum.metadata.college&&/^(?:ال)?كليه(?: التقنيه)?$/.test(normalized(plan.curriculum.metadata.college));
   const [conflictingHistorySources,setConflictingHistorySources]=useState<HistoryCandidate[]>([]);
   const [resourceFile,setResourceFile]=useState<File|null>(null),[resourcePreview,setResourcePreview]=useState<ResourcePreview|null>(null);
   const [defaultMaxLoad,setDefaultMaxLoad]=useState(18);
@@ -74,7 +78,7 @@ export default function AutomaticPlanningPage({ctx,notify}:{ctx:Context;notify:(
     {method:'POST',headers:{'content-type':mime(file)},body:file});
   function applyPlan(file:File,preview:PlanPreview){
     const stamp=new Date().toISOString().replace(/\D/g,'').slice(0,14);
-    setPlanFile(file);setPlan(preview);setResult(null);setSelections({});setSavedPlanId(null);setIntegration(null);
+    setPlanFile(file);setPlan(preview);setResult(null);setSelections({});setSavedPlanId(null);setIntegration(null);setConfirmGenericCollege(false);
     setPlanCode(`AUTO-${stamp}`);setVersionLabel(`استيراد ذكي ${new Date().toLocaleDateString('ar-SA')}`);
     setScenarioName(`سيناريو تلقائي ${new Date().toLocaleDateString('ar-SA')}`);
     const programName=preview.curriculum.metadata.program||preview.curriculum.metadata.specialty||'';
@@ -112,6 +116,7 @@ export default function AutomaticPlanningPage({ctx,notify}:{ctx:Context;notify:(
     // A failed new upload must never leave an older plan and trainee count pair
     // available for approval under the new selected filenames.
     setWorking(true);setDetectedFiles([]);setConflictingHistorySources([]);
+    setResourceCandidates([]);
     setPlanFile(null);setPlan(null);setHistory(null);setDataFile(null);
     setResourceFile(null);setResourcePreview(null);setResult(null);
     setSavedPlanId(null);setIntegration(null);
@@ -124,13 +129,13 @@ export default function AutomaticPlanningPage({ctx,notify}:{ctx:Context;notify:(
         if(!selectedPlan||preview.curriculum.courses.length>selectedPlan.preview.curriculum.courses.length)
           selectedPlan={file,preview};
       }catch{/* A smart batch may contain non-curriculum files. */}
-      if(!selectedPlan)throw new Error('لم يُكتشف ملف خطة يحتوي رمز المقرر واسمه ومستواه وساعاته');
       let selectedHistory:HistoryCandidate|null=null;
       const historyCandidates:HistoryCandidate[]=[];
+      const discoveredResources:Array<{file:File;preview:ResourceFilePreview}>=[];
       let selectedResources:{file:File;preview:ResourcePreview}|null=null;
       for(const file of files){
         try{
-          const preview=await historyPreview(file,selectedPlan.preview);
+          const preview=await historyPreview(file,selectedPlan?.preview??null);
           const score=(preview.detection?.kind==='COURSE_REGISTRATIONS'?300:
             preview.detection?.kind==='COURSE_REMAINING'?200:100)+(preview.detection?.uniqueTrainees??0);
           detected.get(file.name)!.roles.push('أعداد متدربين');
@@ -147,9 +152,20 @@ export default function AutomaticPlanningPage({ctx,notify}:{ctx:Context;notify:(
           if(preview.ready&&(!selectedResources||preview.courseLinkedInstructors>selectedResources.preview.courseLinkedInstructors))
             selectedResources={file,preview};
         }catch{/* File is not an instructor directory. */}
+        try{
+          const preview=await api<ResourceFilePreview>('/raiyat-resources/preview?'+new URLSearchParams({
+            departmentId:ctx.departmentId,collegeId:ctx.collegeId}),{
+            method:'POST',headers:{'content-type':mime(file)},body:file});
+          if(preview.rooms?.length||preview.instructors?.length){
+            discoveredResources.push({file,preview});
+            detected.get(file.name)!.roles.push('موارد للمراجعة');
+            detected.get(file.name)!.detail=[detected.get(file.name)!.detail,
+              `${preview.rooms.length} قاعة · ${preview.rooms.filter(room=>(room.capacityCandidates?.length??0)>1).length} تعارض سعة`].filter(Boolean).join(' · ');
+          }
+        }catch{/* Missing resources do not prevent discovery of other file roles. */}
       }
-      if(!selectedHistory)throw new Error('اكتُشفت الخطة، لكن لم يُكتشف ملف أعداد أو تسجيلات متدربين يمكن ربطه بمستوياتها');
-      applyPlan(selectedPlan.file,selectedPlan.preview);
+      setResourceCandidates(discoveredResources);
+      if(selectedPlan)applyPlan(selectedPlan.file,selectedPlan.preview);
       // Multiple independent source files may represent different terms or
       // different trainee populations. Never pick the largest/highest score
       // silently when their level counts are materially different.
@@ -158,16 +174,19 @@ export default function AutomaticPlanningPage({ctx,notify}:{ctx:Context;notify:(
       if(signatures.size>1){
         setConflictingHistorySources(historyCandidates);
         notify('اكتُشفت مصادر أعداد مختلفة؛ اختر مصدر الفصل الصحيح صراحة قبل الاعتماد. لم تُحفظ بيانات.');
-      }else{
+      }else if(selectedHistory){
         setDataFile(selectedHistory.file);setHistory(selectedHistory.preview);
         const kind=detectedSource(selectedHistory.preview);setSourceKind(kind);
         if(selectedHistory.preview.capacities)setCapacities(selectedHistory.preview.capacities);
-        setSelections(inferAlternatives(selectedPlan.preview,selectedHistory.preview));
+        if(selectedPlan)setSelections(inferAlternatives(selectedPlan.preview,selectedHistory.preview));
       }
       if(selectedResources){setResourceFile(selectedResources.file);setResourcePreview(selectedResources.preview);}
       else{setResourceFile(null);setResourcePreview(null);}
       setDetectedFiles([...detected.values()].map(item=>item.roles.length?item:{...item,roles:['غير مستخدم'],detail:'لم تُكتشف بنية مدعومة في هذا الملف'}));
-      if(signatures.size===1)notify(`اكتمل الاكتشاف الذكي: الخطة ${selectedPlan.preview.curriculum.courses.length} مقررًا، والأعداد من ${selectedHistory.file.name}.`);
+      if(signatures.size===1&&selectedHistory)notify(`اكتمل الاكتشاف الذكي: ${selectedPlan?`الخطة ${selectedPlan.preview.curriculum.courses.length} مقررًا، `:''}والأعداد من ${selectedHistory.file.name}.`);
+      else if(!selectedHistory)notify(discoveredResources.length?
+        'اكتُشفت ملفات الموارد؛ راجعها أدناه واعتمد البيانات المكتملة. يمكنك إضافة الخطة وأعداد المتدربين للتخطيط.':
+        'اكتمل فحص الملفات. يلزم ملف خطة وملف أعداد متدربين مرتبط بمستوياتها لإكمال التخطيط.');
     }catch(e){notify('تعذر إكمال الاكتشاف الذكي: '+String(e instanceof Error?e.message:e));}
     finally{setWorking(false);}
   }
@@ -200,7 +219,7 @@ export default function AutomaticPlanningPage({ctx,notify}:{ctx:Context;notify:(
   async function commitVersion(selectedProgram:string){
     if(!planFile||!planCode.trim()||!versionLabel.trim())throw new Error('ملف الخطة ورمز الإصدار واسمه مطلوبة');
     const params=new URLSearchParams({departmentId:ctx.departmentId,programId:selectedProgram,
-      planCode:planCode.trim(),versionLabel:versionLabel.trim()});
+      planCode:planCode.trim(),versionLabel:versionLabel.trim(),confirmGenericCollege:String(confirmGenericCollege)});
     return api<{planId:string;records:number;previousPlanId:string|null}>('/automatic-planning/plan/commit?'+params,
       {method:'POST',headers:{'content-type':mime(planFile)},body:planFile});
   }
@@ -223,7 +242,7 @@ export default function AutomaticPlanningPage({ctx,notify}:{ctx:Context;notify:(
     }catch(error){solverError=error instanceof Error?error.message:String(error);}
     setIntegration({...applied,solverStarted,solverError});return applied;
   }
-  async function saveVersion(){if(!planFile||!planCode.trim()||!versionLabel.trim())return;setWorking(true);try{
+  async function saveVersion(){if(!planFile||!planCode.trim()||!versionLabel.trim()||(genericCollege&&!confirmGenericCollege))return;setWorking(true);try{
     const selectedProgram=await ensureProgram(),saved=await commitVersion(selectedProgram);
     setSavedPlanId(saved.planId);setIntegration(null);
     notify(`حُفظ إصدار خطة جديد كمسودة مستقلة (${saved.records} سجلًا) دون استبدال الإصدار السابق.`);await qc.invalidateQueries();
@@ -245,7 +264,7 @@ export default function AutomaticPlanningPage({ctx,notify}:{ctx:Context;notify:(
       parts.push(String.fromCharCode(...raw.subarray(offset,offset+8192)));
     return {name:file.name,base64:btoa(parts.join('')),sha256};
   }
-  async function runFullIntegration(){if(!plan||!history||!planFile||!dataFile)return;
+  async function runFullIntegration(){if(!plan||!history||!planFile||!dataFile||(genericCollege&&!confirmGenericCollege))return;
     setWorking(true);try{
       const calculated=await requestCalculation();setResult(calculated);
       if(calculated.missingInputs.length){
@@ -265,7 +284,7 @@ export default function AutomaticPlanningPage({ctx,notify}:{ctx:Context;notify:(
           planCode:planCode.trim(),versionLabel:versionLabel.trim(),
           scenarioName:scenarioName.trim()||'سيناريو التخطيط الآلي',
           plan:planUpload,trainees:traineeUpload,resources:resourceUpload,
-          sourceKind,capacities,alternativeSelections:selections,defaultMaxLoad
+          sourceKind,capacities,alternativeSelections:selections,defaultMaxLoad,confirmGenericCollege
         })
       });
       setSavedPlanId(committed.planId);
@@ -294,6 +313,12 @@ export default function AutomaticPlanningPage({ctx,notify}:{ctx:Context;notify:(
         {detectedFiles.map(file=><tr key={file.name}><td>{file.name}</td><td>{file.roles.join('، ')}</td><td>{file.detail}</td></tr>)}
       </tbody></table></div>}
     </section>
+    {genericCollege&&<label className="alert"><input type="checkbox" checked={confirmGenericCollege}
+      onChange={e=>setConfirmGenericCollege(e.target.checked)}/>
+      اسم الكلية في الخطة عام؛ أؤكد أن هذه الخطة تخص الكلية المختارة في سياق النظام.</label>}
+    {resourceCandidates.map(({file,preview},index)=><section key={index}>
+      <h3>موارد الملف: {file.name}</h3><RayatResourceImport ctx={ctx} user={user} notify={notify}
+        sourceFile={file} sourcePreview={preview}/></section>)}
     {!!conflictingHistorySources.length&&<section className="alert" role="alert">
       <h3>مصادر أعداد متعارضة — يلزم تحديد المرجع قبل اعتماد الاستيراد</h3>
       <p>لا يمكن دمج أعداد ملفات متعددة أو اختيار أكبر عدد تلقائيًا؛ قد تخص فصولًا أو فئات مختلفة.</p>
@@ -330,7 +355,7 @@ export default function AutomaticPlanningPage({ctx,notify}:{ctx:Context;notify:(
           <label>رمز البرنامج الجديد<input value={newProgramCode} onChange={e=>setNewProgramCode(e.target.value)}/></label></>}
         <label>رمز الإصدار<input value={planCode} onChange={e=>setPlanCode(e.target.value)} placeholder="PLAN-1447-V2"/></label>
         <label>اسم الإصدار<input value={versionLabel} onChange={e=>setVersionLabel(e.target.value)} placeholder="خطة 1447 — الإصدار 2"/></label>
-        <button disabled={working||(!programId&&(!newProgramName.trim()||!newProgramCode.trim()))||!planCode.trim()||!versionLabel.trim()} onClick={saveVersion}>حفظ إصدار مسودة جديد</button></div>
+        <button disabled={working||(genericCollege&&!confirmGenericCollege)||(!programId&&(!newProgramName.trim()||!newProgramCode.trim()))||!planCode.trim()||!versionLabel.trim()} onClick={saveVersion}>حفظ إصدار مسودة جديد</button></div>
         <p className="hint">لا يُنشّط الإصدار تلقائيًا، ولا يُعدّل إصدارًا سابقًا أو سيناريو معتمدًا.</p>
         </details>
       {savedPlanId&&<div className="alert success">تم حفظ إصدار الخطة، وهو جاهز لتحديث بقية النظام.</div>}</>}
@@ -354,7 +379,7 @@ export default function AutomaticPlanningPage({ctx,notify}:{ctx:Context;notify:(
     {plan&&history&&<section className="integration-panel"><h3>اعتماد الاستيراد وتحديث التطبيق</h3>
       <p className="hint">يُعيد الخادم فحص الملفات الأصلية ويعتمد البرنامج والخطة والطلب والأفواج والبلوكات والمدربين والسيناريو ضمن معاملة PostgreSQL واحدة؛ إذا تعذرت أي خطوة فلا تُحفظ تغييرات جزئية. يبدأ Timefold بعد اعتماد البيانات، ويمكن إعادة تشغيله إذا تعذر بدء الجدولة.</p>
       <label>اسم السيناريو<input value={scenarioName} maxLength={160} onChange={e=>setScenarioName(e.target.value)}/></label>
-      <button className="primary" disabled={working||alternatives.some(([group])=>!selections[group])||
+      <button className="primary" disabled={working||(genericCollege&&!confirmGenericCollege)||alternatives.some(([group])=>!selections[group])||
         (!programId&&(!newProgramName.trim()||!newProgramCode.trim()))||!planCode.trim()||!versionLabel.trim()}
         onClick={runFullIntegration}>اعتماد الملفات وتحديث كامل النظام وتشغيل Timefold</button>
     </section>}

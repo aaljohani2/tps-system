@@ -12,6 +12,8 @@ const scope=z.object({departmentId:id,termId:id});
 const mode=z.enum(['ONSITE','REMOTE','SELF_PACED','HYBRID']);
 const day=z.enum(['SUN','MON','TUE','WED','THU']);
 const policySchema=z.object({
+  ignoreRoomCapacity:z.boolean().optional(),
+  courseSectionCapacities:z.record(z.string().trim().min(1).max(60),z.number().int().positive().max(5000)).optional(),
   enabledModes:z.array(mode).min(1).max(4).refine(v=>new Set(v).size===v.length,'Duplicate mode'),
   capacities:z.object({
     ONSITE:z.object({theory:z.number().int().positive(),practical:z.number().int().positive()}),

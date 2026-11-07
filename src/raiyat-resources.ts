@@ -1,9 +1,10 @@
 import {normalizeArabic,normalizeCourseCode} from './automatic-planning.js';
 import type {WorkbookTable} from './automatic-xlsx.js';
+import {sameCollege} from './import-scope.js';
 
 type RoomType='CLASSROOM'|'LAB'|'MULTI';
 export type RayatInstructor={code:string;name:string;maxLoad:number|null;courseEvidence:string[];sourceRows:number;scopeVerified:boolean};
-export type RayatRoom={code:string;name:string;type:RoomType|null;capacity:number|null;building:string|null;sourceRows:number;scopeVerified:boolean};
+export type RayatRoom={code:string;name:string;type:RoomType|null;capacity:number|null;building:string|null;sourceRows:number;scopeVerified:boolean;capacityCandidates?:number[]};
 export type RayatDiscovery={instructors:RayatInstructor[];rooms:RayatRoom[];warnings:string[];sheets:string[];unscoped:boolean};
 
 const clean=(value:string|undefined)=>String(value??'').replace(/\s+/g,' ').trim();
@@ -19,8 +20,8 @@ const aliases={
   course:['رمز المقرر','المقرر','course code','course','رمز المادة'],
   load:['النصاب الأساسي','النصاب الأصلي','النصاب','النصاب المعتمد','max load','maximum load'],
   roomCode:['رمز القاعة','رقم القاعة','رقم القاعة / المعمل','رمز القاعة / المعمل','رقم المعمل',
-    'القاعة','القاعة / المعمل','القاعه','room number','room code','room','classroom','lab number'],
-  roomName:['اسم القاعة','اسم القاعة / المعمل','اسم المعمل','وصف القاعة','room name','lab name'],
+    'القاعة','القاعة / المعمل','القاعه','الغرفة','room number','room code','room','classroom','lab number'],
+  roomName:['اسم القاعة','اسم القاعة / المعمل','اسم المعمل','وصف القاعة','اسم الغرفة','room name','lab name'],
   capacity:['سعة القاعة','الطاقة الاستيعابية','السعة الاستيعابية','عدد المقاعد','سعة المعمل','السعة',
     'room capacity','capacity','seats'],
   roomType:['نوع القاعة','نوع القاعة / المعمل','نوع المعمل','نوع المرفق','room type','type'],
@@ -48,6 +49,14 @@ const classify=(text:string):RoomType|null=>{
   if(/نظري|قاعه تدريبيه|classroom|lecture/.test(v))return 'CLASSROOM';
   return null;
 };
+/** Only explicit descriptions establish a type; offices/test centres remain unclassified. */
+export function roomTypeFromDescription(text:string):RoomType|null{
+  const value=normalizeArabic(text);
+  if(/^(?:معمل|مختبر|ورشه)(?:\s|\d|$)/.test(value))return 'LAB';
+  if(/^قاعه\s+(?:نظريه|تدريبيه|محاضرات)/.test(value))return 'CLASSROOM';
+  if(/^قاعه\s+متعدده/.test(value))return 'MULTI';
+  return null;
+}
 const codeFromSection=(text:string)=>{
   const m=normalizeCourseCode(text).match(/^(.+?-\d{2,4})(?:-(?:TH|PR|LAB|LEC|SEC|T|P)-?\d+)?$/);
   return m?.[1]??'';
@@ -55,7 +64,7 @@ const codeFromSection=(text:string)=>{
 /** Detect Rayat-like timetable, instructors directory, and facilities sheets without a fixed template.
  * No learner identifiers, attendee lists or historical availability are returned.
  */
-export function discoverRayatResources(tables:WorkbookTable[],target:{department:string;college:string}):RayatDiscovery{
+export function discoverRayatResources(tables:WorkbookTable[],target:{department:string;college:string},options:{reviewConflicts?:boolean}={}):RayatDiscovery{
   const trainers=new Map<string,RayatInstructor>(),rooms=new Map<string,RayatRoom>();
   const warnings:string[]=[],sheets:string[]=[];let unscoped=false;
   let skippedDepartment=0,skippedCollege=0,ignored=0;
@@ -72,7 +81,7 @@ export function discoverRayatResources(tables:WorkbookTable[],target:{department
       let observed=0;matched=true;
       for(const row of sheet.rows.slice(rowIndex+1)){
         const dept=dd<0?'':clean(row[dd]),college=cc<0?'':clean(row[cc]);
-        const collegeMatches=cc<0||(!college?false:same(college,target.college));
+        const collegeMatches=cc<0||(!college?false:sameCollege(college,target.college));
         const deptMatches=dd<0||(!dept?false:same(dept,target.department));
         if(!collegeMatches){skippedCollege++;continue;}
         if(!deptMatches){skippedDepartment++;/* Keep college-wide rooms, but not other department's trainers. */}
@@ -109,13 +118,16 @@ export function discoverRayatResources(tables:WorkbookTable[],target:{department
           if(capacity!==null&&(!Number.isInteger(capacity)||capacity===0))
             throw new Error('سعة قاعة غير صالحة: '+code);
           const prior=rooms.get(code);
-          if(prior&&prior.capacity!==null&&capacity!==null&&prior.capacity!==capacity)
+          if(prior&&prior.capacity!==null&&capacity!==null&&prior.capacity!==capacity&&!options.reviewConflicts)
             throw new Error('رمز القاعة '+code+' له سعات مختلفة في ملف Excel');
           if(prior&&prior.type&&roomType&&prior.type!==roomType)
             throw new Error('رمز القاعة '+code+' له نوعان مختلفان');
-          const current=prior??{code,name,type:null,capacity:null,building:null,sourceRows:0,scopeVerified:true};
+          const current:RayatRoom=prior??{code,name,type:null,capacity:null,building:null,sourceRows:0,scopeVerified:true};
           if(current.name===code&&name!==code)current.name=name;
-          current.capacity=capacity??current.capacity;
+          if(options.reviewConflicts&&capacity!==null){
+            current.capacityCandidates=[...new Set([...(current.capacityCandidates??[]),capacity])].sort((a,b)=>a-b);
+            current.capacity=current.capacityCandidates.length>1?null:capacity;
+          }else if(!current.capacityCandidates||current.capacityCandidates.length<2)current.capacity=capacity??current.capacity;
           current.type=roomType??current.type;
           current.building=(building>=0?clean(row[building]):'')||current.building;
           current.sourceRows++;current.scopeVerified&&=roomScope;
@@ -135,6 +147,8 @@ export function discoverRayatResources(tables:WorkbookTable[],target:{department
   if(unscoped)warnings.push('بعض الأوراق لا تثبت الكلية/القسم في كل صف؛ يلزم إقرار صريح بنطاق الملف قبل الاستيراد');
   if([...rooms.values()].some(r=>!r.capacity||!r.type))
     warnings.push('بعض القاعات تفتقد السعة أو النوع؛ يجب استكمالها من مصدر معتمد قبل إدراجها في الجدولة');
+  const conflicts=[...rooms.values()].filter(r=>(r.capacityCandidates?.length??0)>1).length;
+  if(conflicts)warnings.push(`تعارضت سعة ${conflicts} قاعة بين صفوف المصدر؛ عُرضت القيم للمراجعة ولم تُعتمد أي منها تلقائيًا`);
   warnings.push('مقررات الجدول السابق دليل إسناد تاريخي فقط وليست إثبات أهلية، ولم تُستنتج إتاحة مستقبلية أو نصاب مجهول');
   return {instructors:[...trainers.values()].map(t=>({...t,courseEvidence:t.courseEvidence.sort()})).sort((a,b)=>a.code.localeCompare(b.code)),
     rooms:[...rooms.values()].sort((a,b)=>a.code.localeCompare(b.code)),warnings,sheets:[...new Set(sheets)],unscoped};

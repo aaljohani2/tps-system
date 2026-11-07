@@ -7,6 +7,21 @@ from pathlib import Path
 from openpyxl import load_workbook
 
 class ExportScenarioTest(unittest.TestCase):
+    def test_external_courses_have_their_own_roster_without_entering_department_sections(self):
+        payload = {"sections": [], "sessions": [], "gaps": [], "instructorLoads": [], "notices": [],
+                   "externalSections": [{"id": "G-EXT-001", "courseCode": "GENERAL", "title": "لغة عامة",
+                                         "level": 1, "students": 40, "capacity": 40, "contactHours": 3}]}
+        result = subprocess.run([sys.executable, str(Path(__file__).with_name("export_scenario.py"))],
+                                input=json.dumps(payload).encode(), capture_output=True, timeout=20)
+        self.assertEqual(result.returncode, 0, result.stderr.decode())
+        book = load_workbook(io.BytesIO(result.stdout))
+        self.assertIn("المقررات العامة الخارجية", book.sheetnames)
+        self.assertEqual(book["المقررات العامة الخارجية"]["F2"].value, 40)
+        self.assertEqual(book["المقررات العامة الخارجية"]["I2"].value, "بانتظار إسناد القسم الآخر")
+        self.assertEqual(book["الشعب"].max_row, 1)
+        self.assertEqual(book["العجز"].max_row, 1)
+        book.close()
+
     def test_writes_arabic_rtl_xlsx_without_active_formula(self):
         payload = {
             "sections": [{"id": "SEC-1", "courseCode": "=1+1", "level": 1, "students": 12}],

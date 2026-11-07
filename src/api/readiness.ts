@@ -1,9 +1,11 @@
 import type {PlanRequest,PlanResult,Session} from '../types.js';
 import {trainerQualified,roomQualified} from '../eligibility.js';
 import {hasSharedBlock} from '../cohort-grouping.js';
+import {sectionCapacity} from '../section-capacity.js';
+import {instructorTotals,exceedsTeachingLimits} from '../instructor-rules.js';
 
 export interface ReadinessIssue{
-  code:string;severity:'BLOCKER'|'WARNING';message:string;sectionId?:string;courseCode?:string;
+  code:string;severity:'BLOCKER'|'WARNING';message:string;sectionId?:string;courseCode?:string;instructorId?:string;
 }
 const overlap=(a:Session,b:Session)=>a.day===b.day && a.start<b.end && b.start<a.end;
 export function assessReadiness(input:PlanRequest,result:PlanResult,solverStatus:string){
@@ -12,6 +14,12 @@ export function assessReadiness(input:PlanRequest,result:PlanResult,solverStatus
     issues.push({code,severity,message,...(sectionId?{sectionId}:{}),...(courseCode?{courseCode}:{})});
   };
   if(solverStatus!=='COMPLETED')add('SOLVER_NOT_COMPLETED','Timefold has not completed successfully.');
+  if(result.externalSections?.length)add('EXTERNAL_ASSIGNMENT_PENDING',
+    `${result.externalSections.length} شعبة عامة بانتظار إسناد خارجي؛ معروضة منفصلة عن عجز القسم ونصاب مدربيه.`,undefined,undefined,'WARNING');
+  const externalCodes=new Set(input.courses.filter(course=>course.assignmentScope==='EXTERNAL').map(course=>course.code));
+  if(result.sections.some(section=>externalCodes.has(section.courseCode))||result.gaps.some(gap=>externalCodes.has(gap.courseCode)))
+    add('EXTERNAL_IN_DEPARTMENT_RESULT','المقررات الخارجية لا يجوز احتسابها ضمن شعب القسم أو عجزه.');
+  if(input.policy.ignoreRoomCapacity)add('ROOM_CAPACITY_IGNORED','سعة القاعات غير مقيّدة في هذا السيناريو بقرار تخطيطي محلي.',undefined,undefined,'WARNING');
   if(!result.sections.length)add('NO_SECTIONS','No sections were generated from current demand.');
   const scheduled=new Map<string,Session[]>();
   for(const meeting of result.sessions){
@@ -38,7 +46,7 @@ export function assessReadiness(input:PlanRequest,result:PlanResult,solverStatus
   const instructorMap=new Map(input.instructors.map(i=>[i.id,i]));
   const sectionMap=new Map(result.sections.map(sec=>[sec.id,sec]));
   const courseMap=new Map(input.courses.map(course=>[course.code,course]));
-  for(const course of input.courses){
+  for(const course of input.courses.filter(course=>course.assignmentScope!=='EXTERNAL')){
     if(!course.eligibleModes.includes(course.mode))
       add('COURSE_MODE_INELIGIBLE','Course '+course.code+' uses an unapproved delivery mode.',undefined,course.code);
   }
@@ -60,6 +68,9 @@ export function assessReadiness(input:PlanRequest,result:PlanResult,solverStatus
   };
   for(const section of result.sections){
     const course=courseMap.get(section.courseCode);
+    const capacity=course?sectionCapacity(course,input.policy):null;
+    if(capacity!==null&&section.students>capacity)
+      add('SECTION_CAPACITY','Section exceeds its scenario course capacity.',section.id,section.courseCode);
     if(section.state==='SCHEDULED'&&course && !componentHours(course,scheduled.get(section.id)??[]))
       add('COMPONENT_HOURS','Theory/practical or hybrid delivery hours are not correctly distributed.',section.id,section.courseCode);
   }
@@ -90,9 +101,9 @@ export function assessReadiness(input:PlanRequest,result:PlanResult,solverStatus
     if(session.mode==='ONSITE'){
       const room=session.roomId?roomMap.get(session.roomId):null;
       const students=section?.students??0;
-      if(!room||room.capacity<students)
+      if(!room||(!input.policy.ignoreRoomCapacity&&(room.capacity===null||room.capacity<students)))
         add('ROOM_CAPACITY','Required room is missing or has insufficient capacity.',session.sectionId,session.courseCode);
-      else if(!inside(room.available,session) || (course && !roomQualified(room,course,session.component,students)))
+      else if(!inside(room.available,session) || (course && !roomQualified(room,course,session.component,students,input.policy.ignoreRoomCapacity===true)))
         add('ROOM_INCOMPATIBLE','Room equipment/type or availability is unsuitable for component.',session.sectionId,session.courseCode);
     }else if(session.roomId!==null)
       add('REMOTE_ROOM','Remote session must not consume a physical room.',session.sectionId,session.courseCode);
@@ -123,10 +134,19 @@ export function assessReadiness(input:PlanRequest,result:PlanResult,solverStatus
   }
   for(const instructor of result.instructorLoads)
     if(instructor.remaining < -0.0001)add('LOAD_EXCEEDED',`Trainer ${instructor.id} exceeds credited load.`);
+  for(const instructor of input.instructors){
+    const totals=instructorTotals(instructor.id,result.sections);
+    const actual=result.sessions.filter(session=>session.instructorId===instructor.id).reduce((sum,session)=>sum+session.end-session.start,0);
+    if(exceedsTeachingLimits(instructor,totals.sections,Math.max(totals.contact,actual)))
+      issues.push({code:'INSTRUCTOR_TEACHING_LIMIT',severity:'BLOCKER',instructorId:instructor.id,
+        message:`المدرب ${instructor.id} تجاوز حد ساعات الجدول الفعلية أو عدد الشعب.`});
+    if(solverStatus==='COMPLETED'&&totals.sections<(instructor.teachingRules?.preferredSections??0))
+      add('INSTRUCTOR_SECTION_TARGET',`المدرب ${instructor.id}: أُسندت ${totals.sections} شعبة من العدد المستهدف ${instructor.teachingRules!.preferredSections}.`,undefined,undefined,'WARNING');
+  }
   const m=result.metrics;
   if(Math.abs(m.assignedContactHours+m.uncoveredContactHours-m.requiredContactHours)>0.001)
     add('INCONSISTENT_TOTALS','Contact-hour totals do not reconcile.');
-  const byCourse=input.courses.map(course=>{
+  const byCourse=input.courses.filter(course=>course.assignmentScope!=='EXTERNAL').map(course=>{
     const sections=result.sections.filter(s=>s.courseCode===course.code);
     return {code:course.code,title:course.title,demand:course.demand,
       sections:sections.length,uncovered:sections.filter(s=>s.state==='UNASSIGNED').length,

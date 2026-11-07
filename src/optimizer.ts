@@ -10,6 +10,7 @@ import type {Component, Course, Day, Instructor, PlanRequest, PlanResult, Room, 
 import {buildDraftPlan} from './planner.js';
 import {trainerQualified,roomQualified} from './eligibility.js';
 import {hasSharedBlock} from './cohort-grouping.js';
+import {typePreference,instructorTotals,exceedsTeachingLimits} from './instructor-rules.js';
 
 const DAYS: Day[] = ['SUN', 'MON', 'TUE', 'WED', 'THU'];
 const round = (n: number) => Math.round((n + Number.EPSILON) * 1000) / 1000;
@@ -24,6 +25,10 @@ export interface AtomicCandidate {
   effectiveLimitMilli: number;
   uncovered: boolean;
   sessions: Session[];
+  contactLimitMilli?: number;
+  sectionLimit?: number;
+  preferredSectionCount?: number;
+  preferenceScore?: number;
 }
 export interface AtomicTask {
   id: string;
@@ -32,6 +37,7 @@ export interface AtomicTask {
   contactHours: number;
   exclusiveInstructor: boolean;
   choices: AtomicCandidate[];
+  initialCandidateId?: string;
 }
 export interface SolverPayload {schemaVersion: 'tps.timefold.v1'; tasks: AtomicTask[]; seconds: number}
 export interface SolverChoice {taskId: string; candidateId: string}
@@ -57,8 +63,8 @@ function jobs(c: Course): Array<{component: Component; mode: TimedMode; hours: n
 function available(windows: TimeWindow[] | undefined, day: Day, start: number, end: number) {
   return !windows || windows.some(w => w.day === day && w.from <= start && end <= w.to);
 }
-function compatible(room: Room, course: Course, component: Component, students: number): boolean {
-  return roomQualified(room,course,component,students);
+function compatible(room: Room, course: Course, component: Component, students: number,ignoreCapacity=false): boolean {
+  return roomQualified(room,course,component,students,ignoreCapacity);
 }
 /** Alternative atomic schedules for one trainer; never share the section with another trainer. */
 function makeSessions(c: Course, sec: Section, inst: Instructor, input: PlanRequest, seed: number): Session[] | null {
@@ -89,7 +95,7 @@ function makeSessions(c: Course, sec: Section, inst: Instructor, input: PlanRequ
               if (c.mode === 'HYBRID' && job.mode === 'REMOTE' && (start < 16 || end > 22)) continue;
               if (!available(inst.available, day, start, end)) continue;
               if (allocated.some(x => x.day === day && collide(x, {start, end}))) continue;
-              const rooms = job.mode === 'REMOTE' ? [null] : input.rooms.filter(r => compatible(r,c,job.component,sec.students) && available(r.available, day, start, end));
+              const rooms = job.mode === 'REMOTE' ? [null] : input.rooms.filter(r => compatible(r,c,job.component,sec.students,input.policy.ignoreRoomCapacity===true) && available(r.available, day, start, end));
               if (!rooms.length) continue;
               const chosen = rooms[(instructorRoomOffset+seed) % rooms.length];
               allocated.push({
@@ -117,6 +123,13 @@ export function prepareSolverPayload(input: PlanRequest, maxChoicesPerInstructor
   const draft = buildDraftPlan(input); // validates course/policy/instructor/room schema.
   if (draft.sections.length > 250) throw new Error('Experimental optimizer supports at most 250 sections per scenario.');
   const courses = new Map(input.courses.map(c => [c.code, c]));
+  const seedFromPreview=input.instructors.some(instructor=>instructor.teachingRules&&Object.keys(instructor.teachingRules).length>0);
+  const limits=(inst:Instructor,course:Course)=>({
+    ...(inst.teachingRules?.maxContactHours!==undefined?{contactLimitMilli:Math.round(inst.teachingRules.maxContactHours*1000)}:{}),
+    ...(inst.teachingRules?.maxSections!==undefined?{sectionLimit:inst.teachingRules.maxSections}:{}),
+    ...(inst.teachingRules?.preferredSections!==undefined?{preferredSectionCount:inst.teachingRules.preferredSections}:{}),
+    ...(typePreference(inst,course)?{preferenceScore:typePreference(inst,course)}:{})
+  });
   const tasks: AtomicTask[] = draft.sections.map(sec => {
     const course = courses.get(sec.courseCode)!;
     const choices: AtomicCandidate[] = [{
@@ -124,10 +137,20 @@ export function prepareSolverPayload(input: PlanRequest, maxChoicesPerInstructor
       instructorId: null, creditedMilli: 0, effectiveLimitMilli: 0,
       uncovered: true, sessions: []
     }];
+    let initialCandidateId=choices[0]!.id;
     for (const inst of input.instructors.filter(i => eligible(i, course))) {
       const count = course.mode === 'SELF_PACED' ? 1 : maxChoicesPerInstructor;
       const signatures = new Set<string>();
-      for (let seed = 0; seed < count; seed++) {
+      const initial=seedFromPreview&&sec.instructorId===inst.id&&sec.state!=='UNASSIGNED';
+      if(initial){
+        const sessions=draft.sessions.filter(session=>session.sectionId===sec.id);
+        initialCandidateId=`${sec.id}:${inst.id}:INITIAL`;
+        signatures.add(sessions.map(s=>[s.day,s.start,s.end,s.roomId].join('/')).join('|'));
+        choices.push({id:initialCandidateId,sectionId:sec.id,courseCode:course.code,instructorId:inst.id,
+          creditedMilli:Math.round(sec.creditedLoad*1000),effectiveLimitMilli:Math.round((inst.maxLoad+(inst.overload?.additionalHours??0))*1000),
+          uncovered:false,sessions,...limits(inst,course)});
+      }
+      for (let seed = 0; seed < count-(initial?1:0); seed++) {
         const sessions = makeSessions(course, sec, inst, input, seed);
         if (sessions === null) continue;
         const sig = sessions.map(s => [s.day, s.start, s.end, s.roomId].join('/')).join('|');
@@ -138,12 +161,13 @@ export function prepareSolverPayload(input: PlanRequest, maxChoicesPerInstructor
           sectionId: sec.id, courseCode: course.code, instructorId: inst.id,
           creditedMilli: Math.round(sec.creditedLoad * 1000),
           effectiveLimitMilli: Math.round((inst.maxLoad + (inst.overload?.additionalHours ?? 0)) * 1000),
-          uncovered: false, sessions
+          uncovered: false, sessions,
+          ...limits(inst,course)
         });
       }
     }
     return {id: sec.id, courseCode: course.code, level: course.level, contactHours: sec.contactHours,
-      exclusiveInstructor: course.exclusiveInstructor ?? false, choices};
+      exclusiveInstructor: course.exclusiveInstructor ?? false, choices,...(seedFromPreview?{initialCandidateId}:{})};
   });
   return {schemaVersion: 'tps.timefold.v1', tasks, seconds: 5};
 }
@@ -200,7 +224,7 @@ export function applySolverChoice(input: PlanRequest, payload: SolverPayload, re
     if (a.mode === 'ONSITE') {
       const room = input.rooms.find(r => r.id === a.roomId);
       const studentCount = draft.sections.find(s => s.id === a.sectionId)!.students;
-      if (!room || !compatible(room,c,a.component,studentCount) || !available(room.available, a.day, a.start, a.end)) throw new Error('Invalid room');
+      if (!room || !compatible(room,c,a.component,studentCount,input.policy.ignoreRoomCapacity===true) || !available(room.available, a.day, a.start, a.end)) throw new Error('Invalid room');
     } else if (a.roomId !== null) throw new Error('Remote session has room');
   }
   for (let i = 0; i < sessions.length; i++) {
@@ -213,6 +237,10 @@ export function applySolverChoice(input: PlanRequest, payload: SolverPayload, re
     }
   }
   if (response.hardScore < 0) throw new Error('Solver reports a hard-constraint violation');
+  for(const instructor of input.instructors){
+    const totals=instructorTotals(instructor.id,draft.sections);
+    if(exceedsTeachingLimits(instructor,totals.sections,totals.contact))throw new Error('Solver exceeded instructor timetable/section limit');
+  }
   const usedContact = new Map<string, number>();
   for (const s of draft.sections) if (s.state === 'SCHEDULED') usedContact.set(s.instructorId!, (usedContact.get(s.instructorId!) ?? 0) + s.contactHours);
   draft.sessions = sessions;
@@ -226,7 +254,7 @@ export function applySolverChoice(input: PlanRequest, payload: SolverPayload, re
   draft.metrics.assignedContactHours = draft.sections.filter(s => s.state === 'SCHEDULED').reduce((v, s) => v + s.contactHours, 0);
   draft.metrics.uncoveredContactHours = draft.metrics.requiredContactHours - draft.metrics.assignedContactHours;
   draft.metrics.uncoveredSectionCount = gaps.length;
-  draft.notices = draft.notices.filter(s => !s.includes('Greedy'));
+  draft.notices = draft.notices.filter(s => !/greedy/i.test(s));
   draft.notices.push('Timefold experimental candidate solver; bounded choices, not guaranteed global optimum; not approved for Rayat.');
   draft.notices.push(`Solver score: hard=${response.hardScore}, soft=${response.softScore}`);
   return draft;
@@ -252,7 +280,8 @@ export async function optimizeWithTimefold(input: PlanRequest, opts: {jar?: stri
   await opts.onStage?.('SOLVING');
   if (opts.signal?.aborted) throw new Error('Solver cancelled by operator');
   const stdout = await new Promise<string>((ok, reject) => {
-    const child = spawn('java', ['-jar', jar], {stdio: ['pipe', 'pipe', 'pipe'], env: process.env});
+    const child = spawn('java', ['-Dfile.encoding=UTF-8','-Dstdout.encoding=UTF-8','-Dstderr.encoding=UTF-8','-jar', jar],
+      {stdio: ['pipe', 'pipe', 'pipe'], env: process.env,windowsHide:true});
     const chunks: Buffer[] = [], errorChunks: Buffer[] = [];
     let size = 0, settled = false;
     const timer = setTimeout(() => {child.kill('SIGKILL'); settle(new Error('Solver timed out'));}, timeoutMs);

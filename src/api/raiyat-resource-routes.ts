@@ -5,7 +5,7 @@ import {pool} from './database.js';
 import {allowedDepartment,allowedCollege,requireEditor} from './security.js';
 import {readAutomaticWorkbook,type WorkbookTable} from '../automatic-xlsx.js';
 import {discoverRayatResources} from '../raiyat-resources.js';
-import {tableCsvToRows} from './automatic-planning-routes.js';
+import {readSmartCsv} from '../smart-csv.js';
 
 const uuid=z.string().uuid();
 const fail=(message:string,statusCode=400)=>Object.assign(new Error(message),{statusCode});
@@ -13,7 +13,14 @@ function mime(name:string){return name.toLowerCase().endsWith('.xlsx')?'xlsx':na
 async function sheets(bytes:Buffer,kind:'csv'|'xlsx'):Promise<WorkbookTable[]>{
   if(!bytes.length||bytes.length>20*1024*1024)throw fail('Excel/CSV file exceeds 20 MiB',413);
   return kind==='xlsx'?readAutomaticWorkbook(bytes):
-    [{name:'CSV',rows:tableCsvToRows(bytes.toString('utf8'))}];
+    [{name:'CSV',rows:readSmartCsv(bytes).rows}];
+}
+async function discover(bytes:Buffer,kind:'csv'|'xlsx',scope:{department:string;college:string}){
+  try{return discoverRayatResources(await sheets(bytes,kind),scope,{reviewConflicts:true});}
+  catch(error){
+    if((error as {statusCode?:number}).statusCode)throw error;
+    throw fail(error instanceof Error?error.message:'Invalid resource file',400);
+  }
 }
 async function getScope(req:FastifyRequest,departmentId:string,collegeId:string){
   if(!await allowedDepartment(req.principal!,departmentId)||
@@ -39,7 +46,7 @@ export async function registerRayatResourceImports(app:FastifyInstance){
       media==='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'?'xlsx':null;
     if(!kind)throw fail('Only CSV or XLSX',415);
     const buffer=req.body as Buffer;
-    const result=discoverRayatResources(await sheets(buffer,kind),scope);
+    const result=await discover(buffer,kind,scope);
     const [trainers,rooms]=await Promise.all([
       pool.query<{code:string}>('SELECT code FROM instructors WHERE department_id=$1',[query.departmentId]),
       pool.query<{code:string}>('SELECT code FROM rooms WHERE college_id=$1',[query.collegeId])
@@ -80,7 +87,7 @@ export async function registerRayatResourceImports(app:FastifyInstance){
     if(bytes.length>20*1024*1024)throw fail('File too large',413);
     const actual=createHash('sha256').update(bytes).digest('hex');
     if(actual!==input.sha256)throw fail('File changed after preview',409);
-    const parsed=discoverRayatResources(await sheets(bytes,kind),scope);
+    const parsed=await discover(bytes,kind,scope);
     if(parsed.unscoped&&!input.acceptUnscoped)
       throw fail('Workbook has no verified college/department columns in some rows; confirm the scope explicitly',409);
     const client=await pool.connect();

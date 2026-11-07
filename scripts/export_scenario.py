@@ -52,6 +52,13 @@ def main():
             ["تنبيه", "نسخة تخطيطية محلية، لا تُعد تصديرًا رسميًا إلى رايات"]
         ])
     sessions = plan.get("sessions", [])
+    external = plan.get("externalSections", [])
+    if external:
+        page(book, "المقررات العامة الخارجية",
+             ["المقرر", "اسم المقرر", "المستوى", "الشعبة الخارجية", "المتدربون", "السعة", "ساعات الاتصال", "القسم المسؤول", "الحالة", "المدرب الخارجي", "اليوم", "من", "إلى", "القاعة"],
+             [[item.get("courseCode"), item.get("title"), item.get("level"), item.get("id"), item.get("students"),
+               item.get("capacity"), item.get("contactHours"), item.get("responsibleDepartment"),
+               "بانتظار إسناد القسم الآخر", "", "", "", "", ""] for item in external])
     page(book, "الجداول",
         ["المقرر", "الشعبة", "المدرب", "القاعة", "النمط", "اليوم", "من", "إلى", "البلوك"],
         [[s.get(k) for k in ("courseCode", "sectionId", "instructorId", "roomId",

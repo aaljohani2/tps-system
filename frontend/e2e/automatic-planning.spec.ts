@@ -116,7 +116,7 @@ test('one smart multi-file upload at /imports connects plan, counts, instructors
       const c={code:'BUS-101',normalizedCode:'BUS-101',title:'مقرر نظري',level:1,
         theoryHours:2,practicalHours:0,tutorialHours:0,alternativeGroup:null,
         responsibleDepartment:'تقنية الأعمال',specialKind:'REGULAR'};
-      return route.fulfill(json({sheet:'CSV',curriculum:{metadata:{department:'تقنية الأعمال',program:'تقنية الأعمال'},
+      return route.fulfill(json({sheet:'CSV',curriculum:{metadata:{department:'تقنية الأعمال',program:'تقنية الأعمال',college:'الكلية التقنية'},
         sourceRows:1,warnings:[],levels:[{level:1,courses:[c]}],courses:[c]}}));
     }
     if(endpoint.endsWith('/history/preview')){
@@ -138,12 +138,13 @@ test('one smart multi-file upload at /imports connects plan, counts, instructors
         contactHours:2,complete:true,resourceOwner:'تقنية الأعمال',discrepancy:null,note:null}] }));}
     if(endpoint.endsWith('/full-import')){
       called.push('atomic-full-import');
-      const payload=JSON.parse(uploaded) as {plan:{name:string;sha256:string;base64:string};
+      const payload=JSON.parse(uploaded) as {confirmGenericCollege:boolean;plan:{name:string;sha256:string;base64:string};
         trainees:{name:string;sha256:string;base64:string};resources:{name:string;sha256:string;base64:string}};
       expect(Buffer.from(payload.plan.base64,'base64').toString()).toBe('PLAN');
       expect(Buffer.from(payload.trainees.base64,'base64').toString()).toBe('COUNT');
       expect(Buffer.from(payload.resources.base64,'base64').toString()).toBe('TRAINER');
       expect(payload.plan.sha256).toMatch(/^[a-f0-9]{64}$/);
+      expect(payload.confirmGenericCollege).toBe(true);
       return route.fulfill(json({status:'COMMITTED',programId:'program',planId:'new-plan',
         demandRecords:1,cohorts:1,blocks:1,assignments:1,instructorsImported:1,replayed:false,
         blockCapacityByLevel:{1:40},scenarioId:'scenario',
@@ -163,6 +164,8 @@ test('one smart multi-file upload at /imports connects plan, counts, instructors
   await expect(page.getByText(/تم اكتشاف 1 مستويات تدريبية و1 سجلًا للمقررات/)).toBeVisible();
   await expect(page.getByText(/اكتشف النظام 37 متدربًا فريدًا/)).toBeVisible();
   await expect(page.getByText(/اكتُشف 1 مدربًا/)).toBeVisible();
+  await expect(page.getByRole('button',{name:'اعتماد الملفات وتحديث كامل النظام وتشغيل Timefold'})).toBeDisabled();
+  await page.getByRole('checkbox',{name:/اسم الكلية في الخطة عام/}).check();
   await page.getByRole('button',{name:'اعتماد الملفات وتحديث كامل النظام وتشغيل Timefold'}).click();
   await expect(page.getByText(/Timefold: بدأ التشغيل/)).toBeVisible();
   expect(called).toEqual(['calculate','atomic-full-import','timefold']);

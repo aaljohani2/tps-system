@@ -62,7 +62,7 @@ export default function BulkImportsPage({ctx,user,notify}:{
     }catch(e){notify('فشل الاستيراد: '+String(e instanceof Error?e.message:e));}
     finally{setWorking(false);}
   }
-  return <><AutomaticPlanningPage ctx={ctx} notify={notify}/>
+  return <><AutomaticPlanningPage ctx={ctx} user={user} notify={notify}/>
     <RayatResourceImport ctx={ctx} user={user} notify={notify}/><section className="panel">
     <h2>الاستيراد بالقوالب التشغيلية</h2>
     <p className="hint">تنزيل القالب ← تعبئة ملف CSV أو Excel ← المعاينة ← تصحيح الأخطاء ← اعتماد الحفظ.

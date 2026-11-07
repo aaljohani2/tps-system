@@ -10,7 +10,8 @@ export interface CatalogImport {
 }
 
 /** RFC4180 quotes, escaped quotes, CRLF, multiline cells and UTF-8 BOM. */
-export function parseCsv(raw: string): string[][] {
+export function parseCsv(raw: string, delimiter = ','): string[][] {
+  if(![',',';','\t'].includes(delimiter))throw new Error('Unsupported CSV delimiter');
   const content = raw.replace(/^\uFEFF/, '');
   const rows: string[][] = [];
   let row: string[] = [], cell = '', quoted = false;
@@ -23,7 +24,7 @@ export function parseCsv(raw: string): string[][] {
     } else if (ch === '"') {
       if (cell !== '') throw new Error(`Malformed CSV quote at position ${i}`);
       quoted = true;
-    } else if (ch === ',') {row.push(cell); cell = '';}
+    } else if (ch === delimiter) {row.push(cell); cell = '';}
     else if (ch === '\r' || ch === '\n') {
       if (ch === '\r' && content[i + 1] === '\n') i++;
       row.push(cell); rows.push(row); row = []; cell = '';

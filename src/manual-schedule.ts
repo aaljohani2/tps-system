@@ -33,7 +33,7 @@ export function moveScheduledSession(input:PlanRequest,original:PlanResult,move:
   if(target.mode==='REMOTE'&&move.roomId!==null)throw bad('Remote session cannot use a physical room');
   if(target.mode==='ONSITE'){
     const room=input.rooms.find(r=>r.id===move.roomId);
-    if(!room||!roomQualified(room,course,target.component,section.students))throw bad('Room capacity or component compatibility is invalid');
+    if(!room||!roomQualified(room,course,target.component,section.students,input.policy.ignoreRoomCapacity===true))throw bad('Room capacity or component compatibility is invalid');
   }
   if(course.exclusiveInstructor && result.sections.some(s=>s.courseCode===course.code &&
     s.id!==section.id && s.state!=='UNASSIGNED' && s.instructorId!==trainer.id))
@@ -57,8 +57,8 @@ export function moveScheduledSession(input:PlanRequest,original:PlanResult,move:
   });
   const readiness=assessReadiness(input,result,'COMPLETED');
   if(!readiness.technicalReady){
-    const signature=(x:{code:string;sectionId?:string;courseCode?:string})=>
-      x.code+'|'+(x.sectionId??'')+'|'+(x.courseCode??'');
+    const signature=(x:{code:string;sectionId?:string;courseCode?:string;instructorId?:string})=>
+      x.code+'|'+(x.sectionId??'')+'|'+(x.courseCode??'')+'|'+(x.instructorId??'');
     const previous=before.issues.filter(x=>x.severity==='BLOCKER');
     const next=readiness.issues.filter(x=>x.severity==='BLOCKER');
     const counts=new Map<string,number>();

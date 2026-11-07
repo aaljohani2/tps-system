@@ -1,13 +1,13 @@
-import {useState} from 'react';
+import {useEffect,useState} from 'react';
 import {useQueryClient} from '@tanstack/react-query';
 import {api,type Auth,type Context} from './api';
 
 type RoomType='CLASSROOM'|'LAB'|'MULTI';
 type Instructor={code:string;name:string;maxLoad:number|null;courseEvidence:string[];
   sourceRows:number;scopeVerified:boolean;exists:boolean};
-type Room={code:string;name:string;capacity:number|null;type:RoomType|null;building:string|null;
+type Room={code:string;name:string;capacity:number|null;type:RoomType|null;building:string|null;capacityCandidates?:number[];
   sourceRows:number;scopeVerified:boolean;exists:boolean;needsCapacity:boolean;needsType:boolean};
-type Preview={sha256:string;instructors:Instructor[];rooms:Room[];warnings:string[];
+export type ResourceFilePreview={sha256:string;instructors:Instructor[];rooms:Room[];warnings:string[];
   sheets:string[];unscoped:boolean;canImportRooms:boolean;existingInstructors:number;existingRooms:number};
 type Result={importedInstructors:number;existingInstructors:number;importedRooms:number;
   existingRooms:number;unresolvedRooms:number;eligibilityPending:number};
@@ -24,9 +24,10 @@ async function fileProof(file:File){
   for(let i=0;i<data.length;i+=8192)parts.push(String.fromCharCode(...data.subarray(i,i+8192)));
   return {name:file.name,base64:btoa(parts.join('')),sha256};
 }
-export default function RayatResourceImport({ctx,user,notify}:{ctx:Context;user:Auth;notify:(s:string)=>void}){
+export default function RayatResourceImport({ctx,user,notify,sourceFile,sourcePreview}:{ctx:Context;user:Auth;notify:(s:string)=>void;
+  sourceFile?:File;sourcePreview?:ResourceFilePreview}){
   const qc=useQueryClient();
-  const [file,setFile]=useState<File|null>(null),[preview,setPreview]=useState<Preview|null>(null);
+  const [file,setFile]=useState<File|null>(sourceFile??null),[preview,setPreview]=useState<ResourceFilePreview|null>(sourcePreview??null);
   const [loading,setLoading]=useState(false),[accepted,setAccepted]=useState(false);
   const [importRooms,setImportRooms]=useState(false),[skipIncomplete,setSkipIncomplete]=useState(false);
   const [decisions,setDecisions]=useState<Record<string,Decision>>({});
@@ -41,10 +42,15 @@ export default function RayatResourceImport({ctx,user,notify}:{ctx:Context;user:
   });
   const reset=(f:File|null)=>{setFile(f);setPreview(null);setResult(null);
     setDecisions({});setAccepted(false);setImportRooms(false);setSkipIncomplete(false);};
+  useEffect(()=>{
+    if(!sourceFile||!sourcePreview)return;
+    reset(sourceFile);setPreview(sourcePreview);
+    setImportRooms(sourcePreview.canImportRooms&&sourcePreview.rooms.some(r=>!r.exists));
+  },[sourceFile,sourcePreview]);
   async function analyze(){
     if(!file)return;
     setLoading(true);try{
-      const report=await api<Preview>('/raiyat-resources/preview?'+q,{
+      const report=await api<ResourceFilePreview>('/raiyat-resources/preview?'+q,{
         method:'POST',headers:{'content-type':media(file)},body:file});
       setPreview(report);setResult(null);setAccepted(false);setSkipIncomplete(false);
       setDecisions(Object.fromEntries(report.rooms.map(r=>[r.code,{
@@ -113,7 +119,8 @@ export default function RayatResourceImport({ctx,user,notify}:{ctx:Context;user:
           <th>السعة</th><th>النوع</th><th>المبنى</th><th>الحالة</th></tr></thead><tbody>
           {preview.rooms.map(r=><tr key={r.code}>
             <td>{r.code}</td><td>{r.name}</td>
-            <td>{r.exists?r.capacity??'محفوظ مسبقًا':r.capacity??(
+            <td>{(r.capacityCandidates?.length??0)>1&&<p className="hint">قيم متعارضة في المصدر: {r.capacityCandidates!.join('، ')}؛ أدخل السعة الموثقة.</p>}
+              {r.exists?r.capacity??'محفوظ مسبقًا':r.capacity??(
               <input className="small" type="number" min="1" max="1000" disabled={!importRooms||loading}
                 placeholder="سعة موثقة" value={decisions[r.code]?.capacity??''}
                 onChange={e=>setDecisions(d=>({...d,[r.code]:{...d[r.code]!,capacity:e.target.value}}))}/>)}</td>

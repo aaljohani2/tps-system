@@ -55,7 +55,7 @@ const PERSIAN_DIGITS='۰۱۲۳۴۵۶۷۸۹';
 function digits(value:string){return value.replace(/[٠-٩]/g,c=>String(ARABIC_DIGITS.indexOf(c)))
   .replace(/[۰-۹]/g,c=>String(PERSIAN_DIGITS.indexOf(c)));}
 export function normalizeArabic(value:string):string{
-  return digits(value).normalize('NFKC').replace(/[أإآٱ]/g,'ا').replace(/ى/g,'ي')
+  return digits(value).normalize('NFKC').replace(/[\u200b-\u200f\u202a-\u202e\u2066-\u2069\uFEFF]/g,'').replace(/[أإآٱ]/g,'ا').replace(/ى/g,'ي')
     .replace(/ة/g,'ه').replace(/[ـًٌٍَُِّْ]/g,'').replace(/\s+/g,' ').trim().toLowerCase();
 }
 export function normalizeCourseCode(value:string):string{
@@ -68,7 +68,7 @@ const LEVEL_WORDS:Record<string,number>={
 };
 export function parseLevel(value:string):number{
   const normalized=normalizeArabic(value).replace(/\s+/g,'');
-  for(const [word,n] of Object.entries(LEVEL_WORDS))if(normalized.includes(word))return n;
+  for(const [word,n] of Object.entries(LEVEL_WORDS).sort(([a],[b])=>b.length-a.length))if(normalized.includes(word))return n;
   const found=normalized.match(/(?:^|\D)(1[0-2]|[1-9])(?:\D|$)/);
   return found?Number(found[1]):0;
 }
@@ -192,7 +192,11 @@ export function extractInstructorDirectory(table:string[][],targetDepartment='')
 /** Parse a curriculum file without inferring demand or silently discarding zero-contact alternatives. */
 export function importAutomaticCurriculumCsv(raw:string):AutomaticCurriculum{
   if(Buffer.byteLength(raw,'utf8')>5*1024*1024)throw new Error('Curriculum CSV exceeds 5 MiB');
-  const rows=parseCsv(raw);if(rows.length<2)throw new Error('Curriculum CSV is empty');
+  const allRows=parseCsv(raw);if(allRows.length<2)throw new Error('Curriculum CSV is empty');
+  const headerRow=allRows.findIndex((row,index)=>index<35&&headerIndex(row,aliases.code)>=0&&
+    headerIndex(row,aliases.title)>=0&&headerIndex(row,aliases.level)>=0);
+  if(headerRow<0)throw new Error('Required curriculum columns missing: code, title, level');
+  const rows=allRows.slice(headerRow);
   const headers=rows[0]!.map(clean);
   const indexes={code:headerIndex(headers,aliases.code),title:headerIndex(headers,aliases.title),
     level:headerIndex(headers,aliases.level,true),theory:headerIndex(headers,aliases.theory),
@@ -206,7 +210,8 @@ export function importAutomaticCurriculumCsv(raw:string):AutomaticCurriculum{
     throw new Error('Curriculum must contain theory, practical, or tutorial hours');
   const courses:AutomaticCourse[]=[],seen=new Set<string>(),warnings:string[]=[];
   for(const [offset,row] of rows.slice(1).entries()){
-    const sourceRow=offset+2,code=clean(row[indexes.code]),title=clean(row[indexes.title]);
+    if(row.every((value,index)=>normalizeArabic(value)===normalizeArabic(headers[index]??'')))continue;
+    const sourceRow=headerRow+offset+2,code=clean(row[indexes.code]),title=clean(row[indexes.title]);
     if(!code&&!title)continue;if(!code||!title)throw new Error(`Row ${sourceRow}: missing code/title`);
     const normalizedCode=normalizeCourseCode(code);if(seen.has(normalizedCode))
       throw new Error(`Duplicate normalized course code at row ${sourceRow}: ${code}`);seen.add(normalizedCode);
@@ -438,7 +443,7 @@ export function extractTraineeDemand(table:string[][],courseLevels:Record<string
   const normalizedCourseLevels=new Map(Object.entries(courseLevels).map(([code,level])=>[normalizeCourseCode(code),level]));
   const sourceRows=table.slice(headerRow+1).filter(row=>row.some(value=>clean(value)));
   const hasRegisteredRows=registeredIdx>=0&&sourceRows.some(row=>booleanFlag(row[registeredIdx])===true);
-  const hasOutstandingRows=!hasRegisteredRows&&fulfilledIdx>=0&&sourceRows.some(row=>booleanFlag(row[fulfilledIdx])===false);
+  const hasOutstandingRows=!hasRegisteredRows&&fulfilledIdx>=0;
   const strategy:TraineeDemandExtraction['strategy']=hasRegisteredRows?'REGISTERED_ROWS':
     hasOutstandingRows?'OUTSTANDING_ROWS':'ALL_TRAINEE_ROWS';
   const sourceKind:TraineeDemandExtraction['sourceKind']=hasOutstandingRows?'COURSE_REMAINING':'COURSE_REGISTRATIONS';

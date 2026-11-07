@@ -11,6 +11,7 @@ public class TpsConstraintProvider implements ConstraintProvider {
     @Override public Constraint[] defineConstraints(ConstraintFactory f) {
         return new Constraint[]{
                 overlappingSessions(f), instructorOverload(f), exclusiveCourse(f),
+                timetableContactLimit(f), sectionCountLimit(f), preferredSectionCount(f), preferredCourseType(f),
                 minimizeUncovered(f), preferSundayToWednesday(f)
         };
     }
@@ -38,6 +39,36 @@ public class TpsConstraintProvider implements ConstraintProvider {
                         && !a.getSelected().instructorId().equals(b.getSelected().instructorId()))
                 .penalize(HardSoftScore.ONE_HARD)
                 .asConstraint("One remote course owner");
+    }
+    private Constraint timetableContactLimit(ConstraintFactory f) {
+        return f.forEach(PlanningTask.class)
+                .filter(t -> !t.getSelected().uncovered() && t.getSelected().contactLimitMilli()!=null)
+                .groupBy(t -> t.getSelected().instructorId(), t -> t.getSelected().contactLimitMilli(),
+                        ConstraintCollectors.sum(t -> t.getSelected().contactMilli()))
+                .filter((id,limit,total) -> total>limit)
+                .penalize(HardSoftScore.ONE_HARD,(id,limit,total) -> total-limit)
+                .asConstraint("Trainer actual weekly timetable hour limit");
+    }
+    private Constraint sectionCountLimit(ConstraintFactory f) {
+        return f.forEach(PlanningTask.class)
+                .filter(t -> !t.getSelected().uncovered() && t.getSelected().sectionLimit()!=null)
+                .groupBy(t -> t.getSelected().instructorId(), t -> t.getSelected().sectionLimit(),ConstraintCollectors.count())
+                .filter((id,limit,total) -> total>limit)
+                .penalize(HardSoftScore.ONE_HARD,(id,limit,total) -> total-limit)
+                .asConstraint("Trainer maximum section count");
+    }
+    private Constraint preferredSectionCount(ConstraintFactory f) {
+        return f.forEach(PlanningTask.class)
+                .filter(t -> !t.getSelected().uncovered() && t.getSelected().preferredSectionCount()!=null)
+                .groupBy(t -> t.getSelected().instructorId(), t -> t.getSelected().preferredSectionCount(),ConstraintCollectors.count())
+                .reward(HardSoftScore.ONE_SOFT,(id,target,total) -> Math.min(target,total)*40)
+                .asConstraint("Trainer requested section count preference");
+    }
+    private Constraint preferredCourseType(ConstraintFactory f) {
+        return f.forEach(PlanningTask.class)
+                .filter(t -> !t.getSelected().uncovered() && t.getSelected().preferenceScore()!=null)
+                .reward(HardSoftScore.ONE_SOFT,t -> t.getSelected().preferenceScore())
+                .asConstraint("Trainer course type preference");
     }
     private Constraint minimizeUncovered(ConstraintFactory f) {
         return f.forEach(PlanningTask.class).filter(t -> t.getSelected().uncovered())

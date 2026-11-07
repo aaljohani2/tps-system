@@ -11,6 +11,9 @@ import {validateRequest} from '../validation.js';
 import {exportScenarioXlsx} from './excel.js';
 import {renderPrintableScenario} from '../print-report.js';
 import {getEffectivePolicy} from './policies.js';
+import {sectionCapacity} from '../section-capacity.js';
+import {applyCourseCapacityException} from '../course-capacity-exception.js';
+import {applyExternalAssignments} from '../external-assignment.js';
 import {assessReadiness} from './readiness.js';
 import type {Course,Instructor,PlanRequest,PlanResult,Policy,Room} from '../types.js';
 
@@ -26,12 +29,11 @@ const solveSettings=z.object({
 /** Bound work before invoking either the greedy baseline or the candidate-limited Java optimizer. */
 export function projectedSectionCount(input:PlanRequest):number{
   return input.courses.reduce((total,c)=>{
+    if(c.assignmentScope==='EXTERNAL')return total;
     if(c.demand===0)return total;
     if(c.blockSizes)return total+c.blockSizes.length;
     if(c.mode==='SELF_PACED')return total+1;
-    const cap=input.policy.capacities[c.mode];
-    const limit=c.theoryHours>0&&c.practicalHours>0?Math.min(cap.theory!,cap.practical!):
-      c.theoryHours>0?cap.theory!:cap.practical!;
+    const limit=sectionCapacity(c,input.policy)!;
     if(!Number.isFinite(limit)||limit<=0)throw new Error('Invalid course capacity in policy');
     return total+Math.ceil(c.demand/limit);
   },0);
@@ -59,7 +61,7 @@ async function find(req:FastifyRequest,id:string):Promise<Stored>{
   await scope(req,row.department_id);
   return row;
 }
-async function fromDatabase(departmentId:string,termId:string,name:string,policy:Policy,
+export async function fromDatabase(departmentId:string,termId:string,name:string,policy:Policy,
   db:Pick<PoolClient,'query'>=pool,planId?:string,selectedCourseCodes?:string[]):Promise<PlanRequest>{
   const d=await db.query<{college_id:string}>('SELECT college_id FROM departments WHERE id=$1',[departmentId]);
   const collegeId=d.rows[0]?.college_id;
@@ -75,7 +77,7 @@ async function fromDatabase(departmentId:string,termId:string,name:string,policy
     db.query('SELECT * FROM instructors WHERE department_id=$1 AND is_active=true ORDER BY code',[departmentId]),
     db.query('SELECT * FROM rooms WHERE college_id=$1 AND is_active=true ORDER BY code',[collegeId]),
     db.query('SELECT de.course_id,de.projected_students FROM demand_estimates de JOIN courses c ON c.id=de.course_id WHERE c.department_id=$1 AND de.term_id=$2',[departmentId,termId]),
-    db.query(`SELECT a.course_id,b.size,(co.code || '::' || b.code) AS block_ref
+    db.query(`SELECT a.course_id,b.size,co.level AS block_level,(co.code || '::' || b.code) AS block_ref
       FROM block_course_assignments a JOIN courses c ON c.id=a.course_id
       JOIN student_blocks b ON b.id=a.block_id JOIN cohorts co ON co.id=b.cohort_id
       WHERE c.department_id=$1 AND a.term_id=$2 ORDER BY co.code,b.code`,[departmentId,termId]),
@@ -83,6 +85,9 @@ async function fromDatabase(departmentId:string,termId:string,name:string,policy
       JOIN instructors i ON i.id=e.instructor_id
       WHERE i.department_id=$1 AND e.term_id=$2 AND e.state='APPROVED'`,[departmentId,termId])
   ]);
+  const effectivePolicy=structuredClone(policy);
+  for(const course of coursesRaw.rows.filter(course=>course.assignment_scope==='EXTERNAL'))
+    effectivePolicy.courseSectionCapacities={...effectivePolicy.courseSectionCapacities,[course.code]:course.external_section_capacity??40};
   const estimateByCourse=new Map<string,number>(demandRaw.rows.map(v=>[v.course_id,Number(v.projected_students)]));
   const assignedByCourse=new Map<string,Array<{ref:string;size:number}>>();
   for(const row of blocksRaw.rows){
@@ -97,7 +102,8 @@ async function fromDatabase(departmentId:string,termId:string,name:string,policy
     const demand=projected??(c.demand>0?c.demand:blockTotal);
     if(links.length && blockTotal!==demand)
       throw invalid(`Block sizes for ${c.code} total ${blockTotal} while approved planning demand is ${demand}; reconcile before scheduling`,409);
-    const cap=c.mode==='SELF_PACED'?null:policy.capacities[c.mode as keyof Policy['capacities']]?.theory;
+    const cap=c.mode==='SELF_PACED'?null:effectivePolicy.courseSectionCapacities?.[c.code]??
+      effectivePolicy.capacities[c.mode as keyof Policy['capacities']]?.theory;
     const sectionCap=typeof cap==='number'&&Number.isInteger(cap)&&cap>0?cap:null;
     const shouldPack=links.length>1&&Number(c.theory_hours)>0&&Number(c.practical_hours)===0&&
       sectionCap!==null;
@@ -107,6 +113,7 @@ async function fromDatabase(departmentId:string,termId:string,name:string,policy
     const combinedSizes=merged?packed!.map(group=>group.size):links.map(link=>link.size);
     return {
       code:c.code,title:c.title,level:c.level,demand,theoryHours:c.theory_hours,
+      assignmentScope:'DEPARTMENT',externalSectionCapacity:c.external_section_capacity??40,responsibleDepartment:c.responsible_department??null,
       practicalHours:c.practical_hours,mode:c.mode,eligibleModes:c.eligible_modes,
        requiredSpecialties:c.required_specialties??[],requiredEquipment:c.required_equipment??[],
       blocks:links.length?combinedRefs:(c.blocks.length?c.blocks:undefined),
@@ -122,17 +129,35 @@ async function fromDatabase(departmentId:string,termId:string,name:string,policy
   );
   const instructors:Instructor[]=instructorsRaw.rows.map(i=>({
     id:i.code,name:i.name,maxLoad:Number(i.max_load),allowedModes:i.allowed_modes,
+    teachingRules:i.teaching_rules??{},
     eligibleCourseCodes:i.eligible_course_codes??undefined,specialties:i.specialties??[],available:i.available??undefined,
     overload:approvedExtra.get(i.code)
   }));
+  const externalDefinitions=coursesRaw.rows.filter(course=>course.assignment_scope==='EXTERNAL').map(course=>({
+    code:course.code,capacity:course.external_section_capacity??40,responsibleDepartment:course.responsible_department??null}));
   for(const course of courses){
-    if(course.assignedInstructorId&&!instructors.some(i=>i.id===course.assignedInstructorId))
+    if(!externalDefinitions.some(item=>item.code===course.code)&&course.assignedInstructorId&&!instructors.some(i=>i.id===course.assignedInstructorId))
       throw invalid(`Locked instructor ${course.assignedInstructorId} for ${course.code} is inactive or missing; restore the trainer or explicitly revise the course assignment before scheduling`,409);
   }
   const rooms:Room[]=roomsRaw.rows.map(r=>({
     id:r.code,name:r.name,type:r.type,capacity:r.capacity,equipmentCodes:r.equipment_codes??[],available:r.available??undefined
   }));
-  return {scenarioName:name,termId,courses,instructors,rooms,policy};
+  let input:PlanRequest={scenarioName:name,termId,courses,instructors,rooms,policy:effectivePolicy};
+  if((externalDefinitions.length||Object.keys(policy.courseSectionCapacities??{}).length)&&
+    courses.every(course=>course.demand===0||(course.blocks?.length&&course.blockSizes?.length))){
+    const selectedIds=new Set(coursesRaw.rows.map(course=>course.id));
+    const evidence=new Map<string,{ref:string;level:number;size:number}>();
+    for(const block of blocksRaw.rows.filter(block=>selectedIds.has(block.course_id))){
+      const next={ref:block.block_ref,level:Number(block.block_level),size:Number(block.size)},prior=evidence.get(next.ref);
+      if(prior&&(prior.size!==next.size||prior.level!==next.level))throw invalid('Conflicting cohort block evidence',409);
+      evidence.set(next.ref,next);
+    }
+    input.cohortBlocks=[...evidence.values()];
+  }
+  for(const [code,capacity] of Object.entries(policy.courseSectionCapacities??{}))
+    if(courses.some(course=>course.code===code)&&!externalDefinitions.some(course=>course.code===code))
+      input=applyCourseCapacityException(input,code,capacity);
+  return applyExternalAssignments(input,externalDefinitions);
 }
 export async function createScenarioDraft(departmentId:string,termId:string,name:string,userId:string,
   db:Pick<PoolClient,'query'>=pool,effective?:{policy:Policy;revision:number},planId?:string,
@@ -185,6 +210,17 @@ export async function registerScenarios(app:FastifyInstance):Promise<void>{
     return created;
   });
   app.get('/api/v1/scenarios/:id',async(req)=>find(req,params(req)));
+  app.get('/api/v1/scenarios/:id/external.csv',async(req,reply)=>{
+    const scenario=await find(req,params(req));
+    const rows=[['المقرر','اسم المقرر','المستوى','الشعبة الخارجية','المتدربون','السعة','ساعات الاتصال',
+      'القسم المسؤول','الحالة','اسم المدرب الخارجي','اليوم','البداية','النهاية','القاعة'],
+      ...(scenario.result_snapshot.externalSections??[]).map(section=>[section.courseCode,section.title,section.level,
+        section.id,section.students,section.capacity,section.contactHours,section.responsibleDepartment??'',
+        'بانتظار إسناد القسم الآخر','','','','',''])];
+    reply.header('content-type','text/csv; charset=utf-8');
+    reply.header('content-disposition','attachment; filename="tps-external-course-request.csv"');
+    return reply.send('\uFEFF'+rows.map(row=>row.map(csvCell).join(',')).join('\r\n'));
+  });
   app.get('/api/v1/scenarios/:id/readiness',async(req)=>{
     const sc=await find(req,params(req));
     return assessReadiness(sc.input_snapshot,sc.result_snapshot,sc.solver_status);

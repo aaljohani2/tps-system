@@ -14,6 +14,9 @@ import WeeklyGrid,{type GridProposal} from './WeeklyGrid';
 import IssuePanel from './IssuePanel';
 import BulkImportsPage from './BulkImportsPage';
 import AutomaticPlanningPage from './AutomaticPlanningPage';
+import ScenarioProjectionSummary from './ScenarioProjectionSummary';
+import ExternalAssignmentsPanel from './ExternalAssignmentsPanel';
+import InstructorAssignmentSummary from './InstructorAssignmentSummary';
 
 const labels:Record<string,string>={ONSITE:'حضوري',REMOTE:'عن بُعد',SELF_PACED:'ذاتي',HYBRID:'مدمج'};
 const days:Record<string,string>={SUN:'الأحد',MON:'الإثنين',TUE:'الثلاثاء',WED:'الأربعاء',THU:'الخميس'};
@@ -112,6 +115,7 @@ function CourseRow({item,instructors,save,approve,lifecycle,canApprove,canEdit}:
   const [reason,setReason]=useState('');
   const [archiveReason,setArchiveReason]=useState('');
   const active=item.active!==false;
+  const [external,setExternal]=useState(item.assignmentScope==='EXTERNAL');
   const [specialties,setSpecialties]=useState((item.requiredSpecialties as string[]|undefined)?.join(',')??'');
   const [equipment,setEquipment]=useState((item.requiredEquipment as string[]|undefined)?.join(',')??'');
   const [assigned,setAssigned]=useState(String(item.assignedInstructorId??''));
@@ -133,10 +137,12 @@ function CourseRow({item,instructors,save,approve,lifecycle,canApprove,canEdit}:
         <label>مبرر اعتماد الأهلية<input value={reason} onChange={e=>setReason(e.target.value)}/></label>
         <button disabled={reason.trim().length<8} onClick={()=>approve({eligibleModes:eligibility,reason})}>حفظ الأهلية المعتمدة</button>
       </details>}</td>
-    <td><label>التخصصات المطلوبة للمقرر (رموز مفصولة بفواصل)<input value={specialties} onChange={e=>setSpecialties(e.target.value)}/></label>
+    <td><label style={{flexDirection:'row'}}><input type="checkbox" checked={external} onChange={e=>setExternal(e.target.checked)}/>
+      مقرر عام بإسناد خارجي — خارج نصاب القسم وعجزه، السعة 40</label>
+      <label>التخصصات المطلوبة للمقرر (رموز مفصولة بفواصل)<input value={specialties} onChange={e=>setSpecialties(e.target.value)}/></label>
       <label>التجهيزات المطلوبة للقاءات الحضورية<input value={equipment} onChange={e=>setEquipment(e.target.value)}/></label>
       <label>مدرب محدد
-      <select value={assigned} onChange={e=>setAssigned(e.target.value)}><option value="">إسناد آلي</option>
+      <select disabled={external} value={external?'':assigned} onChange={e=>setAssigned(e.target.value)}><option value="">{external?'إسناد من القسم الآخر':'إسناد آلي'}</option>
         {instructors.map(i=><option key={i.id} value={String(i.code)}>{String(i.name)} — {String(i.code)}</option>)}
       </select></label><label style={{flexDirection:'row',alignItems:'center',marginTop:8}}>
         <input type="checkbox" checked={exclusive} onChange={e=>setExclusive(e.target.checked)}/>
@@ -149,7 +155,8 @@ function CourseRow({item,instructors,save,approve,lifecycle,canApprove,canEdit}:
               onChange={e=>setHybrid(v=>({...v,[k]:Number(e.target.value)}))}/></label>)}
       </details>}</td>
     <td><button disabled={!active||!canEdit} onClick={()=>save({demand,blocks:blocks.split(',').map(x=>x.trim()).filter(Boolean),
-      mode,assignedInstructorId:assigned||null,exclusiveInstructor:exclusive,
+      mode,assignedInstructorId:external?null:assigned||null,exclusiveInstructor:exclusive,
+      assignmentScope:external?'EXTERNAL':'DEPARTMENT',externalSectionCapacity:40,
        requiredSpecialties:specialties.split(',').map(x=>x.trim()).filter(Boolean),
        requiredEquipment:equipment.split(',').map(x=>x.trim()).filter(Boolean),
       ...(mode==='HYBRID'?{hybridSplit:hybrid}:{hybridSplit:null})})}>حفظ</button>
@@ -188,7 +195,7 @@ function ResourcesPage({ctx,notify}:{ctx:Context;notify:Message}){
   </section>;
 }
 function Metrics({p}:{p:Plan}){
-  return <div className="metrics"><article><span>إجمالي الشعب</span><strong>{p.metrics.sectionCount}</strong></article>
+  return <div className="metrics"><article><span>{p.externalSections?.length?'شعب القسم':'إجمالي الشعب'}</span><strong>{p.metrics.sectionCount}</strong></article>
     <article><span>الساعات المطلوبة</span><strong>{p.metrics.requiredContactHours}</strong></article>
     <article><span>الساعات المغطاة</span><strong>{p.metrics.assignedContactHours}</strong></article>
     <article className={p.metrics.uncoveredSectionCount?'danger':''}><span>الشعب غير المغطاة</span><strong>{p.metrics.uncoveredSectionCount}</strong></article></div>;
@@ -212,7 +219,7 @@ function Timetable({p}:{p:Plan}){
 function ScenarioPage({ctx,notify,user}:{ctx:Context;notify:Message;user:Auth}){
   const qc=useQueryClient(),list=useQuery({queryKey:['scenarios',ctx.departmentId,ctx.termId],
     queryFn:()=>api<Scenario[]>('/scenarios?departmentId='+ctx.departmentId+'&termId='+ctx.termId),enabled:!!ctx.departmentId&&!!ctx.termId});
-  const [name,setName]=useState('السيناريو الحضوري'),[selected,setSelected]=useState(''),[working,setWorking]=useState(false),[second,setSecond]=useState('');
+  const [name,setName]=useState('السيناريو الحضوري'),[selected,setSelected]=useState(()=>new URLSearchParams(window.location.search).get('scenario')??''),[working,setWorking]=useState(false),[second,setSecond]=useState('');
   const [solverSeconds,setSolverSeconds]=useState(5),[candidateBreadth,setCandidateBreadth]=useState(6);
   const [gridProposal,setGridProposal]=useState<GridProposal|null>(null);
   const [focusSection,setFocusSection]=useState<string|null>(null);
@@ -268,6 +275,9 @@ function ScenarioPage({ctx,notify,user}:{ctx:Context;notify:Message;user:Auth}){
       <a href={'/api/v1/scenarios/'+selected+'/print'} target="_blank" rel="noreferrer">
         تقرير مختصر للطباعة أو الحفظ PDF</a></div>
       <Metrics p={p}/>
+      <ScenarioProjectionSummary input={current.input_snapshot} result={p}/>
+      <ExternalAssignmentsPanel scenario={current}/>
+      <InstructorAssignmentSummary input={current.input_snapshot} result={p}/>
       <h3>فحص جاهزية الاعتماد</h3>
       <div className={readiness.data?.technicalReady?'alert success':'alert'}>
         {readiness.data?.technicalReady?'اكتمل التحقق الفني من البيانات الأساسية، ويمكن طلب الاعتماد بحسب الصلاحيات.':
@@ -339,7 +349,7 @@ export default function App(){
     {message&&<div className="toast" role="status" onClick={()=>notify('')}>{message} <button aria-label="إغلاق">×</button></div>}
     <Routes><Route path="/" element={<Navigate to="/context" replace/>}/>
     <Route path="/context" element={<ContextSetup context={ctx} setContext={setCtx} notify={notify}/>}/>
-    <Route path="/automatic-planning" element={ctx.departmentId&&ctx.termId?<AutomaticPlanningPage ctx={ctx} notify={notify}/>:<NeedContext/>}/>
+    <Route path="/automatic-planning" element={ctx.departmentId&&ctx.termId?<AutomaticPlanningPage ctx={ctx} user={user} notify={notify}/>:<NeedContext/>}/>
     <Route path="/courses" element={ctx.departmentId?<CoursePage ctx={ctx} user={user} notify={notify}/>:<NeedContext/>}/>
     <Route path="/dashboard" element={ctx.departmentId&&ctx.termId?<DashboardPage ctx={ctx}/>:<NeedContext/>}/>
     <Route path="/imports" element={ctx.departmentId&&ctx.termId?
