@@ -202,6 +202,18 @@ jobs:
         run: node --test dist/tests/bulk-xlsx-unicode.test.js
       - name: Python XLSX reader direct on Windows without PYTHONUTF8 workaround
         run: python -m unittest discover -s scripts -p test_bulk_xlsx.py -v
+      - name: Parse the non-destructive Windows smart-import upgrade procedure
+        shell: powershell
+        run: |
+          $parseErrors = $null
+          [void][System.Management.Automation.Language.Parser]::ParseFile(
+            (Resolve-Path 'scripts/upgrade-smart-import-windows.ps1').Path,
+            [ref]$null, [ref]$parseErrors)
+          if ($parseErrors.Count -gt 0) {
+            $parseErrors | ForEach-Object { Write-Host $_.ToString() }
+            throw 'Windows upgrade script contains syntax errors.'
+          }
+          Write-Output 'PowerShell 5.1 upgrade script syntax passed.'
       - name: Verify PowerShell 5.1 installation stops on a native command failure
         shell: powershell
         run: |
