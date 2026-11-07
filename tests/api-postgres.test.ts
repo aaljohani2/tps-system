@@ -994,6 +994,9 @@ test('authenticated end-to-end workflow persists a synthetic TPS scenario in Pos
         alternativeSelections:{}
       }});
     assert.equal(groupedImport.statusCode,200,groupedImport.body);
+    assert.equal(groupedImport.json().theorySectionsCombined,1,
+      'Only one section is saved: four practical blocks vs three theory groups');
+    assert.equal(groupedImport.json().scheduledSections,7);
     const groupSnapshot=await pool.query('SELECT input_snapshot,result_snapshot FROM scenarios WHERE id=$1',
       [groupedImport.json().scenarioId]);
     const groupedCourses=groupSnapshot.rows[0].input_snapshot.courses as Array<{
