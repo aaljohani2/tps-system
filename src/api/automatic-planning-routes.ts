@@ -542,11 +542,17 @@ export async function registerAutomaticPlanning(app:FastifyInstance){
     if(resolved.missing.length||calculation.missingInputs.length)
       throw fail('Unresolved plan or level demand: '+[
         ...resolved.missing.map(level=>'level '+level),...calculation.missingInputs].join('; '),409);
-    // Hash source bytes and operational choices, not filename or personal rows.
+    // Program identity is the stable scoped program CODE, not a changing
+    // create-vs-select UI choice or the post-commit draft plan ID. A second
+    // click/reloaded page must not duplicate an earlier successful import.
+    const selectedProgramCode=input.programId?
+      (await pool.query<{code:string}>('SELECT code FROM training_programs WHERE id=$1 AND department_id=$2',[
+        input.programId,input.departmentId])).rows[0]?.code:input.newProgramCode;
+    if(!selectedProgramCode)throw fail('Selected program is missing or outside this department',409);
     const requestHash=createHash('sha256').update(JSON.stringify({
-      departmentId:input.departmentId,termId:input.termId,programId:input.programId??null,
-      newProgramCode:input.newProgramCode??null,newProgramName:input.newProgramName??null,
-      existingPlanId:input.existingPlanId??null,planCode:input.planCode,versionLabel:input.versionLabel,
+      departmentId:input.departmentId,termId:input.termId,
+      programCode:selectedProgramCode.trim(),
+      planCode:input.planCode,versionLabel:input.versionLabel,
       scenarioName:input.scenarioName,planSha:input.plan.sha256,traineeSha:input.trainees.sha256,
       resourcesSha:input.resources?.sha256??null,sourceKind:input.sourceKind,capacities:input.capacities,
       alternatives:input.alternativeSelections,defaultMaxLoad:input.defaultMaxLoad
