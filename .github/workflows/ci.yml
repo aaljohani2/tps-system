@@ -119,6 +119,8 @@ jobs:
           cat /tmp/tps-vite.log
           exit 1
       - run: TPS_E2E_MOCK=1 npm run e2e --prefix frontend -- phase10-11.spec.ts
+      - name: Verify unified automatic planning and conflicting-file selection in Chromium
+        run: TPS_E2E_MOCK=1 npm run e2e --prefix frontend -- automatic-planning.spec.ts
 
   web-e2e-real:
     runs-on: ubuntu-latest
