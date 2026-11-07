@@ -109,9 +109,20 @@ switch($Action){
             if($VerifiedRunId -le 0){throw 'Maven is not installed. Supply -VerifiedRunId <successful GitHub Actions TPS checks run id> and an authenticated gh CLI.'}
             $gh=Get-Command gh.exe,gh -ErrorAction SilentlyContinue | Select-Object -First 1
             if(!$gh){throw 'Neither Maven nor GitHub CLI exists. Install GitHub CLI or Maven; do not use an old Timefold JAR.'}
-            $details=(& gh run view $VerifiedRunId -R $Repository --json headSha,conclusion -q '.headSha + "|" + .conclusion' | Out-String).Trim()
-            if($LASTEXITCODE -ne 0 -or $details -ne "$head|success"){
-                throw "GitHub Actions run is not green for this exact commit. Got: $details"
+            # Windows PowerShell 5.1 strips nested quotes from gh's -q jq
+            # expression. Request JSON and validate fields natively instead.
+            $runJsonText=(& gh run view $VerifiedRunId -R $Repository --json headSha,conclusion | Out-String).Trim()
+            if($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($runJsonText)){
+                throw 'Could not retrieve a GitHub Actions run. No solver JAR was replaced.'
+            }
+            try{
+                $verifiedRun=$runJsonText | ConvertFrom-Json -ErrorAction Stop
+            }catch{
+                throw 'GitHub Actions returned an invalid JSON run response. No solver JAR was replaced.'
+            }
+            if($verifiedRun.headSha -ne $head -or $verifiedRun.conclusion -ne 'success'){
+                throw ("GitHub Actions run is not green for this exact commit: " +
+                    "expected=$head; actual=$($verifiedRun.headSha); conclusion=$($verifiedRun.conclusion)")
             }
             # Download in a new staging directory first: never destroy the last
             # working JAR if GitHub artifact retrieval fails.
