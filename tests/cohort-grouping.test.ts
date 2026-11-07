@@ -3,6 +3,9 @@ import assert from 'node:assert/strict';
 import {packTheoryBlocks,hasSharedBlock} from '../src/cohort-grouping.js';
 import {validateRequest} from '../src/validation.js';
 import {defaultPolicy} from '../src/policy.js';
+import {buildDraftPlan} from '../src/planner.js';
+import {assessReadiness} from '../src/api/readiness.js';
+import type {PlanRequest} from '../src/types.js';
 
 test('combined theory groups use capacity while preserving every practical base block',()=>{
   const base=[40,40,40,40,5].map((size,index)=>({
@@ -38,4 +41,42 @@ test('validated group identities cannot be replaced with inconsistent or repeate
     /duplicated grouped cohort identities/);
   assert.throws(()=>validateRequest({...input,courses:[{...base,practicalHours:1}]}),
     /Cannot combine groups for practical/);
+});
+
+test('readiness blocks a merged lecture overlapping a practical member, even with different display IDs',()=>{
+  const policy=defaultPolicy();
+  const input:PlanRequest={
+    scenarioName:'Merged collision',termId:'SYNTHETIC',
+    policy,
+    courses:[
+      {code:'LECT',title:'Theory',level:1,demand:35,theoryHours:2,practicalHours:0,
+        mode:'ONSITE',eligibleModes:['ONSITE'],
+        blocks:['COHORT::B01 + COHORT::B02'],blockSizes:[35],
+        blockGroups:[['COHORT::B01','COHORT::B02']]},
+      {code:'LAB',title:'Lab',level:1,demand:20,theoryHours:0,practicalHours:2,
+        mode:'ONSITE',eligibleModes:['ONSITE'],
+        blocks:['COHORT::B02'],blockSizes:[20]}
+    ],
+    instructors:[
+      {id:'T-LECT',name:'Theory trainer',maxLoad:20,allowedModes:['ONSITE'],
+        eligibleCourseCodes:['LECT']},
+      {id:'T-LAB',name:'Practical trainer',maxLoad:20,allowedModes:['ONSITE'],
+        eligibleCourseCodes:['LAB']}
+    ],
+    rooms:[
+      {id:'R-LECT',name:'Lecture',type:'CLASSROOM',capacity:50},
+      {id:'R-LAB',name:'Lab',type:'LAB',capacity:30}
+    ]
+  };
+  const result=buildDraftPlan(input);
+  const lecture=result.sessions.find(s=>s.courseCode==='LECT');
+  const lab=result.sessions.find(s=>s.courseCode==='LAB');
+  assert.ok(lecture&&lab,'Both independent meetings should be feasible at distinct times');
+  lab.day=lecture.day;lab.start=lecture.start;lab.end=lecture.end;
+  assert.notEqual(lab.instructorId,lecture.instructorId);
+  assert.notEqual(lab.roomId,lecture.roomId);
+  const readiness=assessReadiness(input,result,'COMPLETED');
+  assert.ok(readiness.issues.some(x=>x.code==='BLOCK_COLLISION'),
+    'Readiness must block shared learner membership despite different group labels');
+  assert.equal(readiness.technicalReady,false);
 });
