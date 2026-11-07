@@ -249,6 +249,22 @@ jobs:
           if ($LASTEXITCODE -eq 0) { throw 'Test fixture unexpectedly created remote tracking ref' }
           $global:LASTEXITCODE = 0
           Write-Output 'Narrow-refspec FETCH_HEAD fast-forward succeeded without remote-tracking branch.'
+      - name: Validate gh JSON run parsing on Windows PowerShell 5.1 without jq quoting
+        shell: powershell
+        run: |
+          $fake = Join-Path $env:RUNNER_TEMP 'gh-fixture.cmd'
+          Set-Content -LiteralPath $fake -Encoding Ascii -Value '@echo off','echo {"headSha":"abc123","conclusion":"success"}'
+          $raw = (& $fake run view 123 -R fake/repo --json headSha,conclusion | Out-String).Trim()
+          if ($LASTEXITCODE -ne 0) { throw 'Fake GitHub CLI returned a failure' }
+          $run = $raw | ConvertFrom-Json -ErrorAction Stop
+          if ($run.headSha -ne 'abc123' -or $run.conclusion -ne 'success') {
+            throw 'Native JSON parsing failed on Windows PowerShell 5.1'
+          }
+          $updater = Get-Content -Raw -LiteralPath 'scripts/upgrade-smart-import-windows.ps1'
+          if ($updater -notmatch 'ConvertFrom-Json' -or $updater -match '\-q\s') {
+            throw 'The upgrade must parse GitHub CLI native JSON, not use fragile jq quoting.'
+          }
+          $global:LASTEXITCODE = 0
       - name: Verify PowerShell 5.1 installation stops on a native command failure
         shell: powershell
         run: |
@@ -371,6 +387,21 @@ jobs:
             sleep 2
           done
           exit 1
+      - name: Back up operational DB before new migrations are present
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Synthetic, disposable database: modern code must still back up
+          # an older or not-yet-migrated operational schema before upgrade.
+          docker compose exec -T postgres createdb -U tps --template template0 tps_operational_local
+          KEY="$(openssl rand -hex 32)"
+          echo "::add-mask::$KEY"
+          TPS_BACKUP_PASSPHRASE="$KEY" npm run local:production:backup
+          ARCHIVE="$(find private-data/backups -maxdepth 1 -name '*.tpsbak' -print -quit)"
+          test -n "$ARCHIVE"
+          TPS_BACKUP_PASSPHRASE="$KEY" npm run local:production:backup:verify -- --file "$ARCHIVE"
+          # Cleanup concerns only the throwaway CI archive, not a user backup.
+          rm -- "$ARCHIVE"
       - name: Create isolated operational DB and prove repeatable initialization
         run: |
           npm run local:production:init
