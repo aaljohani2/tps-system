@@ -96,9 +96,10 @@ async function fromDatabase(departmentId:string,termId:string,name:string,policy
     if(links.length && blockTotal!==demand)
       throw invalid(`Block sizes for ${c.code} total ${blockTotal} while approved planning demand is ${demand}; reconcile before scheduling`,409);
     const cap=c.mode==='SELF_PACED'?null:policy.capacities[c.mode as keyof Policy['capacities']]?.theory;
+    const sectionCap=typeof cap==='number'&&Number.isInteger(cap)&&cap>0?cap:null;
     const shouldPack=links.length>1&&Number(c.theory_hours)>0&&Number(c.practical_hours)===0&&
-      Number.isInteger(cap)&&cap>0;
-    const packed=shouldPack?packTheoryBlocks(links.map(b=>({ref:b.ref,size:b.size})),cap):null;
+      sectionCap!==null;
+    const packed=shouldPack?packTheoryBlocks(links.map(b=>({ref:b.ref,size:b.size})),sectionCap!):null;
     const merged=packed?.some(group=>group.members.length>1)??false;
     const combinedRefs=merged?packed!.map(group=>group.members.join(' + ')):links.map(link=>link.ref);
     const combinedSizes=merged?packed!.map(group=>group.size):links.map(link=>link.size);
