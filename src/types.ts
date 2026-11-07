@@ -29,8 +29,10 @@ export interface Course {
   exclusiveInstructor?: boolean;
   /** Existing cohort/group identifiers; missing values are not inferred. */
   blocks?: string[];
-  /** Cohort sizes from normalized block assignments, one scheduled section per assigned block. */
+  /** Cohort sizes from normalized block assignments, with optional safe theory-only grouping. */
   blockSizes?: number[];
+  /** The exact original blocks included in each section. Required when several blocks are combined. */
+  blockGroups?: string[][];
   hybridSplit?: HybridSplit;
   departmentId?: string;
 }
@@ -83,6 +85,8 @@ export interface Section {
   students: number;
   capacity: number | null;
   blockId: string | null;
+  /** Original block identities preserved for safe collision checks in merged lectures. */
+  blockIds?: string[];
   paired: boolean;
   instructorId: string | null;
   contactHours: number;
@@ -101,6 +105,8 @@ export interface Session {
   roomId: string | null;
   instructorId: string;
   blockId: string | null;
+  /** Original block identities preserved for safe collision checks in merged lectures. */
+  blockIds?: string[];
 }
 export interface Gap {
   sectionId: string;
