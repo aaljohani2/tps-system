@@ -21,6 +21,7 @@ type Materialization={programId:string;demandRecords:number;cohorts:number;block
 type ResourcePreview={sheet:string;metadata:Record<string,string>;instructors:number;courseLinkedInstructors:number;
   sourceRows:number;warnings:string[];ready:boolean;sha256:string};
 type DetectedFile={name:string;roles:string[];detail:string};
+type HistoryCandidate={file:File;preview:HistoryPreview;score:number};
 const modeLabels:Record<string,string>={ONSITE_THEORY:'نظري حضوري',REMOTE_THEORY:'نظري عن بُعد',PRACTICAL:'عملي',MIXED:'نظري/عملي'};
 const strategyLabels:Record<string,string>={AGGREGATED_COUNTS:'أعداد مجمعة حسب المستوى',REGISTERED_ROWS:'صفوف التسجيل الفعلي',
   OUTSTANDING_ROWS:'المقررات المتبقية غير المستوفاة',ALL_TRAINEE_ROWS:'جدول/تسجيلات المتدربين'};
@@ -41,6 +42,7 @@ export default function AutomaticPlanningPage({ctx,notify}:{ctx:Context;notify:(
   const [scenarioName,setScenarioName]=useState('سيناريو التخطيط الآلي');
   const [newProgramName,setNewProgramName]=useState(''),[newProgramCode,setNewProgramCode]=useState('');
   const [detectedFiles,setDetectedFiles]=useState<DetectedFile[]>([]);
+  const [conflictingHistorySources,setConflictingHistorySources]=useState<HistoryCandidate[]>([]);
   const [resourceFile,setResourceFile]=useState<File|null>(null),[resourcePreview,setResourcePreview]=useState<ResourcePreview|null>(null);
   const [defaultMaxLoad,setDefaultMaxLoad]=useState(18);
   const [capacities,setCapacities]=useState<CapacitySettings>({remoteTheory:100,onsiteTheory:50,practical:40,mixed:40});
@@ -102,7 +104,13 @@ export default function AutomaticPlanningPage({ctx,notify}:{ctx:Context;notify:(
     return result;
   }
   async function analyzeFiles(files:File[]){
-    if(!files.length)return;setWorking(true);setDetectedFiles([]);setIntegration(null);
+    if(!files.length)return;
+    // A failed new upload must never leave an older plan and trainee count pair
+    // available for approval under the new selected filenames.
+    setWorking(true);setDetectedFiles([]);setConflictingHistorySources([]);
+    setPlanFile(null);setPlan(null);setHistory(null);setDataFile(null);
+    setResourceFile(null);setResourcePreview(null);setResult(null);
+    setSavedPlanId(null);setIntegration(null);
     try{
       const detected=new Map(files.map(file=>[file.name,{name:file.name,roles:[] as string[],detail:''}]));
       let selectedPlan:{file:File;preview:PlanPreview}|null=null;
@@ -113,7 +121,8 @@ export default function AutomaticPlanningPage({ctx,notify}:{ctx:Context;notify:(
           selectedPlan={file,preview};
       }catch{/* A smart batch may contain non-curriculum files. */}
       if(!selectedPlan)throw new Error('لم يُكتشف ملف خطة يحتوي رمز المقرر واسمه ومستواه وساعاته');
-      let selectedHistory:{file:File;preview:HistoryPreview;score:number}|null=null;
+      let selectedHistory:HistoryCandidate|null=null;
+      const historyCandidates:HistoryCandidate[]=[];
       let selectedResources:{file:File;preview:ResourcePreview}|null=null;
       for(const file of files){
         try{
@@ -123,7 +132,9 @@ export default function AutomaticPlanningPage({ctx,notify}:{ctx:Context;notify:(
           detected.get(file.name)!.roles.push('أعداد متدربين');
           detected.get(file.name)!.detail=[detected.get(file.name)!.detail,
             `${Object.keys(preview.counts).length} مستويات${preview.detection?.uniqueTrainees?` · ${preview.detection.uniqueTrainees} متدربًا فريدًا`:''}`].filter(Boolean).join(' · ');
-          if(!selectedHistory||score>selectedHistory.score)selectedHistory={file,preview,score};
+          const candidate={file,preview,score};
+          historyCandidates.push(candidate);
+          if(!selectedHistory||score>selectedHistory.score)selectedHistory=candidate;
         }catch{/* Keep looking for another known dataset in the file. */}
         try{
           const preview=await resourcesPreview(file);
@@ -135,16 +146,34 @@ export default function AutomaticPlanningPage({ctx,notify}:{ctx:Context;notify:(
       }
       if(!selectedHistory)throw new Error('اكتُشفت الخطة، لكن لم يُكتشف ملف أعداد أو تسجيلات متدربين يمكن ربطه بمستوياتها');
       applyPlan(selectedPlan.file,selectedPlan.preview);
-      setDataFile(selectedHistory.file);setHistory(selectedHistory.preview);
-      const kind=detectedSource(selectedHistory.preview);setSourceKind(kind);
-      if(selectedHistory.preview.capacities)setCapacities(selectedHistory.preview.capacities);
-      setSelections(inferAlternatives(selectedPlan.preview,selectedHistory.preview));
+      // Multiple independent source files may represent different terms or
+      // different trainee populations. Never pick the largest/highest score
+      // silently when their level counts are materially different.
+      const signatures=new Set(historyCandidates.map(candidate=>
+        JSON.stringify(Object.entries(candidate.preview.counts).sort(([a],[b])=>Number(a)-Number(b)))));
+      if(signatures.size>1){
+        setConflictingHistorySources(historyCandidates);
+        notify('اكتُشفت مصادر أعداد مختلفة؛ اختر مصدر الفصل الصحيح صراحة قبل الاعتماد. لم تُحفظ بيانات.');
+      }else{
+        setDataFile(selectedHistory.file);setHistory(selectedHistory.preview);
+        const kind=detectedSource(selectedHistory.preview);setSourceKind(kind);
+        if(selectedHistory.preview.capacities)setCapacities(selectedHistory.preview.capacities);
+        setSelections(inferAlternatives(selectedPlan.preview,selectedHistory.preview));
+      }
       if(selectedResources){setResourceFile(selectedResources.file);setResourcePreview(selectedResources.preview);}
       else{setResourceFile(null);setResourcePreview(null);}
       setDetectedFiles([...detected.values()].map(item=>item.roles.length?item:{...item,roles:['غير مستخدم'],detail:'لم تُكتشف بنية مدعومة في هذا الملف'}));
-      notify(`اكتمل الاكتشاف الذكي: الخطة ${selectedPlan.preview.curriculum.courses.length} مقررًا، والأعداد من ${selectedHistory.file.name}.`);
+      if(signatures.size===1)notify(`اكتمل الاكتشاف الذكي: الخطة ${selectedPlan.preview.curriculum.courses.length} مقررًا، والأعداد من ${selectedHistory.file.name}.`);
     }catch(e){notify('تعذر إكمال الاكتشاف الذكي: '+String(e instanceof Error?e.message:e));}
     finally{setWorking(false);}
+  }
+  function chooseCountSource(candidate:HistoryCandidate){
+    setDataFile(candidate.file);setHistory(candidate.preview);setSourceKind(detectedSource(candidate.preview));
+    if(candidate.preview.capacities)setCapacities(candidate.preview.capacities);
+    if(plan)setSelections(inferAlternatives(plan,candidate.preview));
+    setConflictingHistorySources([]);
+    setResult(null);setIntegration(null);
+    notify('اعتُمد مصدر الأعداد للمعاينة: '+candidate.file.name+'؛ لم تُكتب أي بيانات بعد.');
   }
   async function uploadPlan(){if(!planFile)return;setWorking(true);try{
     const preview=await planPreview(planFile);applyPlan(planFile,preview);
@@ -228,6 +257,18 @@ export default function AutomaticPlanningPage({ctx,notify}:{ctx:Context;notify:(
         {detectedFiles.map(file=><tr key={file.name}><td>{file.name}</td><td>{file.roles.join('، ')}</td><td>{file.detail}</td></tr>)}
       </tbody></table></div>}
     </section>
+    {!!conflictingHistorySources.length&&<section className="alert" role="alert">
+      <h3>مصادر أعداد متعارضة — يلزم تحديد المرجع قبل اعتماد الاستيراد</h3>
+      <p>لا يمكن دمج أعداد ملفات متعددة أو اختيار أكبر عدد تلقائيًا؛ قد تخص فصولًا أو فئات مختلفة.</p>
+      {conflictingHistorySources.map(candidate=><div key={candidate.file.name}>
+        <strong>{candidate.file.name}</strong>
+        <span> — {Object.entries(candidate.preview.counts).sort(([a],[b])=>Number(a)-Number(b))
+          .map(([level,count])=>`المستوى ${level}: ${count}`).join(' · ')}</span>
+        <button type="button" disabled={working} onClick={()=>chooseCountSource(candidate)}>
+          استخدام أعداد هذا الملف فقط
+        </button>
+      </div>)}
+    </section>}
     <ol className="workflow"><li>رفع الخطة</li><li>اكتشاف المقررات</li><li>قراءة الأعداد</li><li>احتساب الشعب</li><li>تحليل الموارد</li><li>تشغيل Timefold</li></ol>
     <div className="split"><section><h3>١. الخطة التدريبية</h3><label>CSV أو Excel<input type="file" accept=".csv,.xlsx" disabled={working}
       onChange={e=>{setPlanFile(e.target.files?.[0]??null);setPlan(null);setResult(null);}}/></label>
