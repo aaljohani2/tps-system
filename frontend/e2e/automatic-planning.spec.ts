@@ -136,15 +136,21 @@ test('one smart multi-file upload at /imports connects plan, counts, instructors
         demandSource:'ملف تسجيلات',confidence:'HIGH',historical:false,mode:'ONSITE_THEORY',
         capacity:50,academicGroups:1,groupSizes:[37],components:{theory:1,practical:0},
         contactHours:2,complete:true,resourceOwner:'تقنية الأعمال',discrepancy:null,note:null}] }));}
-    if(endpoint.endsWith('/plan/commit')){called.push('plan');return route.fulfill(json({
-      planId:'new-plan',records:1,previousPlanId:null}));}
-    if(endpoint.endsWith('/resources/commit')){called.push('resources');return route.fulfill(json({
-      status:'COMMITTED',imported:1,skipped:0,warnings:[]}));}
-    if(endpoint.endsWith('/materialize')){called.push('materialize');return route.fulfill(json({
-      programId:'program',demandRecords:1,cohorts:1,blocks:1,assignments:1,
-      blockCapacityByLevel:{1:40},scenarioId:'scenario',
-      scenario:{state:'DRAFT',solverStatus:'NOT_RUN',metrics:{sectionCount:1,uncoveredSectionCount:0},gaps:0},
-      scenarioError:null,notice:'safe blocks'}));}
+    if(endpoint.endsWith('/full-import')){
+      called.push('atomic-full-import');
+      const payload=JSON.parse(uploaded) as {plan:{name:string;sha256:string;base64:string};
+        trainees:{name:string;sha256:string;base64:string};resources:{name:string;sha256:string;base64:string}};
+      expect(Buffer.from(payload.plan.base64,'base64').toString()).toBe('PLAN');
+      expect(Buffer.from(payload.trainees.base64,'base64').toString()).toBe('COUNT');
+      expect(Buffer.from(payload.resources.base64,'base64').toString()).toBe('TRAINER');
+      expect(payload.plan.sha256).toMatch(/^[a-f0-9]{64}$/);
+      return route.fulfill(json({status:'COMMITTED',programId:'program',planId:'new-plan',
+        demandRecords:1,cohorts:1,blocks:1,assignments:1,instructorsImported:1,replayed:false,
+        blockCapacityByLevel:{1:40},scenarioId:'scenario',
+        scenario:{state:'DRAFT',solverStatus:'NOT_RUN',
+          metrics:{sectionCount:1,uncoveredSectionCount:0},gaps:0},
+        scenarioError:null,notice:'atomic'}));
+    }
     if(endpoint.endsWith('/solve/async')){called.push('timefold');return route.fulfill(json({solverStatus:'RUNNING'}));}
     return route.fulfill(json([]));
   });
@@ -159,5 +165,5 @@ test('one smart multi-file upload at /imports connects plan, counts, instructors
   await expect(page.getByText(/اكتُشف 1 مدربًا/)).toBeVisible();
   await page.getByRole('button',{name:'اعتماد الملفات وتحديث كامل النظام وتشغيل Timefold'}).click();
   await expect(page.getByText(/Timefold: بدأ التشغيل/)).toBeVisible();
-  expect(called).toEqual(['calculate','plan','resources','materialize','timefold']);
+  expect(called).toEqual(['calculate','atomic-full-import','timefold']);
 });
