@@ -55,3 +55,46 @@ test('automatic planning journey asks for source files and renders calculated gr
   await expect(page.getByRole('heading',{name:'الاستيراد بالقوالب التشغيلية'})).toBeVisible();
   await expect(page.locator('input[type=file][multiple]')).toHaveCount(1);
 });
+
+test('smart /imports refuses to silently select contradictory trainee counts',async({page})=>{
+  test.skip(process.env.TPS_E2E_MOCK!=='1','Run only with mock browser fixture');
+  await page.addInitScript(()=>localStorage.setItem('tps-context',
+    JSON.stringify({collegeId:'college',departmentId:'department',termId:'term'})));
+  const json=(value:unknown)=>({status:200,contentType:'application/json',body:JSON.stringify(value)});
+  await page.route('**/api/v1/**',async route=>{
+    const endpoint=new URL(route.request().url()).pathname;
+    const input=route.request().postData()??'';
+    if(endpoint==='/api/v1/auth/me')return route.fulfill(json({
+      id:'admin',username:'synthetic',role:'SYSTEM_ADMIN',collegeId:null,departmentId:null,csrfToken:'token'}));
+    if(endpoint==='/api/v1/programs')return route.fulfill(json([{id:'program',code:'BUS',name:'تقنية الأعمال'}]));
+    if(endpoint.endsWith('/plan/preview')){
+      if(input!=='PLAN')return route.fulfill({status:400,contentType:'application/json',body:'{"error":"Not a curriculum"}'});
+      const c={code:'C1',normalizedCode:'C1',title:'مقرر واحد',level:1,
+        theoryHours:2,practicalHours:0,tutorialHours:0,alternativeGroup:null,
+        responsibleDepartment:'تقنية الأعمال',specialKind:'REGULAR'};
+      return route.fulfill(json({sheet:'CSV',curriculum:{metadata:{department:'تقنية الأعمال'},
+        sourceRows:1,warnings:[],levels:[{level:1,courses:[c]}],courses:[c]}}));
+    }
+    if(endpoint.endsWith('/history/preview')){
+      if(input==='PLAN')return route.fulfill({status:400,contentType:'application/json',body:'{"error":"No learner counts"}'});
+      const count=input==='COUNT_A'?100:200;
+      return route.fulfill(json({sheet:'CSV',counts:{1:count},warnings:[],settings:[],courseCount:1,
+        detection:{kind:'COURSE_REGISTRATIONS',strategy:'ALL_TRAINEE_ROWS',
+          uniqueTrainees:count,matchedTrainees:count,matchedRows:count}}));
+    }
+    if(endpoint.endsWith('/resources/preview'))return route.fulfill({
+      status:400,contentType:'application/json',body:'{"error":"Not an instructor directory"}'});
+    return route.fulfill(json([]));
+  });
+  await page.goto('/imports');
+  await page.locator('input[type=file][multiple]').setInputFiles([
+    {name:'plan.csv',mimeType:'text/csv',buffer:Buffer.from('PLAN')},
+    {name:'first.csv',mimeType:'text/csv',buffer:Buffer.from('COUNT_A')},
+    {name:'second.csv',mimeType:'text/csv',buffer:Buffer.from('COUNT_B')}
+  ]);
+  await expect(page.getByRole('heading',{name:/مصادر أعداد متعارضة/})).toBeVisible();
+  await expect(page.getByRole('button',{name:/اعتماد الملفات وتحديث كامل النظام/})).toHaveCount(0);
+  await page.getByRole('button',{name:'استخدام أعداد هذا الملف فقط'}).first().click();
+  await expect(page.getByRole('heading',{name:'الأعداد المستخرجة'})).toBeVisible();
+  await expect(page.getByRole('cell',{name:'100',exact:true})).toBeVisible();
+});
