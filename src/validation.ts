@@ -45,6 +45,17 @@ function validateCourse(c: Course, p: Policy, errors: string[]): void {
   if (c.mode === 'SELF_PACED' && p.selfPacedLoadPerOffering === null) errors.push(`SELF_PACED ${c.code} needs an approved load policy.`);
   if (c.blocks && (c.blocks.length === 0 || c.blocks.some(x => !x))) errors.push(`Invalid block identifiers for ${c.code}`);
   if(c.blocks && new Set(c.blocks).size!==c.blocks.length)errors.push(`Duplicate block assignments for ${c.code}`);
+  if(c.blockGroups){
+    if(!c.blocks||!c.blockSizes||c.blockGroups.length!==c.blocks.length||
+      c.blockGroups.some((members,index)=>!members.length||
+        new Set(members).size!==members.length||
+        members.some(member=>typeof member!=='string'||!member)||
+        c.blocks?.[index]!==members.join(' + '))||
+      new Set(c.blockGroups.flat()).size!==c.blockGroups.flat().length)
+      errors.push(`Invalid or duplicated grouped cohort identities for ${c.code}`);
+    if(c.practicalHours>0 || c.mode==='SELF_PACED')
+      errors.push(`Cannot combine groups for practical or self-paced course ${c.code}`);
+  }
   if(c.blockSizes){
     if(!c.blocks || c.blockSizes.length!==c.blocks.length || !c.blockSizes.length ||
       c.blockSizes.some(s=>!positiveInt(s)) ||
