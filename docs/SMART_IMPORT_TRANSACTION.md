@@ -197,3 +197,46 @@ forward migration cannot be undone by merely reverting source code.
 Do not restore over the operational database or delete the volume.
 
 **Do not merge draft PR #9 merely to test locally.**
+
+
+## Rayat-style resource discovery: instructors and college rooms
+
+Two places in the TPS frontend expose **استيراد مدربي وقاعات رايات من Excel**:
+\`/resources\` and \`/imports\`. Authorized users select one Excel (\`.xlsx\`) or CSV file
+from an exported timetable, instructor directory, or room list. This is **file
+ingestion only**, not an online connection or modification of Rayat.
+
+On **preview**, the backend detects worksheet header rows (including headers
+after informational rows), recognizes Arabic and English column aliases,
+deduplicates instructor/room identities across repeated meetings, checks
+college/department evidence, and flags unknown room capacity/type and
+placeholder instructor names. Raw source files are never stored in the database.
+One educational planning workbook, for instance, has an instructors sheet
+with placeholders such as *رئيس القسم — اكتب الاسم* and a timetable with
+room codes such as 1390110001 but no room capacity: the importer deliberately
+does not invent real instructor names or room capacities from those rows.
+
+The user reviews the preview. A college administrator (or system administrator)
+may import college-wide rooms and must supply an explicit room capacity/type
+for every new incomplete room, or opt to skip incomplete rooms. Department
+editors can import their trainers but **cannot add or alter shared college rooms**.
+Unscoped spreadsheets require explicit user confirmation of the selected
+college/department. Rows tagged with another college are excluded; instructors
+in another department are excluded, while genuine college-shared rooms
+can still be imported.
+
+**Commit** reparses original bytes, verifies SHA-256 against the preview
+and writes only new instructor/room records in a **single PostgreSQL
+transaction**, including an audit entry. Existing resources are never
+overwritten, archived or granted new qualifications by imported files.
+Historical timetable instructor-course links are **evidence**, not a future
+certification of competence. Newly imported instructors start with
+\`eligible_course_codes=[]\`, \`allowed_modes=["ONSITE"]\`, unknown load
+recorded as zero, and no claimed future availability, pending verified
+administrative configuration. A room without a verifiable type and capacity
+cannot become a schedulable room unless reviewed/corrected.
+
+The live local operational database is not touched by GitHub development;
+use only the approved local deployment procedure after current-HEAD CI
+is green. For sample institutional files, review row-level authorization
+and avoid uploading personally identifying learner data to GitHub.
