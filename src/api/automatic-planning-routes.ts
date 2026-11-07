@@ -32,7 +32,7 @@ async function tables(req:FastifyRequest):Promise<WorkbookTable[]>{
   if(media==='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')return readAutomaticWorkbook(bytes);
   throw fail('Only CSV and XLSX uploads are supported',415);
 }
-function tableCsvToRows(raw:string):string[][]{
+export function tableCsvToRows(raw:string):string[][]{
   // Reuse the hardened CSV parser indirectly by importing the plan, while retaining
   // this table only for historical-count discovery.
   const parsed:string[][]=[];let row:string[]=[],cell='',quoted=false;
