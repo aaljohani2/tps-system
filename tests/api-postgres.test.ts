@@ -601,6 +601,17 @@ test('authenticated end-to-end workflow persists a synthetic TPS scenario in Pos
     assert.equal(Number(smartTrainer.rows[0]?.max_load),18);
     assert.deepEqual(smartTrainer.rows[0]?.eligible_course_codes,['AUTO-'+uniq.toUpperCase()]);
     assert.equal(smartTrainer.rows[0]?.available,null);
+    const duplicateTrainerImport=await app.inject({method:'POST',
+      url:'/api/v1/automatic-planning/resources/commit?departmentId='+department.id+
+        '&expectedSha256='+smartTrainerPreview.json().sha256+'&defaultMaxLoad=18',
+      headers:{cookie:session,'x-csrf-token':csrf,'content-type':'text/csv'},payload:smartTrainerCsv});
+    assert.equal(duplicateTrainerImport.statusCode,409,
+      'Repeated timetable import must not overwrite an existing instructor or grant new modes');
+    const trainerStillOnsite=await pool.query('SELECT allowed_modes,eligible_course_codes FROM instructors WHERE department_id=$1 AND code=$2',[
+      department.id,'AUTO-I-'+uniq]);
+    assert.deepEqual(trainerStillOnsite.rows[0]?.allowed_modes,['ONSITE'],
+      'Historical online timetable is not proof of ongoing REMOTE authorization');
+    assert.deepEqual(trainerStillOnsite.rows[0]?.eligible_course_codes,['AUTO-'+uniq.toUpperCase()]);
     await pool.query('DELETE FROM instructors WHERE department_id=$1 AND code=$2',[department.id,'AUTO-I-'+uniq]);
     // Keep the materialization verification isolated from the structural workflow below. The
     // imported plan remains available for its lifecycle assertions, while its generated term
@@ -665,6 +676,20 @@ test('authenticated end-to-end workflow persists a synthetic TPS scenario in Pos
 
     const activation=await write('/plans/'+plan.id+'/activate',{reason:'Synthetic internally approved curriculum version'});
     assert.equal(activation.state,'ACTIVE');
+    const oldApprovedCourse=await pool.query('SELECT level,theory_hours,practical_hours FROM courses WHERE id=$1',[course.id]);
+    const conflictingNewPlan=Buffer.from([
+      'code,title,level,theory hours,practical hours,tutorial hours,credits',
+      'TEST-101,تغيير غير معتمد في مقرر نشط,المستوى الأول,9,0,0,1'
+    ].join('\\n'),'utf8');
+    const rejectedActiveRewrite=await app.inject({method:'POST',
+      url:'/api/v1/automatic-planning/plan/commit?departmentId='+department.id+'&programId='+program.id+
+        '&planCode=UNSAFE-'+uniq+'&versionLabel=Unsafe%20active%20course%20rewrite',
+      headers:{cookie:session,'x-csrf-token':csrf,'content-type':'text/csv'},payload:conflictingNewPlan});
+    assert.equal(rejectedActiveRewrite.statusCode,409,
+      'Smart plan import must not rewrite contact hours of a course in an active plan');
+    const unchangedApprovedCourse=await pool.query('SELECT level,theory_hours,practical_hours FROM courses WHERE id=$1',[course.id]);
+    assert.deepEqual(unchangedApprovedCourse.rows,oldApprovedCourse.rows,
+      'Rejected conflicting plan must leave approved catalog unchanged');
     const archiveActivePlanCourse=await app.inject({method:'PATCH',
       url:'/api/v1/courses/'+course.id+'/lifecycle',
       headers:{cookie:session,'x-csrf-token':csrf},
