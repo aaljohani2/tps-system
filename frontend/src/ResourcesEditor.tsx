@@ -2,6 +2,7 @@ import {useState} from 'react';
 import {useQuery,useQueryClient} from '@tanstack/react-query';
 import {api,post,type Auth,type Context,type Entity} from './api';
 import LoadExceptionPanel from './LoadExceptionPanel';
+import RayatResourceImport from './RayatResourceImport';
 
 type Mode='ONSITE'|'REMOTE'|'SELF_PACED'|'HYBRID';
 const modes:Mode[]=['ONSITE','REMOTE','SELF_PACED','HYBRID'];
@@ -83,6 +84,7 @@ export default function ResourcesEditor({ctx,user,notify}:{ctx:Context;user:Auth
     await run(()=>api(base+'/'+id,{method:'PATCH',body:JSON.stringify(payload)}));
   }
   return <section className="panel"><h2>٣. المدربون والأنصبة والقاعات</h2>
+    <RayatResourceImport ctx={ctx} user={user} notify={notify}/>
     <div className="split"><section><h3>إضافة مدرب</h3><div className="form-grid">
       <label>الرمز<input value={trainer.code} onChange={e=>setTrainer({...trainer,code:e.target.value})}/></label>
       <label>الاسم<input value={trainer.name} onChange={e=>setTrainer({...trainer,name:e.target.value})}/></label>
