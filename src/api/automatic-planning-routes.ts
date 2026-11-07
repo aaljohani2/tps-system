@@ -133,7 +133,7 @@ function courseCapacity(row:StoredPlanCourse,policy:Policy):number|null{
 function safeCode(value:string){return value.replace(/[^A-Za-z0-9_-]/g,'').slice(0,60);}
 
 export async function registerAutomaticPlanning(app:FastifyInstance){
-  app.post('/api/v1/automatic-planning/plan/preview',async req=>{
+  app.post('/api/v1/automatic-planning/plan/preview',{bodyLimit:20*1024*1024},async req=>{
     requireEditor(req);await checkScope(req);
     try{return findPlan(await tables(req));}catch(e){if((e as {statusCode?:number}).statusCode)throw e;
       throw fail(e instanceof Error?e.message:String(e));}
@@ -173,13 +173,15 @@ export async function registerAutomaticPlanning(app:FastifyInstance){
       for(const trainer of preview.instructors){
         const eligibility=trainer.eligibleCourseCodes.filter(code=>knownCodes.has(code));
         if(!eligibility.length){skipped++;continue;}
-        await client.query(`INSERT INTO instructors(department_id,code,name,max_load,eligible_course_codes,allowed_modes,available,overload)
-          VALUES($1,$2,$3,$4,$5::jsonb,$6::jsonb,NULL,NULL)
-          ON CONFLICT(department_id,code) DO UPDATE SET name=EXCLUDED.name,
-            eligible_course_codes=EXCLUDED.eligible_course_codes,allowed_modes=EXCLUDED.allowed_modes,updated_at=now()`,[
+        // A previous timetable is evidence of assignments, not authorization to
+        // grant REMOTE teaching or replace a live instructor's approved eligibility.
+        // New accounts start ONSITE-only and are subject to subsequent approval.
+        const inserted=await client.query(`INSERT INTO instructors(department_id,code,name,max_load,eligible_course_codes,allowed_modes,available,overload)
+          VALUES($1,$2,$3,$4,$5::jsonb,'["ONSITE"]'::jsonb,NULL,NULL)
+          ON CONFLICT(department_id,code) DO NOTHING RETURNING id`,[
           query.departmentId,trainer.code,trainer.name,trainer.maxLoad??query.defaultMaxLoad,
-          JSON.stringify(eligibility),JSON.stringify(trainer.allowedModes)]);
-        imported++;
+          JSON.stringify(eligibility)]);
+        if(inserted.rowCount)imported++;else skipped++;
       }
       if(!imported)throw fail('No instructor row could be linked to a course in the selected department',409);
       await client.query(`INSERT INTO audit_logs(user_id,action,entity_type,entity_id,details)
@@ -190,7 +192,7 @@ export async function registerAutomaticPlanning(app:FastifyInstance){
     }catch(error){await client.query('ROLLBACK');throw error;}
     finally{client.release();}
   });
-  app.post('/api/v1/automatic-planning/plan/commit',async req=>{
+  app.post('/api/v1/automatic-planning/plan/commit',{bodyLimit:20*1024*1024},async req=>{
     requireEditor(req);await checkScope(req);
     const query=z.object({departmentId:uuid,programId:uuid,planCode:z.string().trim().min(1).max(60),
       versionLabel:z.string().trim().min(1).max(120)}).parse(req.query);
@@ -214,6 +216,19 @@ export async function registerAutomaticPlanning(app:FastifyInstance){
       const planId=plan.rows[0]!.id;
       for(const course of preview.curriculum.courses){
         const nonTimed=course.theoryHours+course.tutorialHours+course.practicalHours===0;
+        const incomingTheory=course.theoryHours+course.tutorialHours;
+        const existing=await client.query<{level:number;theory_hours:number;practical_hours:number;
+          is_non_timetabled:boolean;in_active_plan:boolean}>(`SELECT c.level,c.theory_hours,c.practical_hours,c.is_non_timetabled,
+          EXISTS(SELECT 1 FROM curriculum_items ci JOIN curriculum_plans p ON p.id=ci.plan_id
+            WHERE ci.course_id=c.id AND p.state='ACTIVE') AS in_active_plan
+          FROM courses c WHERE c.department_id=$1 AND c.code=$2 FOR UPDATE OF c`,[
+          query.departmentId,course.normalizedCode]);
+        const before=existing.rows[0];
+        if(before?.in_active_plan&&(Number(before.level)!==course.level||
+          Number(before.theory_hours)!==incomingTheory||
+          Number(before.practical_hours)!==course.practicalHours||
+          Boolean(before.is_non_timetabled)!==nonTimed))
+          throw fail(`Course ${course.normalizedCode} belongs to an active curriculum plan and its level/contact hours differ; retain the approved course and resolve the new version explicitly.`,409);
         const saved=await client.query<{id:string}>(`INSERT INTO courses
           (department_id,code,title,level,theory_hours,practical_hours,demand,mode,eligible_modes,blocks,is_non_timetabled)
           VALUES($1,$2,$3,$4,$5,$6,0,'ONSITE','["ONSITE"]'::jsonb,'[]'::jsonb,$7)
