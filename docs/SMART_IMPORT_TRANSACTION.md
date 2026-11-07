@@ -107,7 +107,35 @@ git pull --ff-only origin feat/unified-smart-import-from-local-20261107
 Stop and reconcile any conflicting **tracked** source changes rather than
 resetting. This checkout contains no real learner files.
 
-### 2. Prepare (operational encrypted backup + independent restore + builds)
+### 2. Stop only the live TPS API before installing native Node dependencies
+
+**Windows native files can be locked:** a running Node/Fastify instance keeps the
+`node_modules/argon2/prebuilds/win32-x64/argon2.glibc.node` binary open. Running
+`npm ci` against that active installation fails with `EPERM/unlink` and may leave
+`node_modules` partially changed. **Never delete it or force-kill another service.**
+
+Finish any live Timefold solve, verify the latest encrypted operational backup has
+already been validated, and stop only the app, **not Docker/PostgreSQL**. If the
+optional user-owned `TPS Local Production` Windows scheduled task exists,
+temporarily disable it *before* stopping it (its restart policy can otherwise
+start Node again). Otherwise press Ctrl+C in the known app server console.
+Verify nothing is listening on TCP port 8787 before starting preparation:
+
+```powershell
+$task=Get-ScheduledTask -TaskName 'TPS Local Production' -ErrorAction SilentlyContinue
+if($task){
+  Disable-ScheduledTask -TaskName 'TPS Local Production'
+  Stop-ScheduledTask -TaskName 'TPS Local Production' -ErrorAction SilentlyContinue
+}
+Get-NetTCPConnection -LocalPort 8787 -State Listen -ErrorAction SilentlyContinue
+```
+
+If the last command still shows a listener, inspect
+`Get-CimInstance Win32_Process -Filter "ProcessId = <OwningProcess>"`
+and stop only the verified TPS server gracefully; never use blind
+`taskkill /F`, `git clean`, `npm cache clean`, or volume deletion.
+
+### 3. Prepare offline (operational encrypted backup + independent restore + builds)
 
 Obtain an exact-green `TPS checks` run ID of the **same feature HEAD**. It
 must include the `tps-timefold-jar` artifact, retained seven days. Maven
@@ -126,14 +154,14 @@ restore rehearsal. Keep the passphrase in an approved secure offline
 location, not in Git, logs or chat. Prep also performs `npm ci`,
 `web:install`, API + web builds, verified Java solver build/download and
 `npm test`. It saves only a checksum receipt in ignored `private-data`
-and **does not restart** or upgrade the running API.
+and **refuses to start dependency installation if any service still
+listens on port 8787**. It does not restart or change the database schema
+until explicit `Start`.
 
-### 3. Controlled local activation only
+### 4. Controlled local activation only
 
-Ensure no Timefold job is active; disable/pause any optional login-triggered
-TPS task as needed. In the **existing server console**, stop the previous TPS
-Node process with Ctrl+C. Verify port 8787 is free. Do not stop/delete
-Docker PostgreSQL or any volumes.
+Before starting, confirm the `PREPARE_SUCCESS` message and that port 8787
+remains free. Leave Docker/PostgreSQL and its named volumes intact.
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/upgrade-smart-import-windows.ps1 -Action Start
@@ -159,7 +187,10 @@ The one-click action must write a single receipt, leave old approved
 scenarios unchanged and allow inspecting a new scenario. Run Timefold
 and verify its status explicitly; a DRAFT is not an approved timetable.
 
-If any preparation step fails, leave the existing application running.
+If preparation fails after the old app is stopped, **do not start the new
+version**. Investigate the failed command and repair dependencies while keeping
+the operational database and the verified backup intact. Resume the original
+application only if its runtime dependencies are known to be complete.
 If migration or new runtime fails, retain the encrypted backup and
 isolated restore evidence; stop and inspect before any rollback. A
 forward migration cannot be undone by merely reverting source code.
