@@ -580,7 +580,7 @@ test('authenticated end-to-end workflow persists a synthetic TPS scenario in Pos
     const smartTrainer=await pool.query('SELECT max_load,eligible_course_codes,available FROM instructors WHERE department_id=$1 AND code=$2',
       [department.id,'AUTO-I-'+uniq]);
     assert.equal(Number(smartTrainer.rows[0]?.max_load),18);
-    assert.deepEqual(smartTrainer.rows[0]?.eligible_course_codes,['AUTO-'+uniq]);
+    assert.deepEqual(smartTrainer.rows[0]?.eligible_course_codes,['AUTO-'+uniq.toUpperCase()]);
     assert.equal(smartTrainer.rows[0]?.available,null);
     await pool.query('DELETE FROM instructors WHERE department_id=$1 AND code=$2',[department.id,'AUTO-I-'+uniq]);
     // Keep the materialization verification isolated from the structural workflow below. The
