@@ -183,7 +183,7 @@ test('Rayat Excel import in /resources previews instructors and rooms and saves 
       collegeId:null,departmentId:null,csrfToken:'synthetic-csrf'}));
     if(path==='/api/v1/instructors'||path==='/api/v1/rooms')return route.fulfill(json([]));
     if(path==='/api/v1/raiyat-resources/preview')return route.fulfill(json({
-      sha256:'a'.repeat(64),instructors:[{
+      sha256:'5ec76ebe83b56d35c9212d23ca07e15091821b3e3ded2926e03bcc41dc77f167',instructors:[{
         code:'TR01',name:'مدرب تجريبي',maxLoad:18,courseEvidence:['TEST-101'],
         sourceRows:3,scopeVerified:true,exists:false}],
       rooms:[{
