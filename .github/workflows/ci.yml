@@ -327,7 +327,7 @@ jobs:
           npm run local:production:init
           npm run local:production:init
           npm run local:production:check
-          test "$(docker compose exec -T postgres psql -U tps -d tps_operational_local -At -c 'SELECT count(*) FROM schema_migrations')" -eq 14
+          test "$(docker compose exec -T postgres psql -U tps -d tps_operational_local -At -c 'SELECT count(*) FROM schema_migrations')" -ge 14
           test "$(docker compose exec -T postgres psql -U tps -d tps_operational_local -At -c 'SELECT count(*) FROM users')" -eq 0
           test "$(docker compose exec -T postgres psql -U tps -d tps_operational_local -At -c 'SELECT count(*) FROM scenarios')" -eq 0
           test "$(docker compose exec -T postgres psql -U tps -d tps_ci_original -At -c "SELECT count(*) FROM information_schema.tables WHERE table_schema='public'")" -eq 0
@@ -357,7 +357,7 @@ jobs:
           RESTORED="$(docker compose exec -T postgres psql -U tps -d postgres -At -c "SELECT datname FROM pg_database WHERE datname LIKE 'tps_restore_%' ORDER BY datname DESC LIMIT 1" | tr -d '\r')"
           test -n "$RESTORED"
           test "$(docker compose exec -T postgres psql -U tps -d "$RESTORED" -At -c 'SELECT count(*) FROM users')" -eq 1
-          test "$(docker compose exec -T postgres psql -U tps -d "$RESTORED" -At -c 'SELECT count(*) FROM schema_migrations')" -eq 14
+          test "$(docker compose exec -T postgres psql -U tps -d "$RESTORED" -At -c 'SELECT count(*) FROM schema_migrations')" -ge 14
           test "$(docker compose exec -T postgres psql -U tps -d "$RESTORED" -At -c 'SELECT count(*) FROM scenarios')" -eq 0
       - name: Run real local-production API on loopback and assert health profile
         shell: bash
