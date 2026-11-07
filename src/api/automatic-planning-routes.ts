@@ -685,7 +685,7 @@ export async function registerAutomaticPlanning(app:FastifyInstance){
         }
       }
       const scenario=await createAtomicScenarioDraft(input.departmentId,input.termId,input.scenarioName,
-        req.principal!.id,client,effective);
+        req.principal!.id,client,effective,planId);
       await client.query(`INSERT INTO audit_logs(user_id,action,entity_type,entity_id,details)
         VALUES($1,'CREATE_FROM_AUTOMATIC_PLAN','SCENARIO',$2,$3::jsonb)`,[
         req.principal!.id,scenario.id,
