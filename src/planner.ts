@@ -1,6 +1,7 @@
 import type {Component, Course, Day, DeliveryMode, Gap, Instructor, PlanRequest, PlanResult, Room, Section, Session, TimeWindow, TimedMode} from './types.js';
 import {validateRequest} from './validation.js';
 import {trainerQualified,roomQualified} from './eligibility.js';
+import {hasSharedBlock} from './cohort-grouping.js';
 
 const round = (n: number) => Math.round((n + Number.EPSILON) * 1000) / 1000;
 const days: Day[] = ['SUN', 'MON', 'TUE', 'WED', 'THU'];
@@ -66,7 +67,7 @@ function findSchedule(
               if (!inAvailability(instructor.available, day, start, end)) continue;
               if (all().some(existing => existing.day === day && overlap({start, end}, existing) &&
                 (existing.instructorId === instructor.id ||
-                 (s.blockId !== null && existing.blockId === s.blockId) ||
+                 hasSharedBlock(existing,s) ||
                  existing.sectionId === s.id))) continue;
               const eligibleRooms = job.mode === 'REMOTE' ? [null] : rooms.filter(r =>
                 roomQualified(r,c,job.component,s.students) &&
@@ -78,7 +79,8 @@ function findSchedule(
               proposed.push({
                 id: `${s.id}-${String(serial++).padStart(2, '0')}`, sectionId: s.id, courseCode: c.code,
                 component: job.component, mode: job.mode, day, start, end,
-                roomId: room?.id ?? null, instructorId: instructor.id, blockId: s.blockId
+                roomId: room?.id ?? null, instructorId: instructor.id, blockId: s.blockId,
+                ...(s.blockIds?{blockIds:s.blockIds}:{})
               });
               remaining -= duration;
               placed = true;
@@ -115,6 +117,7 @@ export function buildDraftPlan(input: PlanRequest): PlanResult {
         id: `${c.code}-${String(n + 1).padStart(3, '0')}`,
         courseCode: c.code, level: c.level, index: n + 1, mode: c.mode,
         students, capacity: cap, blockId: c.blocks?.[n] ?? null,
+        ...(c.blockGroups?.[n]?.length?{blockIds:c.blockGroups[n]}:{}),
         paired: c.theoryHours > 0 && c.practicalHours > 0,
         instructorId: null,
         contactHours: c.mode === 'SELF_PACED' ? 0 : c.theoryHours + c.practicalHours,
