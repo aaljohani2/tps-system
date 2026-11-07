@@ -1026,6 +1026,37 @@ test('authenticated end-to-end workflow persists a synthetic TPS scenario in Pos
     assert.ok(sectionRows.some(s=>s.courseCode===theoryCode.toUpperCase()&&s.blockIds?.length===2),
       'The stored draft must carry both constituent block IDs for future Timefold collisions');
 
+    // A curriculum with two selectable timed alternatives must schedule ONLY
+    // the chosen path. It must not assign cohort blocks to the excluded path.
+    const baseCourse='BR-'+uniq,choiceA='ALT-A-'+uniq,choiceB='ALT-B-'+uniq;
+    const altCsv=Buffer.from([
+      'code,title,level,theory hours,practical hours,tutorial hours,credits,alternative group',
+      baseCourse+',مقرر أساسي,المستوى الأول,2,0,0,2,',
+      choiceA+',اختياري ألف,المستوى الأول,2,0,0,2,CHOICES-'+uniq,
+      choiceB+',اختياري باء,المستوى الأول,2,0,0,2,CHOICES-'+uniq
+    ].join('\n'),'utf8');
+    const altResult=await app.inject({method:'POST',url:atomicUrl,
+      headers:{cookie:session,'x-csrf-token':csrf},payload:{
+        departmentId:department.id,termId:term.id,programId:program.id,
+        planCode:'ALT-V-'+uniq,versionLabel:'Alternative synthetic version',
+        scenarioName:'Only selected alternative',
+        plan:proof('alternate.csv',altCsv),
+        trainees:proof('alternative-count.csv',Buffer.from('level,students\n1,15\n','utf8')),
+        sourceKind:'ACTUAL_LEVEL_COUNTS',capacities:atomicPayload.capacities,
+        alternativeSelections:{['CHOICES-'+uniq]:choiceA}
+      }});
+    assert.equal(altResult.statusCode,200,altResult.body);
+    assert.equal(altResult.json().demandRecords,2);
+    const altScenario=await pool.query('SELECT input_snapshot FROM scenarios WHERE id=$1',
+      [altResult.json().scenarioId]);
+    assert.deepEqual((altScenario.rows[0].input_snapshot.courses as Array<{code:string}>)
+      .map(x=>x.code).sort(),[baseCourse,choiceA].map(x=>x.toUpperCase()).sort(),
+      'Unselected alternative cannot leak into a scheduled scenario');
+    const excludedBlocks=await pool.query(`SELECT count(*)::int AS n FROM block_course_assignments a
+      JOIN courses c ON c.id=a.course_id WHERE c.department_id=$1 AND c.code=$2 AND a.term_id=$3`,[
+      department.id,choiceB.toUpperCase(),term.id]);
+    assert.equal(excludedBlocks.rows[0].n,0);
+
     // Force failure AFTER the new program and plan have been inserted. A
     // pre-existing manual estimate is the blocking dependency; PostgreSQL
     // must roll back the new program, draft and course metadata together.
