@@ -214,6 +214,41 @@ jobs:
             throw 'Windows upgrade script contains syntax errors.'
           }
           Write-Output 'PowerShell 5.1 upgrade script syntax passed.'
+      - name: Reproduce Windows fast-forward with no origin branch tracking ref
+        shell: powershell
+        run: |
+          $sandbox = Join-Path $env:RUNNER_TEMP "tps-narrow-refspec"
+          $remote = Join-Path $sandbox "remote.git"
+          $source = Join-Path $sandbox "source"
+          $local = Join-Path $sandbox "local"
+          $branch = 'feat/unified-smart-import-from-local-20261107'
+          New-Item -ItemType Directory -Force $sandbox | Out-Null
+          & git init -q --bare $remote
+          & git init -q $source
+          & git -C $source config user.email "ci-tps@example.invalid"
+          & git -C $source config user.name "TPS CI"
+          & git -C $source commit --allow-empty -q -m baseline
+          & git -C $source branch -M $branch
+          & git -C $source remote add origin $remote
+          & git -C $source push -q origin "HEAD:refs/heads/$branch"
+          & git init -q $local
+          & git -C $local remote add origin $remote
+          & git -C $local config remote.origin.fetch '+refs/heads/main:refs/remotes/origin/main'
+          & git -C $local fetch -q --no-tags origin "refs/heads/$branch"
+          & git -C $local switch -q -c $branch FETCH_HEAD
+          & git -C $source commit --allow-empty -q -m updated
+          & git -C $source push -q origin "HEAD:refs/heads/$branch"
+          & git -C $local fetch -q --no-tags origin "refs/heads/$branch"
+          $target = (& git -C $local rev-parse --verify 'FETCH_HEAD^{commit}' | Out-String).Trim()
+          if ($LASTEXITCODE -ne 0) { throw 'FETCH_HEAD was not usable' }
+          & git -C $local merge --ff-only $target
+          if ($LASTEXITCODE -ne 0) { throw 'Narrow-refspec fast-forward failed' }
+          $after = (& git -C $local rev-parse HEAD | Out-String).Trim()
+          if ($after -ne $target) { throw 'Fast-forward did not reach fetched commit' }
+          & git -C $local show-ref --verify --quiet "refs/remotes/origin/$branch"
+          if ($LASTEXITCODE -eq 0) { throw 'Test fixture unexpectedly created remote tracking ref' }
+          $global:LASTEXITCODE = 0
+          Write-Output 'Narrow-refspec FETCH_HEAD fast-forward succeeded without remote-tracking branch.'
       - name: Verify PowerShell 5.1 installation stops on a native command failure
         shell: powershell
         run: |
