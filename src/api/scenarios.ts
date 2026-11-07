@@ -1,5 +1,6 @@
 import type {FastifyInstance,FastifyRequest} from 'fastify';
 import {z} from 'zod';
+import type {PoolClient} from 'pg';
 import {pool} from './database.js';
 import {audit,allowedDepartment,canApprove,requireEditor} from './security.js';
 import {defaultPolicy} from '../policy.js';
@@ -57,22 +58,23 @@ async function find(req:FastifyRequest,id:string):Promise<Stored>{
   await scope(req,row.department_id);
   return row;
 }
-async function fromDatabase(departmentId:string,termId:string,name:string,policy:Policy):Promise<PlanRequest>{
-  const d=await pool.query<{college_id:string}>('SELECT college_id FROM departments WHERE id=$1',[departmentId]);
+async function fromDatabase(departmentId:string,termId:string,name:string,policy:Policy,
+  db:Pick<PoolClient,'query'>=pool):Promise<PlanRequest>{
+  const d=await db.query<{college_id:string}>('SELECT college_id FROM departments WHERE id=$1',[departmentId]);
   const collegeId=d.rows[0]?.college_id;
   if(!collegeId)throw invalid('Department not found',404);
-  const term=await pool.query('SELECT id FROM academic_terms WHERE id=$1 AND college_id=$2',[termId,collegeId]);
+  const term=await db.query('SELECT id FROM academic_terms WHERE id=$1 AND college_id=$2',[termId,collegeId]);
   if(!term.rowCount)throw invalid('Term does not belong to selected college');
   const [coursesRaw,instructorsRaw,roomsRaw,demandRaw,blocksRaw,exceptionsRaw]=await Promise.all([
-    pool.query('SELECT * FROM courses WHERE department_id=$1 AND is_active=true AND is_non_timetabled=false ORDER BY code',[departmentId]),
-    pool.query('SELECT * FROM instructors WHERE department_id=$1 AND is_active=true ORDER BY code',[departmentId]),
-    pool.query('SELECT * FROM rooms WHERE college_id=$1 AND is_active=true ORDER BY code',[collegeId]),
-    pool.query('SELECT de.course_id,de.projected_students FROM demand_estimates de JOIN courses c ON c.id=de.course_id WHERE c.department_id=$1 AND de.term_id=$2',[departmentId,termId]),
-    pool.query(`SELECT a.course_id,b.size,(co.code || '::' || b.code) AS block_ref
+    db.query('SELECT * FROM courses WHERE department_id=$1 AND is_active=true AND is_non_timetabled=false ORDER BY code',[departmentId]),
+    db.query('SELECT * FROM instructors WHERE department_id=$1 AND is_active=true ORDER BY code',[departmentId]),
+    db.query('SELECT * FROM rooms WHERE college_id=$1 AND is_active=true ORDER BY code',[collegeId]),
+    db.query('SELECT de.course_id,de.projected_students FROM demand_estimates de JOIN courses c ON c.id=de.course_id WHERE c.department_id=$1 AND de.term_id=$2',[departmentId,termId]),
+    db.query(`SELECT a.course_id,b.size,(co.code || '::' || b.code) AS block_ref
       FROM block_course_assignments a JOIN courses c ON c.id=a.course_id
       JOIN student_blocks b ON b.id=a.block_id JOIN cohorts co ON co.id=b.cohort_id
       WHERE c.department_id=$1 AND a.term_id=$2 ORDER BY co.code,b.code`,[departmentId,termId]),
-    pool.query(`SELECT i.code,e.additional_hours,e.reason FROM instructor_load_exceptions e
+    db.query(`SELECT i.code,e.additional_hours,e.reason FROM instructor_load_exceptions e
       JOIN instructors i ON i.id=e.instructor_id
       WHERE i.department_id=$1 AND e.term_id=$2 AND e.state='APPROVED'`,[departmentId,termId])
   ]);
@@ -118,13 +120,14 @@ async function fromDatabase(departmentId:string,termId:string,name:string,policy
   }));
   return {scenarioName:name,termId,courses,instructors,rooms,policy};
 }
-export async function createScenarioDraft(departmentId:string,termId:string,name:string,userId:string){
-  const {policy,revision}=await getEffectivePolicy(departmentId,termId);
-  const input=await fromDatabase(departmentId,termId,name,policy);
+export async function createScenarioDraft(departmentId:string,termId:string,name:string,userId:string,
+  db:Pick<PoolClient,'query'>=pool,effective?:{policy:Policy;revision:number}){
+  const {policy,revision}=effective??await getEffectivePolicy(departmentId,termId);
+  const input=await fromDatabase(departmentId,termId,name,policy,db);
   validateRequest(input);
   if(!input.courses.length)throw invalid('Import or enter courses first');
   const result=boundedDraft(input);
-  const r=await pool.query<{id:string}>(`INSERT INTO scenarios
+  const r=await db.query<{id:string}>(`INSERT INTO scenarios
     (department_id,term_id,name,state,solver_status,input_snapshot,result_snapshot,created_by,policy_revision)
     VALUES($1,$2,$3,'DRAFT','NOT_RUN',$4,$5,$6,$7) RETURNING id`,[
     departmentId,termId,name,JSON.stringify(input),JSON.stringify(result),userId,revision
