@@ -308,6 +308,20 @@ export async function registerAutomaticPlanning(app:FastifyInstance){
       const selected=new Map(calculation.courses.map(course=>[normalizeCourseCode(course.code),course]));
       const storedByCode=new Map(rows.rows.map(row=>[row.normalized_code,row]));
       const marker=`TPS_AUTO:${body.planId}`;
+      // Re-importing a plan must not silently rebuild its live cohort/block links
+      // after an associated scenario has entered review, approval or an active solve.
+      // Previous scenario snapshots remain immutable, but their live block identities
+      // are still operational references. Require an explicit new plan version.
+      const protectedScenario=await client.query<{id:string;state:string;solver_status:string}>(`
+        SELECT s.id,s.state,s.solver_status FROM scenarios s
+        JOIN audit_logs a ON a.entity_type='SCENARIO'
+          AND a.action='CREATE_FROM_AUTOMATIC_PLAN' AND a.entity_id=s.id::text
+        WHERE s.department_id=$1 AND s.term_id=$2
+          AND a.details->>'planId'=$3
+          AND (s.state<>'DRAFT' OR s.solver_status IN ('RUNNING','QUEUED'))
+        LIMIT 1`,[query.departmentId,body.termId,body.planId]);
+      if(protectedScenario.rows[0])throw fail(
+        'This imported plan is already linked to a scenario under review, approved, archived or being solved. Create a new plan version; existing cohort/block records were not changed.',409);
       const existingManual=await client.query(`SELECT c.code FROM demand_estimates de JOIN courses c ON c.id=de.course_id
         JOIN curriculum_items ci ON ci.course_id=c.id AND ci.plan_id=$1
         WHERE de.term_id=$2 AND de.source<>$3 LIMIT 1`,[body.planId,body.termId,marker]);
