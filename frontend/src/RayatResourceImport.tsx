@@ -36,7 +36,8 @@ export default function RayatResourceImport({ctx,user,notify}:{ctx:Context;user:
   const roomsToCreate=(preview?.rooms??[]).filter(r=>!r.exists);
   const unfinished=importRooms&&roomsToCreate.some(r=>{
     const choice=decisions[r.code];
-    return !(r.capacity??Number(choice?.capacity)>0?1:0) || !(r.type||choice?.type);
+    const capacity=r.capacity??Number(choice?.capacity??0);
+    return !Number.isInteger(capacity)||capacity<1||!(r.type||choice?.type);
   });
   const reset=(f:File|null)=>{setFile(f);setPreview(null);setResult(null);
     setDecisions({});setAccepted(false);setImportRooms(false);setSkipIncomplete(false);};
