@@ -186,14 +186,14 @@ test('authenticated end-to-end workflow persists a synthetic TPS scenario in Pos
       max_load:string;eligible_course_codes:string[];allowed_modes:string[];available:unknown
     }>('SELECT max_load,eligible_course_codes,allowed_modes,available FROM instructors WHERE code=$1 AND department_id=$2',
       ['IR-'+uniq,department.id]);
-    assert.equal(Number(createdFromExcel.rows[0].max_load),20);
-    assert.deepEqual(createdFromExcel.rows[0].eligible_course_codes,[],
+    assert.equal(Number(createdFromExcel.rows[0]!.max_load),20);
+    assert.deepEqual(createdFromExcel.rows[0]!.eligible_course_codes,[],
       'Old teaching timetable cannot grant future eligibility or unrestricted courses');
-    assert.deepEqual(createdFromExcel.rows[0].allowed_modes,['ONSITE']);
-    assert.equal(createdFromExcel.rows[0].available,null);
+    assert.deepEqual(createdFromExcel.rows[0]!.allowed_modes,['ONSITE']);
+    assert.equal(createdFromExcel.rows[0]!.available,null);
     const preservedRooms=await pool.query<{capacity:number}>(
       'SELECT capacity FROM rooms WHERE college_id=$1 AND code=$2',[college.id,'RR-'+uniq]);
-    assert.equal(preservedRooms.rows[0].capacity,30);
+    assert.equal(preservedRooms.rows[0]!.capacity,30);
     const repeatedRayat=await app.inject({method:'POST',url:rayatUrl,
       headers:{cookie:session,'x-csrf-token':csrf},
       payload:{...rayatPayload,skipIncompleteRooms:true}});
