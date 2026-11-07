@@ -978,6 +978,14 @@ test('authenticated end-to-end workflow persists a synthetic TPS scenario in Pos
     assert.equal(atomicReplayed.statusCode,200,atomicReplayed.body);
     assert.equal(atomicReplayed.json().replayed,true);
     assert.equal(atomicReplayed.json().scenarioId,atomicResult.scenarioId);
+    const recoveredAfterPlanSaved=await app.inject({method:'POST',url:atomicUrl,
+      headers:{cookie:session,'x-csrf-token':csrf},payload:{
+        ...atomicPayload,existingPlanId:atomicResult.planId
+      }});
+    assert.equal(recoveredAfterPlanSaved.statusCode,200,recoveredAfterPlanSaved.body);
+    assert.equal(recoveredAfterPlanSaved.json().replayed,true,
+      'A UI retry after the first response saves planId must not duplicate the upload');
+    assert.equal(recoveredAfterPlanSaved.json().scenarioId,atomicResult.scenarioId);
     const sameReceipt=await pool.query('SELECT count(*)::int AS n FROM smart_import_receipts WHERE plan_id=$1',
       [atomicResult.planId]);
     assert.equal(sameReceipt.rows[0].n,1,'A retried upload cannot duplicate its plan or scenario');
