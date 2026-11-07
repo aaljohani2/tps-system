@@ -16,7 +16,8 @@ type Calculation={courses:Array<{code:string;title:string;level:number;demand:nu
   discrepancy:null|{planTheory:number;planTutorial:number;planPractical:number;scenarioTheory:number;scenarioPractical:number;approved:boolean};note:string|null}>;
   missingInputs:string[];totals:{academicGroups:number;trainingComponents:number;contactHours:number}};
 type Materialization={programId:string;demandRecords:number;cohorts:number;blocks:number;assignments:number;
-  blockCapacityByLevel:Record<string,number>;scenarioId:string|null;scenario:{state:string;solverStatus:string;metrics:{sectionCount:number;uncoveredSectionCount:number};gaps:number}|null;
+  blockCapacityByLevel:Record<string,number>;scenarioId:string|null;scheduledSections?:number;
+  theorySectionsCombined?:number;scenario:{state:string;solverStatus:string;metrics:{sectionCount:number;uncoveredSectionCount:number};gaps:number}|null;
   scenarioError:string|null;notice:string;solverStarted?:boolean;solverError?:string|null};
 type ResourcePreview={sheet:string;metadata:Record<string,string>;instructors:number;courseLinkedInstructors:number;
   sourceRows:number;warnings:string[];ready:boolean;sha256:string};
@@ -375,7 +376,11 @@ export default function AutomaticPlanningPage({ctx,notify}:{ctx:Context;notify:(
       {!savedPlanId&&<div className="alert">احفظ الخطة كإصدار مسودة أولًا لربط التحليل بسجلات النظام.</div>}
       <button className="primary" disabled={!savedPlanId||working} onClick={materialize}>تحديث الطلب والأفواج والبلوكات وتشغيل Timefold</button>
       {integration&&<div className="alert success"><strong>اكتمل تحديث السجلات</strong><div>الطلب: {integration.demandRecords} مقرر · الأفواج: {integration.cohorts} · البلوكات: {integration.blocks} · التعيينات: {integration.assignments}</div>
-        <div>سعات البلوكات حسب المستوى: {Object.entries(integration.blockCapacityByLevel).map(([level,value])=>`${level}: ${value}`).join(' · ')}</div>
+        <div>سعات البلوكات حسب المستوى: {Object.entries(integration.blockCapacityByLevel??{}).map(([level,value])=>`${level}: ${value}`).join(' · ')}</div>
+        {integration.theorySectionsCombined!==undefined&&<div>
+          الشعب المجدولة فعليًا: {integration.scheduledSections} · وفر تجميع البلوكات النظرية: {integration.theorySectionsCombined}
+          <small>الدمج يراعي السعة الفعلية وعضوية البلوكات؛ لا يُقسّم بلوك قائم.</small>
+        </div>}
         {integration.scenarioId?<div>السيناريو: أُنشئ · Timefold: {integration.solverStarted?'بدأ التشغيل':`لم يبدأ — ${integration.solverError??'سبب غير معروف'}`}</div>:
           <div>تعذر إنشاء السيناريو: {integration.scenarioError}</div>}
         <div className="action-links"><a href="/academic">عرض الأفواج والبلوكات</a><a href="/demand">عرض تقدير الطلب</a><a href="/scheduling">عرض السيناريو وTimefold</a></div>
