@@ -439,6 +439,8 @@ export async function registerScenarios(app:FastifyInstance):Promise<void>{
     source.courses=source.courses.map(c=>{
       const override=overrideMap.get(c.code);
       if(!override)return c;
+      if(c.blockGroups?.some(group=>group.length>1))
+        throw invalid('Merged lecture block memberships cannot be changed by a flat block override; regenerate from verified cohort assignments.',409);
       const changed=override.demand!==c.demand||
         JSON.stringify(override.blocks)!==JSON.stringify(c.blocks??[]);
       if(c.blockSizes && changed && !override.blockSizes)
