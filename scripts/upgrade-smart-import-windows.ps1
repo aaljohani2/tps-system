@@ -24,6 +24,16 @@ function Health {
     try { return Invoke-RestMethod -Uri 'http://127.0.0.1:8787/health' -TimeoutSec 5 }
     catch { return $null }
 }
+function Assert-TpsAppStopped {
+    $health=Health
+    $listeners=@(Get-NetTCPConnection -LocalPort 8787 -State Listen -ErrorAction SilentlyContinue)
+    if($health -or $listeners.Count -gt 0){
+        throw ('TPS on port 8787 must be stopped gracefully BEFORE npm ci. ' +
+          'Stop the TPS Local Production scheduled task or press Ctrl+C in the known TPS server console, ' +
+          'check there is no active Timefold solve, then rerun Prepare. ' +
+          'Keep Docker/PostgreSQL and all databases running; do not kill unrelated processes.')
+    }
+}
 function Check-Worktree {
     if(!(Test-Path (Join-Path $Root '.git'))) {throw 'Git checkout not found.'}
     $branch=CaptureGit @('branch','--show-current')
@@ -64,10 +74,11 @@ function UpgradeBackup {
 switch($Action){
     'Prepare' {
         Check-Worktree
-        $health=Health
-        if($health -and $health.mode -ne 'local-production'){
-            throw "Port 8787 is not operational TPS: $($health.mode). Refusing preparation."
-        }
+        # npm ci removes and replaces node_modules, including native argon2.
+        # On Windows the running API holds these .node DLLs open and npm ci
+        # fails with EPERM. Stop only the TPS API first, never the database.
+        # Check before any backup or dependency changes.
+        Assert-TpsAppStopped
         # Only source code moves here. The existing PostgreSQL DB and .env are untouched.
         # A named fetch populates FETCH_HEAD even if a narrow Git remote
         # config does not generate refs/remotes/origin/<branch>.
@@ -83,10 +94,9 @@ switch($Action){
         # Retain old built server for the live API until intentionally retired.
         $backup=UpgradeBackup
         Write-Output 'Encrypted operational backup and isolated restore rehearsal passed.'
-        $currentAfterBackup=Health
-        if($health -and (!$currentAfterBackup -or $currentAfterBackup.mode -ne 'local-production')){
-            throw 'Existing local production service changed state during preparation; stop and investigate.'
-        }
+        # Verify the Windows native DLL cannot be locked by TPS while npm
+        # replaces it. A restarted scheduled task must be stopped explicitly.
+        Assert-TpsAppStopped
         Checked 'npm.cmd' @('ci')
         Checked 'npm.cmd' @('run','web:install')
         Checked 'npm.cmd' @('run','build')
@@ -131,9 +141,9 @@ switch($Action){
         $receiptInfo | ConvertTo-Json -Depth 4 | Set-Content -Encoding UTF8 -LiteralPath $Receipt
         Write-Output 'PREPARE_SUCCESS: code, dependencies, front end and Timefold built, Node tests passed.'
         Write-Output 'Backup verified and restored in a NEW isolated database.'
-        Write-Output 'The current TPS application process has NOT been stopped or redeployed.'
-        Write-Output 'Stop only the current TPS API foreground window with Ctrl+C; ensure no Timefold run is active.'
-        Write-Output 'Then execute: powershell -NoProfile -ExecutionPolicy Bypass -File scripts\upgrade-smart-import-windows.ps1 -Action Start'
+        Write-Output 'The original TPS API was stopped by the operator before npm ci; Docker/PostgreSQL stayed running.'
+        Write-Output 'After confirming no Timefold work is active, start the updated API:'
+        Write-Output 'powershell -NoProfile -ExecutionPolicy Bypass -File scripts\upgrade-smart-import-windows.ps1 -Action Start'
     }
     'Start' {
         Check-Worktree
