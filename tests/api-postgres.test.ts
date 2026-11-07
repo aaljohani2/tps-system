@@ -974,6 +974,47 @@ test('authenticated end-to-end workflow persists a synthetic TPS scenario in Pos
       [atomicResult.planId]);
     assert.equal(sameReceipt.rows[0].n,1,'A retried upload cannot duplicate its plan or scenario');
 
+    // A real database snapshot must preserve the ORIGINAL practical blocks
+    // while combining only theory meetings into larger capacity-feasible groups.
+    const theoryCode='MERGE-TH-'+uniq,mixedCode='MERGE-MIX-'+uniq;
+    const groupedPlan=Buffer.from([
+      'code,title,level,theory hours,practical hours,tutorial hours,credits',
+      theoryCode+',نظري مدمج,المستوى الأول,2,0,0,2',
+      mixedCode+',نظري وعملي,المستوى الأول,2,1,0,3'
+    ].join('\n'),'utf8');
+    const groupedImport=await app.inject({method:'POST',url:atomicUrl,
+      headers:{cookie:session,'x-csrf-token':csrf},payload:{
+        departmentId:department.id,termId:term.id,programId:program.id,
+        planCode:'GROUPED-'+uniq,versionLabel:'Grouped synthetic',
+        scenarioName:'Theory group membership',
+        plan:proof('grouped.csv',groupedPlan),
+        trainees:proof('numbers.csv',Buffer.from('level,students\n1,105\n','utf8')),
+        sourceKind:'ACTUAL_LEVEL_COUNTS',
+        capacities:{remoteTheory:100,onsiteTheory:50,practical:30,mixed:30},
+        alternativeSelections:{}
+      }});
+    assert.equal(groupedImport.statusCode,200,groupedImport.body);
+    const groupSnapshot=await pool.query('SELECT input_snapshot,result_snapshot FROM scenarios WHERE id=$1',
+      [groupedImport.json().scenarioId]);
+    const groupedCourses=groupSnapshot.rows[0].input_snapshot.courses as Array<{
+      code:string;blocks:string[];blockSizes:number[];blockGroups?:string[][]}>;
+    const theory=groupedCourses.find(c=>c.code===theoryCode.toUpperCase());
+    const practical=groupedCourses.find(c=>c.code===mixedCode.toUpperCase());
+    assert.ok(theory?.blockGroups&&practical,'Both imported plan courses must exist');
+    assert.equal(practical.blockSizes.length,4,'Mixed theory/practical retains four <=30 learner base blocks');
+    assert.equal(theory.blockSizes.length,3,'Pure theory groups reduce four base blocks to three <=45');
+    assert.equal(theory.blockSizes.reduce((sum,n)=>sum+n,0),105);
+    assert.ok(theory.blockSizes.every(n=>n<=45));
+    const groupedMembers=theory.blockGroups.flat();
+    assert.equal(new Set(groupedMembers).size,4,'Every one of the four original blocks appears only once');
+    assert.deepEqual(groupedMembers.slice().sort(),practical.blocks.slice().sort());
+    const sectionRows=groupSnapshot.rows[0].result_snapshot.sections as Array<{
+      courseCode:string;blockIds?:string[];students:number}>;
+    assert.equal(sectionRows.filter(s=>s.courseCode===theoryCode.toUpperCase()).length,3);
+    assert.equal(sectionRows.filter(s=>s.courseCode===mixedCode.toUpperCase()).length,4);
+    assert.ok(sectionRows.some(s=>s.courseCode===theoryCode.toUpperCase()&&s.blockIds?.length===2),
+      'The stored draft must carry both constituent block IDs for future Timefold collisions');
+
     // Force failure AFTER the new program and plan have been inserted. A
     // pre-existing manual estimate is the blocking dependency; PostgreSQL
     // must roll back the new program, draft and course metadata together.
