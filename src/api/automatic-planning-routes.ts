@@ -413,7 +413,7 @@ export async function registerAutomaticPlanning(app:FastifyInstance){
       summary={programId:plan.program_id,demandRecords,cohorts:cohortCount,blocks:blockCount,
         assignments:assignmentCount,blockCapacityByLevel};
     }catch(error){await client.query('ROLLBACK');throw error;}finally{client.release();}
-    let scenario:null|Awaited<ReturnType<typeof createScenarioDraft>>=null,scenarioError:string|null=null;
+    let scenario:null|Awaited<ReturnType<typeof createAtomicScenarioDraft>>=null,scenarioError:string|null=null;
     try{
       scenario=await createAtomicScenarioDraft(query.departmentId,body.termId,body.scenarioName,req.principal!.id);
       await pool.query(`INSERT INTO audit_logs(user_id,action,entity_type,entity_id,details)
@@ -462,14 +462,14 @@ export async function registerAutomaticPlanning(app:FastifyInstance){
     const resourceBytes=input.resources?decode(input.resources):null;
     if(planBytes.length+traineeBytes.length+(resourceBytes?.length??0)>25*1024*1024)
       throw fail('Combined source files exceed 25 MiB',413);
-    const parse=(part:z.infer<typeof upload>,bytes:Buffer):WorkbookTable[]=>{
+    const parse=async(part:z.infer<typeof upload>,bytes:Buffer):Promise<WorkbookTable[]>=>{
       if(part.name.toLowerCase().endsWith('.csv'))
         return [{name:'CSV',rows:tableCsvToRows(bytes.toString('utf8'))}];
       return readAutomaticWorkbook(bytes);
     };
-    const planPreview=findPlan(parse(input.plan,planBytes));
+    const planPreview=findPlan(await parse(input.plan,planBytes));
     const levelMap=Object.fromEntries(planPreview.curriculum.courses.map(c=>[c.normalizedCode,c.level]));
-    const counts=findCounts(parse(input.trainees,traineeBytes),levelMap);
+    const counts=findCounts(await parse(input.trainees,traineeBytes),levelMap);
     const detected=counts.detection.kind;
     if((detected==='COURSE_REMAINING'&&input.sourceKind!=='LEVEL_TRANSITION')||
       (detected==='COURSE_REGISTRATIONS'&&input.sourceKind!=='COURSE_REGISTRATIONS')||
@@ -487,7 +487,7 @@ export async function registerAutomaticPlanning(app:FastifyInstance){
     if(detectedCollege&&normalizeArabic(detectedCollege)!==normalizeArabic(department.rows[0].college_name))
       throw fail('Detected curriculum college conflicts with selected college',409);
     const trainers=resourceBytes&&input.resources?
-      findInstructors(parse(input.resources,resourceBytes),department.rows[0].name):null;
+      findInstructors(await parse(input.resources,resourceBytes),department.rows[0].name):null;
     const historical=['HISTORICAL_WORKBOOK','LEVEL_TRANSITION'].includes(input.sourceKind);
     const sources:LevelDemandInput[]=[{kind:input.sourceKind,counts:counts.counts,
       label:historical?'Conditional extracted source':'Verified registration source',
