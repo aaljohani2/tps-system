@@ -247,7 +247,8 @@ export function resolveLevelDemand(levels:number[],sources:LevelDemandInput[]):{
     let chosen:LevelDemandInput|undefined;
     for(const kind of priority){chosen=sources.find(s=>s.kind===kind&&Number.isInteger(s.counts[level])&&s.counts[level]!>=0);if(chosen)break;}
     if(!chosen){missing.push(level);continue;}
-    const historical=chosen.kind==='HISTORICAL_WORKBOOK'&&chosen.isConfirmedForTarget!==true;
+    const historical=(chosen.kind==='HISTORICAL_WORKBOOK'||chosen.kind==='LEVEL_TRANSITION')&&
+      chosen.isConfirmedForTarget!==true;
     result.push({level,students:chosen.counts[level]!,kind:chosen.kind,sourceLabel:chosen.label,
       confidence:historical&&chosen.confidence==='HIGH'?'MEDIUM':chosen.confidence,historical,recordedAt:chosen.recordedAt});
   }
