@@ -1,5 +1,6 @@
 import type {PlanRequest,PlanResult,Session} from '../types.js';
 import {trainerQualified,roomQualified} from '../eligibility.js';
+import {hasSharedBlock} from '../cohort-grouping.js';
 
 export interface ReadinessIssue{
   code:string;severity:'BLOCKER'|'WARNING';message:string;sectionId?:string;courseCode?:string;
@@ -74,7 +75,8 @@ export function assessReadiness(input:PlanRequest,result:PlanResult,solverStatus
       if(!inside(instructor.available,session))
         add('INSTRUCTOR_UNAVAILABLE','Session falls outside instructor availability.',session.sectionId,session.courseCode);
     }
-    if(!course||!section||section.courseCode!==session.courseCode||section.blockId!==session.blockId)
+    if(!course||!section||section.courseCode!==session.courseCode||section.blockId!==session.blockId||
+      JSON.stringify(section.blockIds??[])!==JSON.stringify(session.blockIds??[]))
       add('SESSION_COHORT_MISMATCH','Course, section and block identity do not match.',session.sectionId,session.courseCode);
     if(!Number.isInteger(session.start*2)||!Number.isInteger(session.end*2)||
       session.start>=session.end || session.end-session.start>input.policy.sessionMaxHours ||
@@ -109,13 +111,13 @@ export function assessReadiness(input:PlanRequest,result:PlanResult,solverStatus
         reportBoth('TRAINER_COLLISION','Trainer '+a.instructorId+' is scheduled simultaneously');
       if(a.roomId!==null&&a.roomId===b.roomId)
         reportBoth('ROOM_OCCUPIED','Room '+a.roomId+' is occupied by overlapping sessions');
-      if(a.blockId!==null&&a.blockId===b.blockId)
+      if(hasSharedBlock(a,b))
         reportBoth('BLOCK_COLLISION','Cohort block '+a.blockId+' has another simultaneous class');
       if(a.sectionId===b.sectionId)
         reportBoth('SECTION_COLLISION','The same section has simultaneous components');
       if(a.instructorId===b.instructorId ||
         (a.roomId!==null&&a.roomId===b.roomId) ||
-        (a.blockId!==null&&a.blockId===b.blockId)||a.sectionId===b.sectionId)
+        hasSharedBlock(a,b)||a.sectionId===b.sectionId)
         reportBoth('TIMETABLE_COLLISION','Conflicting meetings');
     }
   }
