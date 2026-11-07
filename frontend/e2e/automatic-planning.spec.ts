@@ -208,7 +208,8 @@ test('Rayat Excel import in /resources previews instructors and rooms and saves 
   await expect(page.getByText('L-101')).toBeVisible();
   await expect(page.getByRole('button',{name:'اعتماد وحفظ المدربين والقاعات الجديدة'})).toBeDisabled();
   await page.getByPlaceholder('سعة موثقة').fill('30');
-  await page.locator('select').filter({has:page.locator('option[value="LAB"]')}).selectOption('LAB');
+  await page.getByRole('heading',{name:'استيراد مدربي وقاعات رايات من Excel'})
+    .locator('..').locator('select').selectOption('LAB');
   await page.getByRole('button',{name:'اعتماد وحفظ المدربين والقاعات الجديدة'}).click();
   await expect(page.getByText(/اكتمل الاستيراد: المدربون الجدد 1/)).toBeVisible();
   expect(committed).not.toBeNull();
