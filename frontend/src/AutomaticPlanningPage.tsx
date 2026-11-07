@@ -235,20 +235,53 @@ export default function AutomaticPlanningPage({ctx,notify}:{ctx:Context;notify:(
     const applied=await applySystem(savedPlanId,result);await qc.invalidateQueries();
     notify(applied.scenarioId?'حُدّث الطلب والأفواج والبلوكات وأُنشئ سيناريو جديد.':'حُدّثت البيانات، وتعذر إنشاء السيناريو بسبب متطلبات موضحة أدناه.');
   }catch(e){notify('تعذر تحديث النظام: '+String(e instanceof Error?e.message:e));}finally{setWorking(false);}}
-  async function runFullIntegration(){if(!plan||!history||!planFile)return;setWorking(true);try{
-    const calculated=await requestCalculation();setResult(calculated);
-    if(calculated.missingInputs.length){notify('توقف الاعتماد لأن هناك قرار مسار أو بيانات ناقصة موضحة في الصفحة.');return;}
-    const selectedProgram=await ensureProgram();
-    let planId=savedPlanId;
-    if(!planId){const saved=await commitVersion(selectedProgram);planId=saved.planId;setSavedPlanId(planId);}
-    if(resourceFile&&resourcePreview?.ready){
-      const params=new URLSearchParams({departmentId:ctx.departmentId,expectedSha256:resourcePreview.sha256,
-        defaultMaxLoad:String(defaultMaxLoad)});
-      await api('/automatic-planning/resources/commit?'+params,{method:'POST',headers:{'content-type':mime(resourceFile)},body:resourceFile});
-    }
-    const applied=await applySystem(planId,calculated);await qc.invalidateQueries();
-    notify(applied.scenarioId?'اكتمل الاستيراد الذكي وتحديث النظام وبدأ Timefold.':'اكتمل تحديث السجلات، لكن إنشاء السيناريو يحتاج معالجة التنبيه الظاهر.');
-  }catch(e){notify('تعذر إكمال الاستيراد الذكي: '+String(e instanceof Error?e.message:e));}finally{setWorking(false);}}
+  async function uploadProof(file:File){
+    const bytes=await file.arrayBuffer(),raw=new Uint8Array(bytes);
+    const hash=await crypto.subtle.digest('SHA-256',bytes);
+    const sha256=Array.from(new Uint8Array(hash)).map(b=>b.toString(16).padStart(2,'0')).join('');
+    const parts:string[]=[];
+    for(let offset=0;offset<raw.length;offset+=8192)
+      parts.push(String.fromCharCode(...raw.subarray(offset,offset+8192)));
+    return {name:file.name,base64:btoa(parts.join('')),sha256};
+  }
+  async function runFullIntegration(){if(!plan||!history||!planFile||!dataFile)return;
+    setWorking(true);try{
+      const calculated=await requestCalculation();setResult(calculated);
+      if(calculated.missingInputs.length){
+        notify('توقف الاعتماد لأن هناك قرار مسار أو بيانات ناقصة موضحة في الصفحة.');return;
+      }
+      const [planUpload,traineeUpload,resourceUpload]=await Promise.all([
+        uploadProof(planFile),uploadProof(dataFile),
+        resourceFile&&resourcePreview?.ready?uploadProof(resourceFile):Promise.resolve(undefined)
+      ]);
+      const committed=await api<Materialization&{planId:string;instructorsImported:number;replayed:boolean}>(
+        '/automatic-planning/full-import?departmentId='+encodeURIComponent(ctx.departmentId),{
+        method:'POST',body:JSON.stringify({
+          departmentId:ctx.departmentId,termId:ctx.termId,programId:programId||undefined,
+          newProgramName:programId?undefined:newProgramName.trim(),
+          newProgramCode:programId?undefined:newProgramCode.trim(),
+          existingPlanId:savedPlanId??undefined,
+          planCode:planCode.trim(),versionLabel:versionLabel.trim(),
+          scenarioName:scenarioName.trim()||'سيناريو التخطيط الآلي',
+          plan:planUpload,trainees:traineeUpload,resources:resourceUpload,
+          sourceKind,capacities,alternativeSelections:selections,defaultMaxLoad
+        })
+      });
+      setSavedPlanId(committed.planId);
+      let solverStarted=false,solverError:string|null=null;
+      if(committed.scenarioId)try{
+        await api('/scenarios/'+committed.scenarioId+'/solve/async',{
+          method:'POST',body:JSON.stringify({seconds:5,candidatesPerInstructor:6})});
+        solverStarted=true;
+      }catch(error){solverError=error instanceof Error?error.message:String(error);}
+      setIntegration({...committed,solverStarted,solverError});
+      await qc.invalidateQueries();
+      notify(solverStarted?
+        'تم اعتماد الاستيراد كاملًا في معاملة واحدة، وحُفظ السيناريو وبدأ Timefold.':
+        'تم اعتماد بيانات الاستيراد والسيناريو معًا؛ تعذر بدء Timefold ويمكن إعادة تشغيله من صفحة الجدولة. '+(solverError??''));
+    }catch(e){notify('لم يُعتمد أي جزء من الاستيراد الشامل: '+String(e instanceof Error?e.message:e));}
+    finally{setWorking(false);}
+  }
   return <section className="panel automatic-planning"><h2>التخطيط الآلي من الملفات الأساسية</h2>
     <p className="hint">ارفع الملفات المتاحة معًا دون قالب محدد. يكتشف النظام الخطة والمقررات وبيانات المتدربين والمدربين، ثم يعرض ما سيُحدّث قبل الحفظ.</p>
     <section className="smart-intake"><h3>الاستيراد الذكي الموحد</h3>
@@ -318,7 +351,7 @@ export default function AutomaticPlanningPage({ctx,notify}:{ctx:Context;notify:(
         onChange={e=>setDefaultMaxLoad(Number(e.target.value))}/></label>}
       {resourcePreview.warnings.map(warning=><div key={warning}>{warning}</div>)}</div>}
     {plan&&history&&<section className="integration-panel"><h3>اعتماد الاستيراد وتحديث التطبيق</h3>
-      <p className="hint">ينفذ الحفظ والحساب وتحديث الطلب والأفواج والبلوكات، ويستورد المدربين المرتبطين إن وُجد ملف صالح، ثم ينشئ السيناريو ويبدأ Timefold. يتوقف قبل الكتابة عند نقص قرار أو تعارض مع طلب يدوي.</p>
+      <p className="hint">يُعيد الخادم فحص الملفات الأصلية ويعتمد البرنامج والخطة والطلب والأفواج والبلوكات والمدربين والسيناريو ضمن معاملة PostgreSQL واحدة؛ إذا تعذرت أي خطوة فلا تُحفظ تغييرات جزئية. يبدأ Timefold بعد اعتماد البيانات، ويمكن إعادة تشغيله إذا تعذر بدء الجدولة.</p>
       <label>اسم السيناريو<input value={scenarioName} maxLength={160} onChange={e=>setScenarioName(e.target.value)}/></label>
       <button className="primary" disabled={working||alternatives.some(([group])=>!selections[group])||
         (!programId&&(!newProgramName.trim()||!newProgramCode.trim()))||!planCode.trim()||!versionLabel.trim()}
