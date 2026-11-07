@@ -5,6 +5,7 @@ import {pool} from './database.js';
 import {audit,allowedDepartment,canApprove,requireEditor} from './security.js';
 import {defaultPolicy} from '../policy.js';
 import {buildDraftPlan} from '../planner.js';
+import {packTheoryBlocks} from '../cohort-grouping.js';
 import {optimizeWithTimefold} from '../optimizer.js';
 import {validateRequest} from '../validation.js';
 import {exportScenarioXlsx} from './excel.js';
@@ -94,12 +95,20 @@ async function fromDatabase(departmentId:string,termId:string,name:string,policy
     const demand=projected??(c.demand>0?c.demand:blockTotal);
     if(links.length && blockTotal!==demand)
       throw invalid(`Block sizes for ${c.code} total ${blockTotal} while approved planning demand is ${demand}; reconcile before scheduling`,409);
+    const cap=c.mode==='SELF_PACED'?null:policy.capacities[c.mode]?.theory;
+    const shouldPack=links.length>1&&Number(c.theory_hours)>0&&Number(c.practical_hours)===0&&
+      Number.isInteger(cap)&&cap>0;
+    const packed=shouldPack?packTheoryBlocks(links.map(b=>({ref:b.ref,size:b.size})),cap):null;
+    const merged=packed?.some(group=>group.members.length>1)??false;
+    const combinedRefs=merged?packed!.map(group=>group.members.join(' + ')):links.map(link=>link.ref);
+    const combinedSizes=merged?packed!.map(group=>group.size):links.map(link=>link.size);
     return {
       code:c.code,title:c.title,level:c.level,demand,theoryHours:c.theory_hours,
       practicalHours:c.practical_hours,mode:c.mode,eligibleModes:c.eligible_modes,
        requiredSpecialties:c.required_specialties??[],requiredEquipment:c.required_equipment??[],
-      blocks:links.length?links.map(b=>b.ref):(c.blocks.length?c.blocks:undefined),
-      blockSizes:links.length?links.map(b=>b.size):undefined,
+      blocks:links.length?combinedRefs:(c.blocks.length?c.blocks:undefined),
+      blockSizes:links.length?combinedSizes:undefined,
+      ...(merged?{blockGroups:packed!.map(group=>group.members)}:{}),
       hybridSplit:c.hybrid_split??undefined,
       assignedInstructorId:c.assigned_instructor_id??undefined,
       exclusiveInstructor:c.exclusive_instructor
