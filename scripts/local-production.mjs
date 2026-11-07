@@ -101,14 +101,20 @@ async function main(){
   else guard(process.argv.length===3,'Unexpected extra arguments');
   const settings=checkSettings();
   if(cmd==='init')return init(settings);
-  await check(settings);
-  if(cmd==='backup'||fileCommand||cmd==='restore:test'){
+  if(cmd==='backup'||fileCommand){
+    // Backups must work BEFORE pending additive migrations (e.g. 0016)
+    // have been applied. check(settings) requires latest schema and would
+    // otherwise block the very pre-upgrade backup needed to install it.
+    // Retain strict localhost/operational DB guards and ensure DB exists.
+    guard(await dbExists(settings.user),
+      'Operational database does not exist; cannot back up or verify it.');
     guard(process.env.TPS_BACKUP_PASSPHRASE?.length>=24,
       'Provide unique TPS_BACKUP_PASSPHRASE in the current shell; do not store in Git');
     const subcommand=cmd==='backup'?'backup':cmd==='backup:verify'?'verify':'restore-test';
     return commandRun(process.execPath,['scripts/backup-restore.mjs',subcommand,
       ...(fileCommand?process.argv.slice(3):[])],{env:settings.env});
   }
+  await check(settings);
   if(cmd==='bootstrap'){
     guard(process.env.TPS_BOOTSTRAP_PASSWORD?.length>=16,
       'Set a private 16+ character TPS_BOOTSTRAP_PASSWORD in the current shell');
