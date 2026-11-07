@@ -56,3 +56,30 @@ test('false Rayat spreadsheet with no recognized code columns is not silently ac
     ['مواعيد التدريب','بيانات الاختبار'],['أحد','ثمانية']
   ]}],{department:'تقنية الأعمال',college:'كلية التجربة'}),/لا يحتوي الملف/);
 });
+
+test('legacy college scheduling workbook detects room codes but refuses placeholder instructor names',()=>{
+  const workbook=[
+    {name:'المدربون',rows:[
+      ['المدربون وأنصبتهم'],['ملاحظات'],[],[],
+      ['رمز المدرب','الاسم / الوظيفة','النصاب الأصلي','نمط المدرب'],
+      ['T01','رئيس القسم — اكتب الاسم','8','حضوري'],
+      ['T02','مدرب حضوري 1 — اكتب الاسم','22','حضوري']
+    ]},
+    {name:'الجدولة',rows:[
+      ['جدولة مقترحة'],['شرح'],[],[],
+      ['الشعبة','اليوم','البداية','النهاية','القاعة','المدرب (آلي)','المقرر'],
+      ['ادار-151-PR-01','الأحد','0.33','0.41','1390110001','T03','مهارات الطباعة'],
+      ['ادار-101-TH-01','الأحد','0.33','0.41','0','T05','مبادئ الإدارة'],
+      ['ادار-151-PR-02','الثلاثاء','0.33','0.41','1390110001','T03','مهارات الطباعة']
+    ]}
+  ];
+  const result=discoverRayatResources(workbook,{
+    college:'الكلية التقنية برجال ألمع',department:'تقنية الأعمال'});
+  assert.equal(result.instructors.length,0,
+    'Reference workbook is not a real instructor directory: placeholder names must not enter TPS');
+  assert.deepEqual(result.rooms.map(r=>r.code),['1390110001']);
+  assert.equal(result.rooms[0]!.capacity,null,'Timetable lacks room capacities');
+  assert.equal(result.rooms[0]!.type,null,'Timetable does not certify room type');
+  assert.equal(result.rooms[0]!.sourceRows,2,'A room used for two sessions is a single room');
+  assert.equal(result.unscoped,true,'Legacy workbook has no college scope and requires confirmation');
+});
