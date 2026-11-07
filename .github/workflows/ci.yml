@@ -261,7 +261,7 @@ jobs:
             throw 'Native JSON parsing failed on Windows PowerShell 5.1'
           }
           $updater = Get-Content -Raw -LiteralPath 'scripts/upgrade-smart-import-windows.ps1'
-          $ghRunLines = @($updater -split '`r?`n' | Where-Object { $_ -match 'gh run view' })
+          $ghRunLines = @($updater -split '\r?\n' | Where-Object { $_ -match 'gh run view' })
           if ($updater -notmatch 'ConvertFrom-Json' -or $ghRunLines.Count -ne 1 -or
               @($ghRunLines | Where-Object { $_ -match '\s-q\s' }).Count -ne 0) {
             throw 'The upgrade must parse GitHub CLI native JSON, not use fragile jq quoting.'
