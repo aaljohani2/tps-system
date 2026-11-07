@@ -77,6 +77,10 @@ switch($Action){
         # Retain old built server for the live API until intentionally retired.
         $backup=UpgradeBackup
         Write-Output 'Encrypted operational backup and isolated restore rehearsal passed.'
+        $currentAfterBackup=Health
+        if($health -and (!$currentAfterBackup -or $currentAfterBackup.mode -ne 'local-production')){
+            throw 'Existing local production service changed state during preparation; stop and investigate.'
+        }
         Checked 'npm.cmd' @('ci')
         Checked 'npm.cmd' @('run','web:install')
         Checked 'npm.cmd' @('run','build')
@@ -93,8 +97,21 @@ switch($Action){
             if($LASTEXITCODE -ne 0 -or $details -ne "$head|success"){
                 throw "GitHub Actions run is not green for this exact commit. Got: $details"
             }
-            if(Test-Path $jar){Remove-Item -LiteralPath $jar -Force}
-            Checked 'gh' @('run','download',"$VerifiedRunId",'-R',$Repository,'-n','tps-timefold-jar','-D',(Join-Path $Root 'solver\target'))
+            # Download in a new staging directory first: never destroy the last
+            # working JAR if GitHub artifact retrieval fails.
+            $tempJarDir=Join-Path $env:TEMP ('tps-solver-'+[guid]::NewGuid().ToString('N'))
+            New-Item -ItemType Directory -Force -Path $tempJarDir | Out-Null
+            try{
+                Checked 'gh' @('run','download',"$VerifiedRunId",'-R',$Repository,'-n','tps-timefold-jar','-D',$tempJarDir)
+                $candidate=Join-Path $tempJarDir 'tps-timefold-0.2.0-jar-with-dependencies.jar'
+                if(!(Test-Path $candidate) -or (Get-Item $candidate).Length -lt 1000000){
+                    throw 'GitHub Timefold artifact missing or implausibly small; original JAR preserved.'
+                }
+                New-Item -ItemType Directory -Force -Path (Split-Path $jar -Parent) | Out-Null
+                Copy-Item -LiteralPath $candidate -Destination $jar -Force
+            }finally{
+                Remove-Item -LiteralPath $tempJarDir -Recurse -Force -ErrorAction SilentlyContinue
+            }
         }
         $jarPath=Jar-Ready
         Checked 'npm.cmd' @('test')
