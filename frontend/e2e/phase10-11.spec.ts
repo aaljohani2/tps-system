@@ -113,7 +113,7 @@ test('course import UI previews before enabling exact-file confirmation',async({
   await expect(page.getByText(/الأهلية المقترحة لا تُمنح تلقائياً|لا يُفعّل أي نمط اختياري/)).toBeVisible();
   const commit=page.getByRole('button',{name:/اعتماد استيراد/});
   await expect(commit).toHaveCount(0);
-  await page.locator('input[type=file]').setInputFiles({name:'courses.csv',mimeType:'text/csv',
+  await page.getByLabel('ملف المقررات').setInputFiles({name:'courses.csv',mimeType:'text/csv',
     buffer:Buffer.from('code,title,level,department,theoryHours,practicalHours,demand,proposedMode,eligibleModes\nTEST-1,مقرر تجريبي,2,قسم اصطناعي,2,0,20,ONSITE,ONSITE\n')});
   await page.getByRole('button',{name:'معاينة وفحص جميع الصفوف'}).click();
   await expect(page.getByText('الملف صالح للعرض والموافقة.')).toBeVisible();
