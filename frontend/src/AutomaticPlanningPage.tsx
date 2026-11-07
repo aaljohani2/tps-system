@@ -35,7 +35,7 @@ export default function AutomaticPlanningPage({ctx,notify}:{ctx:Context;notify:(
   const [planFile,setPlanFile]=useState<File|null>(null),[dataFile,setDataFile]=useState<File|null>(null);
   const [plan,setPlan]=useState<PlanPreview|null>(null),[history,setHistory]=useState<HistoryPreview|null>(null);
   const [result,setResult]=useState<Calculation|null>(null),[working,setWorking]=useState(false);
-  const [sourceKind,setSourceKind]=useState<'ACTUAL_LEVEL_COUNTS'|'COURSE_REGISTRATIONS'|'HISTORICAL_WORKBOOK'>('HISTORICAL_WORKBOOK');
+  const [sourceKind,setSourceKind]=useState<'ACTUAL_LEVEL_COUNTS'|'COURSE_REGISTRATIONS'|'HISTORICAL_WORKBOOK'|'LEVEL_TRANSITION'>('HISTORICAL_WORKBOOK');
   const [selections,setSelections]=useState<Record<string,string>>({});
   const [programId,setProgramId]=useState(''),[planCode,setPlanCode]=useState(''),[versionLabel,setVersionLabel]=useState('');
   const [savedPlanId,setSavedPlanId]=useState<string|null>(null),[integration,setIntegration]=useState<Materialization|null>(null);
@@ -82,13 +82,16 @@ export default function AutomaticPlanningPage({ctx,notify}:{ctx:Context;notify:(
   }
   function sourceFor(preview:HistoryPreview,kind=sourceKind){
     const historical=kind==='HISTORICAL_WORKBOOK';
+    const inferred=kind==='LEVEL_TRANSITION';
     return {kind,counts:preview.counts,label:historical?`مصنف سابق — ${preview.sheet}`:
+      inferred?`مقررات مستوفاة/متبقية — تقدير انتقال — ${preview.sheet}`:
       kind==='COURSE_REGISTRATIONS'?`سجلات متدربين مستخرجة — ${preview.sheet}`:`كشف فعلي — ${preview.sheet}`,
-      confidence:historical?'MEDIUM':'HIGH',targetTermId:ctx.termId,isConfirmedForTarget:!historical};
+      confidence:historical||inferred?'MEDIUM':'HIGH',targetTermId:ctx.termId,
+      isConfirmedForTarget:!historical&&!inferred};
   }
   function detectedSource(preview:HistoryPreview){
     if(preview.detection?.kind==='COURSE_REGISTRATIONS')return 'COURSE_REGISTRATIONS' as const;
-    if(preview.detection?.kind==='COURSE_REMAINING')return 'ACTUAL_LEVEL_COUNTS' as const;
+    if(preview.detection?.kind==='COURSE_REMAINING')return 'LEVEL_TRANSITION' as const;
     return 'HISTORICAL_WORKBOOK' as const;
   }
   function inferAlternatives(curriculum:PlanPreview,demand:HistoryPreview){
@@ -275,7 +278,8 @@ export default function AutomaticPlanningPage({ctx,notify}:{ctx:Context;notify:(
       <button className="primary" disabled={!planFile||working} onClick={uploadPlan}>اكتشاف الخطة تلقائيًا</button></section>
     <section><h3>٢. مصدر أعداد المتدربين</h3><label>نوع المصدر<select value={sourceKind} onChange={e=>setSourceKind(e.target.value as typeof sourceKind)}>
       <option value="ACTUAL_LEVEL_COUNTS">كشف فعلي للفصل المحدد</option><option value="COURSE_REGISTRATIONS">جدول/تسجيلات متدربين (اكتشاف ذكي)</option>
-      <option value="HISTORICAL_WORKBOOK">مصنف تخطيط سابق (تقدير تاريخي)</option></select></label>
+      <option value="HISTORICAL_WORKBOOK">مصنف تخطيط سابق (تقدير تاريخي)</option>
+      <option value="LEVEL_TRANSITION">المقررات المستوفاة والمتبقية (تقدير انتقال)</option></select></label>
       <label>CSV أو Excel<input type="file" accept=".csv,.xlsx" disabled={working} onChange={e=>{setDataFile(e.target.files?.[0]??null);setHistory(null);setResult(null);}}/></label>
       <button disabled={!dataFile||working} onClick={uploadData}>استخراج الأعداد والإعدادات</button></section></div>
     {plan&&<><div className="alert success">تم اكتشاف {plan.curriculum.levels.length} مستويات تدريبية و{plan.curriculum.courses.length} سجلًا للمقررات من {plan.sheet}.</div>
@@ -299,6 +303,7 @@ export default function AutomaticPlanningPage({ctx,notify}:{ctx:Context;notify:(
     {history&&<><h3>الأعداد المستخرجة</h3><div className="table-wrap"><table><thead><tr><th>المستوى</th><th>العدد</th><th>الحالة</th></tr></thead><tbody>
       {Object.entries(history.counts).sort(([a],[b])=>Number(a)-Number(b)).map(([level,count])=><tr key={level}><td>{level}</td><td>{count}</td>
         <td>{sourceKind==='HISTORICAL_WORKBOOK'?'تاريخي — يحتاج تحقق صلاحيته للفصل':
+          sourceKind==='LEVEL_TRANSITION'?'مستنتج من المتبقي — يحتاج تحقق قبل الاعتماد':
           sourceKind==='COURSE_REGISTRATIONS'?'مستخرج بعد إزالة تكرار المتدرب/المقرر':'فعلي للفصل المحدد'}</td></tr>)}</tbody></table></div>
       {history.detection?.uniqueTrainees!==undefined&&<div className="alert success">اكتشف النظام {history.detection.uniqueTrainees} متدربًا فريدًا،
         وطابق المستوى لـ{history.detection.matchedTrainees??0} منهم. أزيل تكرار اللقاءات والمقررات آليًا.</div>}
