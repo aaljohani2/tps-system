@@ -2,6 +2,7 @@ import {useState} from 'react';
 import {useQuery,useQueryClient} from '@tanstack/react-query';
 import {api,type Auth,type Context} from './api';
 import AutomaticPlanningPage from './AutomaticPlanningPage';
+import RayatResourceImport from './RayatResourceImport';
 
 type Kind='courses'|'instructors'|'rooms'|'blocks'|'demand';
 const kinds:Kind[]=['courses','instructors','rooms','blocks','demand'];
@@ -61,7 +62,8 @@ export default function BulkImportsPage({ctx,user,notify}:{
     }catch(e){notify('فشل الاستيراد: '+String(e instanceof Error?e.message:e));}
     finally{setWorking(false);}
   }
-  return <><AutomaticPlanningPage ctx={ctx} notify={notify}/><section className="panel">
+  return <><AutomaticPlanningPage ctx={ctx} notify={notify}/>
+    <RayatResourceImport ctx={ctx} user={user} notify={notify}/><section className="panel">
     <h2>الاستيراد بالقوالب التشغيلية</h2>
     <p className="hint">تنزيل القالب ← تعبئة ملف CSV أو Excel ← المعاينة ← تصحيح الأخطاء ← اعتماد الحفظ.
       تُستخدم قاعدة PostgreSQL، وتُحفظ جميع الصفوف في معاملة واحدة، دون حذف بيانات سابقة أو منح أنماط تدريب أو استثناءات أنصبة تلقائيًا.
