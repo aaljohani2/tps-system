@@ -13,6 +13,7 @@ import SolverRunsPanel from './SolverRunsPanel';
 import WeeklyGrid,{type GridProposal} from './WeeklyGrid';
 import IssuePanel from './IssuePanel';
 import BulkImportsPage from './BulkImportsPage';
+import AutomaticPlanningPage from './AutomaticPlanningPage';
 
 const labels:Record<string,string>={ONSITE:'حضوري',REMOTE:'عن بُعد',SELF_PACED:'ذاتي',HYBRID:'مدمج'};
 const days:Record<string,string>={SUN:'الأحد',MON:'الإثنين',TUE:'الثلاثاء',WED:'الأربعاء',THU:'الخميس'};
@@ -320,7 +321,7 @@ function ScenarioPage({ctx,notify,user}:{ctx:Context;notify:Message;user:Auth}){
     </>}
   </section>;
 }
-const nav=[['/context','الكلية والقسم والفصل'],['/dashboard','لوحة المؤشرات'],['/courses','المقررات'],['/imports','الاستيراد الجماعي'],['/academic','البرامج والأفواج والبلوكات'],['/demand','تقدير الطلب'],['/resources','المدربون والقاعات'],['/policy','الأنماط والأنصبة'],['/scheduling','الشعب والجدولة والاعتماد'],['/users','المستخدمون والصلاحيات']];
+const nav=[['/context','الكلية والقسم والفصل'],['/automatic-planning','التخطيط الآلي من الملفات'],['/dashboard','لوحة المؤشرات'],['/courses','المقررات'],['/imports','الاستيراد الذكي والقوالب'],['/academic','البرامج والأفواج والبلوكات'],['/demand','تقدير الطلب'],['/resources','المدربون والقاعات'],['/policy','الأنماط والأنصبة'],['/scheduling','الشعب والجدولة والاعتماد'],['/users','المستخدمون والصلاحيات']];
 export default function App(){
   const qc=useQueryClient(),[user,setUser]=useState<Auth|null>(null),[initial,setInitial]=useState(true);
   const [ctx,setCtx]=useStore<Context>('tps-context',{collegeId:'',departmentId:'',termId:''});
@@ -338,6 +339,7 @@ export default function App(){
     {message&&<div className="toast" role="status" onClick={()=>notify('')}>{message} <button aria-label="إغلاق">×</button></div>}
     <Routes><Route path="/" element={<Navigate to="/context" replace/>}/>
     <Route path="/context" element={<ContextSetup context={ctx} setContext={setCtx} notify={notify}/>}/>
+    <Route path="/automatic-planning" element={ctx.departmentId&&ctx.termId?<AutomaticPlanningPage ctx={ctx} notify={notify}/>:<NeedContext/>}/>
     <Route path="/courses" element={ctx.departmentId?<CoursePage ctx={ctx} user={user} notify={notify}/>:<NeedContext/>}/>
     <Route path="/dashboard" element={ctx.departmentId&&ctx.termId?<DashboardPage ctx={ctx}/>:<NeedContext/>}/>
     <Route path="/imports" element={ctx.departmentId&&ctx.termId?

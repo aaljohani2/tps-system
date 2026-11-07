@@ -64,7 +64,7 @@ async function fromDatabase(departmentId:string,termId:string,name:string,policy
   const term=await pool.query('SELECT id FROM academic_terms WHERE id=$1 AND college_id=$2',[termId,collegeId]);
   if(!term.rowCount)throw invalid('Term does not belong to selected college');
   const [coursesRaw,instructorsRaw,roomsRaw,demandRaw,blocksRaw,exceptionsRaw]=await Promise.all([
-    pool.query('SELECT * FROM courses WHERE department_id=$1 AND is_active=true ORDER BY code',[departmentId]),
+    pool.query('SELECT * FROM courses WHERE department_id=$1 AND is_active=true AND is_non_timetabled=false ORDER BY code',[departmentId]),
     pool.query('SELECT * FROM instructors WHERE department_id=$1 AND is_active=true ORDER BY code',[departmentId]),
     pool.query('SELECT * FROM rooms WHERE college_id=$1 AND is_active=true ORDER BY code',[collegeId]),
     pool.query('SELECT de.course_id,de.projected_students FROM demand_estimates de JOIN courses c ON c.id=de.course_id WHERE c.department_id=$1 AND de.term_id=$2',[departmentId,termId]),
@@ -118,6 +118,19 @@ async function fromDatabase(departmentId:string,termId:string,name:string,policy
   }));
   return {scenarioName:name,termId,courses,instructors,rooms,policy};
 }
+export async function createScenarioDraft(departmentId:string,termId:string,name:string,userId:string){
+  const {policy,revision}=await getEffectivePolicy(departmentId,termId);
+  const input=await fromDatabase(departmentId,termId,name,policy);
+  validateRequest(input);
+  if(!input.courses.length)throw invalid('Import or enter courses first');
+  const result=boundedDraft(input);
+  const r=await pool.query<{id:string}>(`INSERT INTO scenarios
+    (department_id,term_id,name,state,solver_status,input_snapshot,result_snapshot,created_by,policy_revision)
+    VALUES($1,$2,$3,'DRAFT','NOT_RUN',$4,$5,$6,$7) RETURNING id`,[
+    departmentId,termId,name,JSON.stringify(input),JSON.stringify(result),userId,revision
+  ]);
+  return {id:r.rows[0]!.id,state:'DRAFT' as const,solverStatus:'NOT_RUN' as const,result};
+}
 const selectInput=z.object({departmentId:uuid,termId:uuid,name:z.string().trim().min(1).max(160),
 }).strict();
 function csvCell(v:unknown):string{
@@ -149,18 +162,9 @@ export async function registerScenarios(app:FastifyInstance):Promise<void>{
     if(!parsed.success)throw invalid('Invalid scenario context');
     const v=parsed.data;
     await scope(req,v.departmentId);
-    const {policy,revision}=await getEffectivePolicy(v.departmentId,v.termId);
-    const input=await fromDatabase(v.departmentId,v.termId,v.name,policy);
-    validateRequest(input);
-    if(!input.courses.length)throw invalid('Import or enter courses first');
-    const result=boundedDraft(input);
-    const r=await pool.query<{id:string}>(`INSERT INTO scenarios
-      (department_id,term_id,name,state,solver_status,input_snapshot,result_snapshot,created_by,policy_revision)
-      VALUES($1,$2,$3,'DRAFT','NOT_RUN',$4,$5,$6,$7) RETURNING id`,[
-      v.departmentId,v.termId,v.name,JSON.stringify(input),JSON.stringify(result),req.principal!.id,revision
-    ]);
-    await audit(req.principal!.id,'CREATE','SCENARIO',r.rows[0]!.id);
-    return {id:r.rows[0]!.id,state:'DRAFT',solverStatus:'NOT_RUN',result};
+    const created=await createScenarioDraft(v.departmentId,v.termId,v.name,req.principal!.id);
+    await audit(req.principal!.id,'CREATE','SCENARIO',created.id);
+    return created;
   });
   app.get('/api/v1/scenarios/:id',async(req)=>find(req,params(req)));
   app.get('/api/v1/scenarios/:id/readiness',async(req)=>{

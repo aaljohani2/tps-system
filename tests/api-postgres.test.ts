@@ -503,6 +503,113 @@ test('authenticated end-to-end workflow persists a synthetic TPS scenario in Pos
     assert.equal(forkRecord.rows[0]?.solver_status,'NOT_RUN');
     // Structural records: program → versioned curriculum → cohort → normalized block → term-linked course.
     const program=await write('/programs',{departmentId:department.id,code:'PRG-'+uniq,name:'برنامج اصطناعي'});
+    const automaticCsv=Buffer.from([
+      'code,title,level,theory hours,practical hours,tutorial hours,credits,alternative group,responsible department',
+      'AUTO-'+uniq+',Automatic regular course,المستوى الأول,3,0,1,4,,Business',
+      'COOP-'+uniq+',التدريب التعاوني,المستوى الخامس,0,0,0,6,LEVEL-5-PATH,Business',
+      'PROJ-'+uniq+',المشروع الإنتاجي,المستوى الخامس,0,0,0,6,LEVEL-5-PATH,Business'
+    ].join('\n'),'utf8');
+    const mismatchedAutomaticCsv=Buffer.from([
+      'code,title,level,theory hours,practical hours,tutorial hours,credits,department',
+      'WRONG-'+uniq+',Wrong department course,1,2,0,0,2,Another Department'
+    ].join('\n'),'utf8');
+    const mismatchedAutomaticSave=await app.inject({method:'POST',
+      url:'/api/v1/automatic-planning/plan/commit?departmentId='+department.id+'&programId='+program.id+
+        '&planCode=WRONG-'+uniq+'&versionLabel=Wrong%20department',
+      headers:{cookie:session,'x-csrf-token':csrf,'content-type':'text/csv'},payload:mismatchedAutomaticCsv});
+    assert.equal(mismatchedAutomaticSave.statusCode,409,'Detected department must match the selected department');
+    const automaticSave=await app.inject({method:'POST',
+      url:'/api/v1/automatic-planning/plan/commit?departmentId='+department.id+'&programId='+program.id+
+        '&planCode=AUTO-'+uniq+'&versionLabel=Automatic%20test%20version',
+      headers:{cookie:session,'x-csrf-token':csrf,'content-type':'text/csv'},payload:automaticCsv});
+    assert.equal(automaticSave.statusCode,200,automaticSave.body);
+    assert.equal(automaticSave.json().records,3);
+    assert.equal(automaticSave.json().state,'DRAFT');
+    const traineeCsv=Buffer.from([
+      'student id,course code,day',
+      '1001,AUTO-'+uniq+',Sunday',
+      '1001,AUTO-'+uniq+',Tuesday',
+      '1002,AUTO-'+uniq+',Monday'
+    ].join('\n'),'utf8');
+    const traineePreview=await app.inject({method:'POST',url:'/api/v1/automatic-planning/history/preview?departmentId='+
+      department.id+'&courseLevels='+encodeURIComponent(JSON.stringify({['AUTO-'+uniq]:1})),
+      headers:{cookie:session,'x-csrf-token':csrf,'content-type':'text/csv'},payload:traineeCsv});
+    assert.equal(traineePreview.statusCode,200,traineePreview.body);
+    assert.deepEqual(traineePreview.json().counts,{1:2});
+    assert.equal(traineePreview.json().detection.uniqueTrainees,2);
+    assert.equal(traineePreview.json().detection.matchedRows,3);
+    assert.equal(traineePreview.json().courseCount,1);
+    const materialized=await app.inject({method:'POST',url:'/api/v1/automatic-planning/materialize?departmentId='+department.id,
+      headers:{cookie:session,'x-csrf-token':csrf},payload:{planId:automaticSave.json().planId,termId:term.id,
+        scenarioName:'Automatic integrated scenario',sources:[{kind:'COURSE_REGISTRATIONS',counts:{1:2,5:1},
+          label:'Synthetic trainee registrations',confidence:'HIGH',isConfirmedForTarget:true}],
+        capacities:{remoteTheory:100,onsiteTheory:50,practical:40,mixed:40},settings:[],
+        alternativeSelections:{'LEVEL-5-PATH':'COOP-'+uniq}}});
+    assert.equal(materialized.statusCode,200,materialized.body);
+    assert.equal(materialized.json().demandRecords,2);
+    assert.equal(materialized.json().cohorts,2);
+    assert.equal(materialized.json().blocks,2);
+    assert.equal(materialized.json().assignments,1);
+    assert.ok(materialized.json().scenarioId,materialized.body);
+    const integratedRows=await pool.query(`SELECT
+      (SELECT count(*)::int FROM demand_estimates WHERE source=$1) AS demand,
+      (SELECT count(*)::int FROM cohorts WHERE department_id=$2 AND code LIKE $3) AS cohorts,
+      (SELECT count(*)::int FROM student_blocks b JOIN cohorts c ON c.id=b.cohort_id
+        WHERE c.department_id=$2 AND c.code LIKE $3) AS blocks`,[
+      'TPS_AUTO:'+automaticSave.json().planId,department.id,
+      'AUTO-'+automaticSave.json().planId.slice(0,8)+'-'+term.id.slice(0,8)+'-%']);
+    assert.deepEqual(integratedRows.rows[0],{demand:2,cohorts:2,blocks:2});
+    const smartTrainerCsv=Buffer.from([
+      'الفصل التدريبي,الوحدة التدريبية,القسم,رقم المدرب,اسم المدرب,المقرر,وصف المحاضرة',
+      `1448,كلية اختبار,${department.name},AUTO-I-${uniq},مدرب استيراد ذكي,AUTO-${uniq},نظري صباحي`,
+      `1448,كلية اختبار,قسم آخر,OTHER-I-${uniq},مدرب قسم آخر,AUTO-${uniq},عملي`
+    ].join('\n'),'utf8');
+    const smartTrainerPreview=await app.inject({method:'POST',
+      url:'/api/v1/automatic-planning/resources/preview?departmentId='+department.id,
+      headers:{cookie:session,'x-csrf-token':csrf,'content-type':'text/csv'},payload:smartTrainerCsv});
+    assert.equal(smartTrainerPreview.statusCode,200,smartTrainerPreview.body);
+    assert.equal(smartTrainerPreview.json().instructors,1);
+    assert.equal(smartTrainerPreview.json().courseLinkedInstructors,1);
+    assert.equal(smartTrainerPreview.json().ready,true);
+    const smartTrainerCommit=await app.inject({method:'POST',
+      url:'/api/v1/automatic-planning/resources/commit?departmentId='+department.id+
+        '&expectedSha256='+smartTrainerPreview.json().sha256+'&defaultMaxLoad=18',
+      headers:{cookie:session,'x-csrf-token':csrf,'content-type':'text/csv'},payload:smartTrainerCsv});
+    assert.equal(smartTrainerCommit.statusCode,200,smartTrainerCommit.body);
+    assert.deepEqual({imported:smartTrainerCommit.json().imported,skipped:smartTrainerCommit.json().skipped},{imported:1,skipped:0});
+    const smartTrainer=await pool.query('SELECT max_load,eligible_course_codes,available FROM instructors WHERE department_id=$1 AND code=$2',
+      [department.id,'AUTO-I-'+uniq]);
+    assert.equal(Number(smartTrainer.rows[0]?.max_load),18);
+    assert.deepEqual(smartTrainer.rows[0]?.eligible_course_codes,['AUTO-'+uniq]);
+    assert.equal(smartTrainer.rows[0]?.available,null);
+    await pool.query('DELETE FROM instructors WHERE department_id=$1 AND code=$2',[department.id,'AUTO-I-'+uniq]);
+    // Keep the materialization verification isolated from the structural workflow below. The
+    // imported plan remains available for its lifecycle assertions, while its generated term
+    // demand/blocks and legacy demand projection must not become implicit input to later scenarios.
+    await pool.query('DELETE FROM scenarios WHERE id=$1',[materialized.json().scenarioId]);
+    await pool.query(`DELETE FROM block_course_assignments WHERE block_id IN (
+      SELECT b.id FROM student_blocks b JOIN cohorts c ON c.id=b.cohort_id
+      WHERE c.department_id=$1 AND c.code LIKE $2)`,[department.id,
+      'AUTO-'+automaticSave.json().planId.slice(0,8)+'-'+term.id.slice(0,8)+'-%']);
+    await pool.query(`DELETE FROM student_blocks WHERE cohort_id IN (
+      SELECT id FROM cohorts WHERE department_id=$1 AND code LIKE $2)`,[department.id,
+      'AUTO-'+automaticSave.json().planId.slice(0,8)+'-'+term.id.slice(0,8)+'-%']);
+    await pool.query('DELETE FROM cohorts WHERE department_id=$1 AND code LIKE $2',[department.id,
+      'AUTO-'+automaticSave.json().planId.slice(0,8)+'-'+term.id.slice(0,8)+'-%']);
+    await pool.query('DELETE FROM demand_estimates WHERE source=$1',['TPS_AUTO:'+automaticSave.json().planId]);
+    await pool.query('DELETE FROM level_demand_sources WHERE program_id=$1 AND term_id=$2',[program.id,term.id]);
+    await pool.query(`UPDATE courses SET demand=0 WHERE id IN (
+      SELECT course_id FROM curriculum_items WHERE plan_id=$1)`,[automaticSave.json().planId]);
+    const automaticRows=await pool.query(`SELECT cp.state,count(ci.id)::int AS items,
+      count(*) FILTER(WHERE c.is_non_timetabled)::int AS non_timed
+      FROM curriculum_plans cp JOIN curriculum_items ci ON ci.plan_id=cp.id
+      JOIN courses c ON c.id=ci.course_id WHERE cp.id=$1 GROUP BY cp.state`,[automaticSave.json().planId]);
+    assert.deepEqual(automaticRows.rows[0],{state:'DRAFT',items:3,non_timed:2});
+    const duplicateAutomatic=await app.inject({method:'POST',
+      url:'/api/v1/automatic-planning/plan/commit?departmentId='+department.id+'&programId='+program.id+
+        '&planCode=AUTO-'+uniq+'&versionLabel=Duplicate',
+      headers:{cookie:session,'x-csrf-token':csrf,'content-type':'text/csv'},payload:automaticCsv});
+    assert.equal(duplicateAutomatic.statusCode,409,'A version import must never overwrite an existing plan code');
     const plan=await write('/plans',{programId:program.id,code:'PLAN-'+uniq,versionLabel:'نسخة اختبار 1'});
     const planItem=await write('/plans/'+plan.id+'/items',{courseId:course.id,level:1,isRequired:true});
     assert.equal(planItem.level,1);
