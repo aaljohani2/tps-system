@@ -109,9 +109,9 @@ export function discoverRayatResources(tables:WorkbookTable[],target:{department
           if(capacity!==null&&(!Number.isInteger(capacity)||capacity===0))
             throw new Error('سعة قاعة غير صالحة: '+code);
           const prior=rooms.get(code);
-          if(prior?.capacity!==null&&capacity!==null&&prior.capacity!==capacity)
+          if(prior&&prior.capacity!==null&&capacity!==null&&prior.capacity!==capacity)
             throw new Error('رمز القاعة '+code+' له سعات مختلفة في ملف Excel');
-          if(prior?.type&&roomType&&prior.type!==roomType)
+          if(prior&&prior.type&&roomType&&prior.type!==roomType)
             throw new Error('رمز القاعة '+code+' له نوعان مختلفان');
           const current=prior??{code,name,type:null,capacity:null,building:null,sourceRows:0,scopeVerified:true};
           if(current.name===code&&name!==code)current.name=name;
