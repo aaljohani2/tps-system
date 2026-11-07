@@ -931,9 +931,11 @@ test('authenticated end-to-end workflow persists a synthetic TPS scenario in Pos
       atomicCode+',مقرر تلقائي آمن,المستوى الأول,2,0,0,2'
     ].join('\n'),'utf8');
     const atomicTrainees=Buffer.from([
-      'student id,course code,day',
-      '1001,'+atomicCode+',Sunday','1001,'+atomicCode+',Monday',
-      '1002,'+atomicCode+',Tuesday'
+      'department,college,student id,course code,day',
+      department.name+','+college.name+',1001,'+atomicCode+',Sunday',
+      department.name+','+college.name+',1001,'+atomicCode+',Monday',
+      department.name+','+college.name+',1002,'+atomicCode+',Tuesday',
+      'Other department,'+college.name+',9999,'+atomicCode+',Tuesday'
     ].join('\n'),'utf8');
     const atomicTrainers=Buffer.from([
       'القسم,رقم المدرب,اسم المدرب,المقرر',
@@ -958,6 +960,12 @@ test('authenticated end-to-end workflow persists a synthetic TPS scenario in Pos
     assert.equal(atomicResult.replayed,false);
     assert.equal(atomicResult.demandRecords,1);
     assert.equal(atomicResult.cohorts,1);
+    const scopedDemand=await pool.query<{projected_students:number}>(`
+      SELECT de.projected_students FROM demand_estimates de JOIN courses c ON c.id=de.course_id
+      WHERE c.department_id=$1 AND c.code=$2 AND de.term_id=$3`,[
+      department.id,atomicCode.toUpperCase(),term.id]);
+    assert.equal(Number(scopedDemand.rows[0]?.projected_students),2,
+      'A mixed-college trainee timetable must not include other-department learners');
     assert.equal(atomicResult.blocks,1);
     assert.equal(atomicResult.instructorsImported,1);
     assert.ok(atomicResult.scenarioId);
