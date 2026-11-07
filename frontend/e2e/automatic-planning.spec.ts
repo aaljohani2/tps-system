@@ -98,3 +98,66 @@ test('smart /imports refuses to silently select contradictory trainee counts',as
   await expect(page.getByRole('heading',{name:'الأعداد المستخرجة'})).toBeVisible();
   await expect(page.getByRole('cell',{name:'100',exact:true})).toBeVisible();
 });
+
+test('one smart multi-file upload at /imports connects plan, counts, instructors, scenario and Timefold',async({page})=>{
+  test.skip(process.env.TPS_E2E_MOCK!=='1','Run only with mock browser fixture');
+  await page.addInitScript(()=>localStorage.setItem('tps-context',
+    JSON.stringify({collegeId:'college',departmentId:'department',termId:'term'})));
+  const called:string[]=[];
+  const json=(value:unknown)=>({status:200,contentType:'application/json',body:JSON.stringify(value)});
+  await page.route('**/api/v1/**',async route=>{
+    const endpoint=new URL(route.request().url()).pathname;
+    const uploaded=route.request().postData()??'';
+    if(endpoint==='/api/v1/auth/me')return route.fulfill(json({
+      id:'admin',username:'synthetic',role:'SYSTEM_ADMIN',collegeId:null,departmentId:null,csrfToken:'token'}));
+    if(endpoint==='/api/v1/programs')return route.fulfill(json([{id:'program',name:'تقنية الأعمال',code:'BUS'}]));
+    if(endpoint.endsWith('/plan/preview')){
+      if(uploaded!=='PLAN')return route.fulfill({status:400,contentType:'application/json',body:'{"error":"Not a plan"}'});
+      const c={code:'BUS-101',normalizedCode:'BUS-101',title:'مقرر نظري',level:1,
+        theoryHours:2,practicalHours:0,tutorialHours:0,alternativeGroup:null,
+        responsibleDepartment:'تقنية الأعمال',specialKind:'REGULAR'};
+      return route.fulfill(json({sheet:'CSV',curriculum:{metadata:{department:'تقنية الأعمال',program:'تقنية الأعمال'},
+        sourceRows:1,warnings:[],levels:[{level:1,courses:[c]}],courses:[c]}}));
+    }
+    if(endpoint.endsWith('/history/preview')){
+      if(uploaded!=='COUNT')return route.fulfill({status:400,contentType:'application/json',body:'{"error":"Not student data"}'});
+      return route.fulfill(json({sheet:'CSV',counts:{1:37},warnings:[],settings:[],courseCount:1,
+        detection:{kind:'COURSE_REGISTRATIONS',strategy:'ALL_TRAINEE_ROWS',
+          uniqueTrainees:37,matchedTrainees:37,matchedRows:90}}));
+    }
+    if(endpoint.endsWith('/resources/preview')){
+      if(uploaded!=='TRAINER')return route.fulfill({status:400,contentType:'application/json',body:'{"error":"Not trainer data"}'});
+      return route.fulfill(json({sheet:'CSV',metadata:{department:'تقنية الأعمال'},instructors:1,
+        courseLinkedInstructors:1,sourceRows:3,warnings:[],ready:true,sha256:'a'.repeat(64)}));
+    }
+    if(endpoint.endsWith('/calculate')){called.push('calculate');return route.fulfill(json({
+      missingInputs:[],totals:{academicGroups:1,trainingComponents:1,contactHours:2},
+      courses:[{code:'BUS-101',title:'مقرر نظري',level:1,demand:37,
+        demandSource:'ملف تسجيلات',confidence:'HIGH',historical:false,mode:'ONSITE_THEORY',
+        capacity:50,academicGroups:1,groupSizes:[37],components:{theory:1,practical:0},
+        contactHours:2,complete:true,resourceOwner:'تقنية الأعمال',discrepancy:null,note:null}] }));}
+    if(endpoint.endsWith('/plan/commit')){called.push('plan');return route.fulfill(json({
+      planId:'new-plan',records:1,previousPlanId:null}));}
+    if(endpoint.endsWith('/resources/commit')){called.push('resources');return route.fulfill(json({
+      status:'COMMITTED',imported:1,skipped:0,warnings:[]}));}
+    if(endpoint.endsWith('/materialize')){called.push('materialize');return route.fulfill(json({
+      programId:'program',demandRecords:1,cohorts:1,blocks:1,assignments:1,
+      blockCapacityByLevel:{1:40},scenarioId:'scenario',
+      scenario:{state:'DRAFT',solverStatus:'NOT_RUN',metrics:{sectionCount:1,uncoveredSectionCount:0},gaps:0},
+      scenarioError:null,notice:'safe blocks'}));}
+    if(endpoint.endsWith('/solve/async')){called.push('timefold');return route.fulfill(json({solverStatus:'RUNNING'}));}
+    return route.fulfill(json([]));
+  });
+  await page.goto('/imports');
+  await page.locator('input[type=file][multiple]').setInputFiles([
+    {name:'curriculum.csv',mimeType:'text/csv',buffer:Buffer.from('PLAN')},
+    {name:'students.csv',mimeType:'text/csv',buffer:Buffer.from('COUNT')},
+    {name:'instructors.csv',mimeType:'text/csv',buffer:Buffer.from('TRAINER')}
+  ]);
+  await expect(page.getByText(/تم اكتشاف 1 مستويات تدريبية و1 سجلًا للمقررات/)).toBeVisible();
+  await expect(page.getByText(/اكتشف النظام 37 متدربًا فريدًا/)).toBeVisible();
+  await expect(page.getByText(/اكتُشف 1 مدربًا/)).toBeVisible();
+  await page.getByRole('button',{name:'اعتماد الملفات وتحديث كامل النظام وتشغيل Timefold'}).click();
+  await expect(page.getByText(/Timefold: بدأ التشغيل/)).toBeVisible();
+  expect(called).toEqual(['calculate','plan','resources','materialize','timefold']);
+});
