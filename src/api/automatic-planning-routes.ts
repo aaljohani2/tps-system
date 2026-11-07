@@ -70,8 +70,8 @@ function filterTraineeTablesByScope(all:WorkbookTable[],departmentName:string,co
       const college=collegeIdx<0?'':String(row[collegeIdx]??'').trim();
       if(!dept&&!college)return false;
       identified++;
-      const goodDepartment=!dept||comparable(dept)===comparable(departmentName);
-      const goodCollege=!college||comparable(college)===comparable(collegeName);
+      const goodDepartment=deptIdx<0||(!!dept&&comparable(dept)===comparable(departmentName));
+      const goodCollege=collegeIdx<0||(!!college&&comparable(college)===comparable(collegeName));
       if(goodDepartment&&goodCollege){matched++;return true;}
       return false;
     });
