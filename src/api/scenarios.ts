@@ -95,7 +95,7 @@ async function fromDatabase(departmentId:string,termId:string,name:string,policy
     const demand=projected??(c.demand>0?c.demand:blockTotal);
     if(links.length && blockTotal!==demand)
       throw invalid(`Block sizes for ${c.code} total ${blockTotal} while approved planning demand is ${demand}; reconcile before scheduling`,409);
-    const cap=c.mode==='SELF_PACED'?null:policy.capacities[c.mode]?.theory;
+    const cap=c.mode==='SELF_PACED'?null:policy.capacities[c.mode as keyof Policy['capacities']]?.theory;
     const shouldPack=links.length>1&&Number(c.theory_hours)>0&&Number(c.practical_hours)===0&&
       Number.isInteger(cap)&&cap>0;
     const packed=shouldPack?packTheoryBlocks(links.map(b=>({ref:b.ref,size:b.size})),cap):null;
