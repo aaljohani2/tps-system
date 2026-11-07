@@ -88,3 +88,81 @@ Synthetic regression coverage:
 - A queued Java solve is not a durable cross-process worker/restart-proof orchestration system.
 - Historical legacy partial save buttons remain supported for manual stepwise work;
   for all-or-nothing **unified import** use the primary one-button workflow.
+
+## Windows update and guarded local trial
+
+This source increment has a dedicated **PowerShell 5.1** updater:
+`scripts/upgrade-smart-import-windows.ps1`. It runs only on
+`feat/unified-smart-import-from-local-20261107` with a clean tracked Git
+worktree and **never forces checkout, reset, deletes a DB, or publishes files**.
+
+### 1. Get the updater without touching the operational database
+
+```powershell
+Set-Location H:\tps_system
+git status --short
+git pull --ff-only origin feat/unified-smart-import-from-local-20261107
+```
+
+Stop and reconcile any conflicting **tracked** source changes rather than
+resetting. This checkout contains no real learner files.
+
+### 2. Prepare (operational encrypted backup + independent restore + builds)
+
+Obtain an exact-green `TPS checks` run ID of the **same feature HEAD**. It
+must include the `tps-timefold-jar` artifact, retained seven days. Maven
+users do not need GitHub CLI. If Maven is absent, authenticate a supported
+GitHub CLI once (`gh auth login`) before running the updater; the installer
+will refuse any artifact whose run is not SUCCESS for the exact downloaded
+source commit.
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/upgrade-smart-import-windows.ps1 -Action Prepare -VerifiedRunId <GREEN_RUN_ID>
+```
+
+A securely prompted backup passphrase (24+ characters) is used for the
+local operational database backup/verification and an independent isolated
+restore rehearsal. Keep the passphrase in an approved secure offline
+location, not in Git, logs or chat. Prep also performs `npm ci`,
+`web:install`, API + web builds, verified Java solver build/download and
+`npm test`. It saves only a checksum receipt in ignored `private-data`
+and **does not restart** or upgrade the running API.
+
+### 3. Controlled local activation only
+
+Ensure no Timefold job is active; disable/pause any optional login-triggered
+TPS task as needed. In the **existing server console**, stop the previous TPS
+Node process with Ctrl+C. Verify port 8787 is free. Do not stop/delete
+Docker PostgreSQL or any volumes.
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/upgrade-smart-import-windows.ps1 -Action Start
+```
+
+`Start` demands the prepared exact commit/JAR/backup hashes, rejects any
+busy port, applies only forward migrations 0015/0016 to
+`tps_operational_local`, checks the DB and starts actual Fastify/React
+on `127.0.0.1:8787`. It is a **foreground process**: leave its console
+open. In a second PowerShell window:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/upgrade-smart-import-windows.ps1 -Action Status
+Invoke-RestMethod http://127.0.0.1:8787/health
+```
+
+Require `status=ok`, `database=ok`, `mode=local-production`.
+Log in, visit `/imports`, inspect detection of program/department/plan,
+unique trainee counts, conflicting source warnings, class capacity and
+the actual draft section counts. Use only authorized files or synthetic
+fixtures on a disposable database until on-device validation is complete.
+The one-click action must write a single receipt, leave old approved
+scenarios unchanged and allow inspecting a new scenario. Run Timefold
+and verify its status explicitly; a DRAFT is not an approved timetable.
+
+If any preparation step fails, leave the existing application running.
+If migration or new runtime fails, retain the encrypted backup and
+isolated restore evidence; stop and inspect before any rollback. A
+forward migration cannot be undone by merely reverting source code.
+Do not restore over the operational database or delete the volume.
+
+**Do not merge draft PR #9 merely to test locally.**
