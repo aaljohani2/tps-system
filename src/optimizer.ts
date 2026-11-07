@@ -9,6 +9,7 @@ import {resolve} from 'node:path';
 import type {Component, Course, Day, Instructor, PlanRequest, PlanResult, Room, Section, Session, TimedMode, TimeWindow} from './types.js';
 import {buildDraftPlan} from './planner.js';
 import {trainerQualified,roomQualified} from './eligibility.js';
+import {hasSharedBlock} from './cohort-grouping.js';
 
 const DAYS: Day[] = ['SUN', 'MON', 'TUE', 'WED', 'THU'];
 const round = (n: number) => Math.round((n + Number.EPSILON) * 1000) / 1000;
@@ -95,7 +96,8 @@ function makeSessions(c: Course, sec: Section, inst: Instructor, input: PlanRequ
                 id: `${sec.id}-P${seed + 1}-${allocated.length + 1}`, sectionId: sec.id,
                 courseCode: c.code, component: job.component, mode: job.mode,
                 day, start, end, roomId: chosen?.id ?? null, instructorId: inst.id,
-                blockId: sec.blockId
+                blockId: sec.blockId,
+                ...(sec.blockIds?{blockIds:sec.blockIds}:{})
               });
               hours -= duration;
               found = true;
@@ -205,7 +207,7 @@ export function applySolverChoice(input: PlanRequest, payload: SolverPayload, re
     for (let j = i + 1; j < sessions.length; j++) {
       const a = sessions[i]!, b = sessions[j]!;
       if (a.day === b.day && collide(a, b) &&
-          (a.instructorId === b.instructorId || (a.blockId !== null && a.blockId === b.blockId) ||
+          (a.instructorId === b.instructorId || hasSharedBlock(a,b) ||
            (a.roomId !== null && a.roomId === b.roomId) || a.sectionId === b.sectionId))
         throw new Error(`Timefold returned a collision: ${a.id} and ${b.id}`);
     }
