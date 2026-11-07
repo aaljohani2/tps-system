@@ -69,8 +69,101 @@ switch($Action){
             throw "Port 8787 is not operational TPS: $($health.mode). Refusing preparation."
         }
         # Only source code moves here. The existing PostgreSQL DB and .env are untouched.
-        Checked 'git' @('fetch','--no-tags','origin',$Branch)
-        Checked 'git' @('merge','--ff-only',"origin/$Branch")
+        # A named fetch is guaranteed to populate FETCH_HEAD but it need not
+        # create refs/remotes/origin/<branch> (e.g. narrow or custom refspecs).
+        # Merge exactly the verified fetched branch, without reset/force.
+        Checked 'git' @('fetch','--no-tags','origin',"refs/heads/$Branch")
+        $fetchedHead=CaptureGit @('rev-parse','--verify','FETCH_HEAD^{commit}')
+        if($fetchedHead -notmatch '^[a-f0-9]{40}
+        Check-Worktree
+        $head=CaptureGit @('rev-parse','HEAD')
+        Write-Output "Source updated by safe fast-forward: $head"
+        # Retain old built server for the live API until intentionally retired.
+        $backup=UpgradeBackup
+        Write-Output 'Encrypted operational backup and isolated restore rehearsal passed.'
+        $currentAfterBackup=Health
+        if($health -and (!$currentAfterBackup -or $currentAfterBackup.mode -ne 'local-production')){
+            throw 'Existing local production service changed state during preparation; stop and investigate.'
+        }
+        Checked 'npm.cmd' @('ci')
+        Checked 'npm.cmd' @('run','web:install')
+        Checked 'npm.cmd' @('run','build')
+        Checked 'npm.cmd' @('run','web:build')
+        $jar=Join-Path $Root 'solver\target\tps-timefold-0.2.0-jar-with-dependencies.jar'
+        $maven=Get-Command mvn.cmd,mvn -ErrorAction SilentlyContinue | Select-Object -First 1
+        if($maven){
+            Checked 'npm.cmd' @('run','solver:build')
+        }else{
+            if($VerifiedRunId -le 0){throw 'Maven is not installed. Supply -VerifiedRunId <successful GitHub Actions TPS checks run id> and an authenticated gh CLI.'}
+            $gh=Get-Command gh.exe,gh -ErrorAction SilentlyContinue | Select-Object -First 1
+            if(!$gh){throw 'Neither Maven nor GitHub CLI exists. Install GitHub CLI or Maven; do not use an old Timefold JAR.'}
+            $details=(& gh run view $VerifiedRunId -R $Repository --json headSha,conclusion -q '.headSha + "|" + .conclusion' | Out-String).Trim()
+            if($LASTEXITCODE -ne 0 -or $details -ne "$head|success"){
+                throw "GitHub Actions run is not green for this exact commit. Got: $details"
+            }
+            # Download in a new staging directory first: never destroy the last
+            # working JAR if GitHub artifact retrieval fails.
+            $tempJarDir=Join-Path $env:TEMP ('tps-solver-'+[guid]::NewGuid().ToString('N'))
+            New-Item -ItemType Directory -Force -Path $tempJarDir | Out-Null
+            try{
+                Checked 'gh' @('run','download',"$VerifiedRunId",'-R',$Repository,'-n','tps-timefold-jar','-D',$tempJarDir)
+                $candidate=Join-Path $tempJarDir 'tps-timefold-0.2.0-jar-with-dependencies.jar'
+                if(!(Test-Path $candidate) -or (Get-Item $candidate).Length -lt 1000000){
+                    throw 'GitHub Timefold artifact missing or implausibly small; original JAR preserved.'
+                }
+                New-Item -ItemType Directory -Force -Path (Split-Path $jar -Parent) | Out-Null
+                Copy-Item -LiteralPath $candidate -Destination $jar -Force
+            }finally{
+                Remove-Item -LiteralPath $tempJarDir -Recurse -Force -ErrorAction SilentlyContinue
+            }
+        }
+        $jarPath=Jar-Ready
+        Checked 'npm.cmd' @('test')
+        $receiptInfo=[pscustomobject]@{
+            head=$head
+            backupPath=$backup.archive
+            backupSha256=$backup.sha256
+            jarSha256=(Get-FileHash -Algorithm SHA256 -LiteralPath $jarPath).Hash
+            utc=(Get-Date).ToUniversalTime().ToString('o')
+        }
+        $receiptInfo | ConvertTo-Json -Depth 4 | Set-Content -Encoding UTF8 -LiteralPath $Receipt
+        Write-Output 'PREPARE_SUCCESS: code, dependencies, front end and Timefold built, Node tests passed.'
+        Write-Output 'Backup verified and restored in a NEW isolated database.'
+        Write-Output 'The current TPS application process has NOT been stopped or redeployed.'
+        Write-Output 'Stop only the current TPS API foreground window with Ctrl+C; ensure no Timefold run is active.'
+        Write-Output 'Then execute: powershell -NoProfile -ExecutionPolicy Bypass -File scripts\upgrade-smart-import-windows.ps1 -Action Start'
+    }
+    'Start' {
+        Check-Worktree
+        if(!(Test-Path $Receipt)){throw 'No successful Prepare receipt. Refusing to apply migrations.'}
+        $receiptInfo=Get-Content -Raw -LiteralPath $Receipt | ConvertFrom-Json
+        $head=CaptureGit @('rev-parse','HEAD')
+        if($head -ne $receiptInfo.head){throw 'Source changed after Prepare. Re-run Prepare.'}
+        if(!(Test-Path $receiptInfo.backupPath)){throw 'Verified operational backup is missing.'}
+        $backupHash=(Get-FileHash -Algorithm SHA256 -LiteralPath $receiptInfo.backupPath).Hash
+        if($backupHash -ne $receiptInfo.backupSha256){throw 'Operational backup hash has changed.'}
+        $jar=Jar-Ready
+        if((Get-FileHash -Algorithm SHA256 -LiteralPath $jar).Hash -ne $receiptInfo.jarSha256){
+            throw 'Timefold JAR differs from the one checked in Prepare.'
+        }
+        $listeners=Get-NetTCPConnection -LocalPort 8787 -State Listen -ErrorAction SilentlyContinue
+        if($listeners){throw 'Port 8787 is occupied. Stop only the known TPS service (or signed-in task) after verifying no active Timefold work. Never force-kill another process.'}
+        Checked 'npm.cmd' @('run','local:production:init')
+        Checked 'npm.cmd' @('run','local:production:check')
+        Write-Output 'TPS local production migrations and validation passed. Starting on loopback port 8787.'
+        Checked 'npm.cmd' @('run','local:production:start')
+    }
+    'Status' {
+        $health=Health
+        if(!$health){Write-Output 'OFFLINE: TPS does not respond on loopback 8787';exit 2}
+        $health | ConvertTo-Json -Depth 8 | Write-Output
+        if($health.mode -ne 'local-production'){throw 'Unexpected profile: not local-production'}
+        Write-Output 'LOCAL_PRODUCTION_PROFILE_OK'
+    }
+}){
+            throw 'Fetched branch did not resolve to a valid commit; no merge attempted.'
+        }
+        Checked 'git' @('merge','--ff-only',$fetchedHead)
         Check-Worktree
         $head=CaptureGit @('rev-parse','HEAD')
         Write-Output "Source updated by safe fast-forward: $head"
