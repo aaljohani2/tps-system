@@ -167,3 +167,51 @@ test('one smart multi-file upload at /imports connects plan, counts, instructors
   await expect(page.getByText(/Timefold: بدأ التشغيل/)).toBeVisible();
   expect(called).toEqual(['calculate','atomic-full-import','timefold']);
 });
+
+
+test('Rayat Excel import in /resources previews instructors and rooms and saves only explicit room decisions',async({page})=>{
+  test.skip(process.env.TPS_E2E_MOCK!=='1','Mock user-interface integration only');
+  await page.addInitScript(()=>localStorage.setItem('tps-context',JSON.stringify({
+    collegeId:'college',departmentId:'department',termId:'term'
+  })));
+  const json=(value:unknown)=>({status:200,contentType:'application/json',body:JSON.stringify(value)});
+  let committed:Record<string,unknown>|null=null;
+  await page.route('**/api/v1/**',async route=>{
+    const path=new URL(route.request().url()).pathname;
+    if(path==='/api/v1/auth/me')return route.fulfill(json({
+      id:'admin',username:'synthetic',role:'SYSTEM_ADMIN',
+      collegeId:null,departmentId:null,csrfToken:'synthetic-csrf'}));
+    if(path==='/api/v1/instructors'||path==='/api/v1/rooms')return route.fulfill(json([]));
+    if(path==='/api/v1/raiyat-resources/preview')return route.fulfill(json({
+      sha256:'a'.repeat(64),instructors:[{
+        code:'TR01',name:'مدرب تجريبي',maxLoad:18,courseEvidence:['TEST-101'],
+        sourceRows:3,scopeVerified:true,exists:false}],
+      rooms:[{
+        code:'L-101',name:'معمل تجريبي',capacity:null,type:null,building:'A',
+        sourceRows:3,scopeVerified:true,exists:false,needsCapacity:true,needsType:true}],
+      sheets:['جدول رايات'],warnings:['السعة غير مثبتة ويجب مراجعتها'],unscoped:false,
+      canImportRooms:true,existingInstructors:0,existingRooms:0
+    }));
+    if(path==='/api/v1/raiyat-resources/commit'){
+      committed=JSON.parse(route.request().postData()??'{}') as Record<string,unknown>;
+      return route.fulfill(json({importedInstructors:1,existingInstructors:0,
+        importedRooms:1,existingRooms:0,unresolvedRooms:0,eligibilityPending:1}));
+    }
+    return route.fulfill(json([]));
+  });
+  await page.goto('/resources');
+  await expect(page.getByRole('heading',{name:'استيراد مدربي وقاعات رايات من Excel'})).toBeVisible();
+  await page.locator('input[type=file]').setInputFiles({
+    name:'rayat.csv',mimeType:'text/csv',buffer:Buffer.from('SAMPLE_RAYAT')});
+  await page.getByRole('button',{name:'اكتشاف المدربين والقاعات'}).click();
+  await expect(page.getByText('TR01')).toBeVisible();
+  await expect(page.getByText('L-101')).toBeVisible();
+  await expect(page.getByRole('button',{name:'اعتماد وحفظ المدربين والقاعات الجديدة'})).toBeDisabled();
+  await page.getByPlaceholder('سعة موثقة').fill('30');
+  await page.locator('select').filter({has:page.locator('option[value="LAB"]')}).selectOption('LAB');
+  await page.getByRole('button',{name:'اعتماد وحفظ المدربين والقاعات الجديدة'}).click();
+  await expect(page.getByText(/اكتمل الاستيراد: المدربون الجدد 1/)).toBeVisible();
+  expect(committed).not.toBeNull();
+  const decision=(committed as unknown as {roomDecisions:Record<string,{capacity:number;type:string}>}).roomDecisions;
+  expect(decision['L-101']).toEqual({capacity:30,type:'LAB'});
+});
