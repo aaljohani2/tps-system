@@ -49,6 +49,37 @@ function tableCsvToRows(raw:string):string[][]{
   if(parsed.some(values=>values.length>200))throw fail('CSV exceeds 200 columns',413);
   return parsed;
 }
+/** Keep only the selected institutional scope from mixed-college timetables.
+ * Original trainee rows remain in memory; a preview never returns identifiers.
+ * Empty scope cells cannot be assumed to belong to the current department.
+ */
+function filterTraineeTablesByScope(all:WorkbookTable[],departmentName:string,collegeName:string){
+  const comparable=(name:string)=>normalizeArabic(name).replace(/^قسم\s+/,'').trim();
+  return all.map(sheet=>{
+    const rows=sheet.rows;
+    const headerAt=rows.findIndex((row,index)=>index<30&&row.some(cell=>
+      ['القسم','department','الكلية','الوحدة التدريبية','college'].includes(normalizeArabic(cell))));
+    if(headerAt<0)return sheet;
+    const headers=rows[headerAt]!.map(normalizeArabic);
+    const deptIdx=headers.findIndex(x=>x==='القسم'||x==='department');
+    const collegeIdx=headers.findIndex(x=>['الكلية','الوحدة التدريبية','college'].includes(x));
+    if(deptIdx<0&&collegeIdx<0)return sheet;
+    let identified=0,matched=0;
+    const kept=rows.slice(headerAt+1).filter(row=>{
+      const dept=deptIdx<0?'':String(row[deptIdx]??'').trim();
+      const college=collegeIdx<0?'':String(row[collegeIdx]??'').trim();
+      if(!dept&&!college)return false;
+      identified++;
+      const goodDepartment=!dept||comparable(dept)===comparable(departmentName);
+      const goodCollege=!college||comparable(college)===comparable(collegeName);
+      if(goodDepartment&&goodCollege){matched++;return true;}
+      return false;
+    });
+    if(identified>0&&!matched)throw fail(
+      'No trainee rows in this file match the currently selected college and department',409);
+    return {name:sheet.name,rows:[...rows.slice(0,headerAt+1),...kept]};
+  });
+}
 function findPlan(all:WorkbookTable[]){
   const errors:string[]=[];
   for(const sheet of all)try{return {sheet:sheet.name,curriculum:importAutomaticCurriculumCsv(tableCsv(sheet.rows))};}
@@ -140,7 +171,13 @@ export async function registerAutomaticPlanning(app:FastifyInstance){
   });
   app.post('/api/v1/automatic-planning/history/preview',{bodyLimit:20*1024*1024},async req=>{
     requireEditor(req);await checkScope(req);
-    try{return findCounts(await tables(req),requestCourseLevels(req));}catch(e){if((e as {statusCode?:number}).statusCode)throw e;
+    const department=await pool.query<{department_name:string;college_name:string}>(`
+      SELECT d.name AS department_name,c.name AS college_name FROM departments d
+      JOIN colleges c ON c.id=d.college_id WHERE d.id=$1`,[scopeId(req)]);
+    if(!department.rows[0])throw fail('Department not found',404);
+    try{return findCounts(filterTraineeTablesByScope(await tables(req),
+      department.rows[0].department_name,department.rows[0].college_name),requestCourseLevels(req));
+    }catch(e){if((e as {statusCode?:number}).statusCode)throw e;
       throw fail(e instanceof Error?e.message:String(e));}
   });
   app.post('/api/v1/automatic-planning/resources/preview',{bodyLimit:20*1024*1024},async req=>{
@@ -469,7 +506,12 @@ export async function registerAutomaticPlanning(app:FastifyInstance){
     };
     const planPreview=findPlan(await parse(input.plan,planBytes));
     const levelMap=Object.fromEntries(planPreview.curriculum.courses.map(c=>[c.normalizedCode,c.level]));
-    const counts=findCounts(await parse(input.trainees,traineeBytes),levelMap);
+    const departmentScope=await pool.query<{name:string;college_name:string}>(`
+      SELECT d.name,c.name AS college_name FROM departments d JOIN colleges c ON c.id=d.college_id
+      WHERE d.id=$1`,[input.departmentId]);
+    if(!departmentScope.rows[0])throw fail('Department not found',404);
+    const counts=findCounts(filterTraineeTablesByScope(await parse(input.trainees,traineeBytes),
+      departmentScope.rows[0].name,departmentScope.rows[0].college_name),levelMap);
     const detected=counts.detection.kind;
     if((detected==='COURSE_REMAINING'&&input.sourceKind!=='LEVEL_TRANSITION')||
       (detected==='COURSE_REGISTRATIONS'&&input.sourceKind!=='COURSE_REGISTRATIONS')||
