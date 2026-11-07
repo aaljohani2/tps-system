@@ -16,6 +16,7 @@ import {registerLoadExceptions} from './load-exceptions.js';
 import {registerPrerequisites} from './prerequisites.js';
 import {registerBulkImports} from './bulk-routes.js';
 import {registerAutomaticPlanning} from './automatic-planning-routes.js';
+import {registerRayatResourceImports} from './raiyat-resource-routes.js';
 import {ZodError} from 'zod';
 
 export async function createApp(){
@@ -46,6 +47,7 @@ export async function createApp(){
   await registerPrerequisites(app);
   await registerBulkImports(app);
   await registerAutomaticPlanning(app);
+  await registerRayatResourceImports(app);
   app.get('/health',async()=>{
     await pool.query('SELECT 1');
     return {status:'ok',database:'ok',storage:'PostgreSQL',
