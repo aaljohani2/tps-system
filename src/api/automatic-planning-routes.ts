@@ -694,7 +694,7 @@ export async function registerAutomaticPlanning(app:FastifyInstance){
       for(const level of resolved.levels){
         if(level.students<=0)continue;
         const matched=courseRows.rows.filter(row=>row.level===level.level&&
-          !row.is_non_timetabled&&chosen.get(row.code)?.mode!==null);
+          !row.is_non_timetabled&&chosen.has(row.code)&&chosen.get(row.code)!.mode!==null);
         const capacities=matched.map(row=>{
           const limit=policy.capacities[row.mode];
           const theoretical=Number(row.theory_hours),practical=Number(row.practical_hours);
@@ -727,7 +727,8 @@ export async function registerAutomaticPlanning(app:FastifyInstance){
         }
       }
       const scenario=await createAtomicScenarioDraft(input.departmentId,input.termId,input.scenarioName,
-        req.principal!.id,client,effective,planId);
+        req.principal!.id,client,effective,planId,
+        calculation.courses.filter(course=>course.mode!==null).map(course=>normalizeCourseCode(course.code)));
       await client.query(`INSERT INTO audit_logs(user_id,action,entity_type,entity_id,details)
         VALUES($1,'CREATE_FROM_AUTOMATIC_PLAN','SCENARIO',$2,$3::jsonb)`,[
         req.principal!.id,scenario.id,
