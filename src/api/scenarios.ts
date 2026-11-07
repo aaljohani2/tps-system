@@ -60,7 +60,7 @@ async function find(req:FastifyRequest,id:string):Promise<Stored>{
   return row;
 }
 async function fromDatabase(departmentId:string,termId:string,name:string,policy:Policy,
-  db:Pick<PoolClient,'query'>=pool,planId?:string):Promise<PlanRequest>{
+  db:Pick<PoolClient,'query'>=pool,planId?:string,selectedCourseCodes?:string[]):Promise<PlanRequest>{
   const d=await db.query<{college_id:string}>('SELECT college_id FROM departments WHERE id=$1',[departmentId]);
   const collegeId=d.rows[0]?.college_id;
   if(!collegeId)throw invalid('Department not found',404);
@@ -69,7 +69,9 @@ async function fromDatabase(departmentId:string,termId:string,name:string,policy
   const [coursesRaw,instructorsRaw,roomsRaw,demandRaw,blocksRaw,exceptionsRaw]=await Promise.all([
     db.query(`SELECT * FROM courses c WHERE c.department_id=$1 AND c.is_active=true AND c.is_non_timetabled=false
       AND ($2::uuid IS NULL OR EXISTS(SELECT 1 FROM curriculum_items ci
-        WHERE ci.course_id=c.id AND ci.plan_id=$2)) ORDER BY c.code`,[departmentId,planId??null]),
+        WHERE ci.course_id=c.id AND ci.plan_id=$2))
+      AND ($3::text[] IS NULL OR c.code=ANY($3::text[]))
+      ORDER BY c.code`,[departmentId,planId??null,selectedCourseCodes??null]),
     db.query('SELECT * FROM instructors WHERE department_id=$1 AND is_active=true ORDER BY code',[departmentId]),
     db.query('SELECT * FROM rooms WHERE college_id=$1 AND is_active=true ORDER BY code',[collegeId]),
     db.query('SELECT de.course_id,de.projected_students FROM demand_estimates de JOIN courses c ON c.id=de.course_id WHERE c.department_id=$1 AND de.term_id=$2',[departmentId,termId]),
@@ -133,9 +135,10 @@ async function fromDatabase(departmentId:string,termId:string,name:string,policy
   return {scenarioName:name,termId,courses,instructors,rooms,policy};
 }
 export async function createScenarioDraft(departmentId:string,termId:string,name:string,userId:string,
-  db:Pick<PoolClient,'query'>=pool,effective?:{policy:Policy;revision:number},planId?:string){
+  db:Pick<PoolClient,'query'>=pool,effective?:{policy:Policy;revision:number},planId?:string,
+  selectedCourseCodes?:string[]){
   const {policy,revision}=effective??await getEffectivePolicy(departmentId,termId);
-  const input=await fromDatabase(departmentId,termId,name,policy,db,planId);
+  const input=await fromDatabase(departmentId,termId,name,policy,db,planId,selectedCourseCodes);
   validateRequest(input);
   if(!input.courses.length)throw invalid('Import or enter courses first');
   const result=boundedDraft(input);
