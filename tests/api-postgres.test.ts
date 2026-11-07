@@ -559,6 +559,25 @@ test('authenticated end-to-end workflow persists a synthetic TPS scenario in Pos
       'TPS_AUTO:'+automaticSave.json().planId,department.id,
       'AUTO-'+automaticSave.json().planId.slice(0,8)+'-'+term.id.slice(0,8)+'-%']);
     assert.deepEqual(integratedRows.rows[0],{demand:2,cohorts:2,blocks:2});
+    // Simulate review of the generated scenario: even though immutable snapshots
+    // survive, live cohort/block IDs must not be replaced by a repeat import.
+    await pool.query("UPDATE scenarios SET state='UNDER_REVIEW' WHERE id=$1",[materialized.json().scenarioId]);
+    const reimportProtected=await app.inject({method:'POST',
+      url:'/api/v1/automatic-planning/materialize?departmentId='+department.id,
+      headers:{cookie:session,'x-csrf-token':csrf},payload:{planId:automaticSave.json().planId,termId:term.id,
+        scenarioName:'Unsafe reimport while under review',sources:[{kind:'COURSE_REGISTRATIONS',counts:{1:2,5:1},
+          label:'Synthetic trainee registrations',confidence:'HIGH',isConfirmedForTarget:true}],
+        capacities:{remoteTheory:100,onsiteTheory:50,practical:40,mixed:40},settings:[],
+        alternativeSelections:{'LEVEL-5-PATH':'COOP-'+uniq}}});
+    assert.equal(reimportProtected.statusCode,409,'A scenario under review must preserve its existing generated blocks');
+    const protectedRows=await pool.query(`SELECT
+      (SELECT count(*)::int FROM cohorts WHERE department_id=$1 AND code LIKE $2) AS cohorts,
+      (SELECT count(*)::int FROM student_blocks b JOIN cohorts c ON c.id=b.cohort_id
+        WHERE c.department_id=$1 AND c.code LIKE $2) AS blocks`,[
+      department.id,'AUTO-'+automaticSave.json().planId.slice(0,8)+'-'+term.id.slice(0,8)+'-%']);
+    assert.deepEqual(protectedRows.rows[0],{cohorts:2,blocks:2},
+      'Protected re-import must not delete or alter existing cohort blocks');
+    await pool.query("UPDATE scenarios SET state='DRAFT' WHERE id=$1",[materialized.json().scenarioId]);
     const smartTrainerCsv=Buffer.from([
       'الفصل التدريبي,الوحدة التدريبية,القسم,رقم المدرب,اسم المدرب,المقرر,وصف المحاضرة',
       `1448,كلية اختبار,${department.name},AUTO-I-${uniq},مدرب استيراد ذكي,AUTO-${uniq},نظري صباحي`,
