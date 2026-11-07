@@ -680,7 +680,7 @@ test('authenticated end-to-end workflow persists a synthetic TPS scenario in Pos
     const conflictingNewPlan=Buffer.from([
       'code,title,level,theory hours,practical hours,tutorial hours,credits',
       'TEST-101,تغيير غير معتمد في مقرر نشط,المستوى الأول,9,0,0,1'
-    ].join('\\n'),'utf8');
+    ].join('\n'),'utf8');
     const rejectedActiveRewrite=await app.inject({method:'POST',
       url:'/api/v1/automatic-planning/plan/commit?departmentId='+department.id+'&programId='+program.id+
         '&planCode=UNSAFE-'+uniq+'&versionLabel=Unsafe%20active%20course%20rewrite',
