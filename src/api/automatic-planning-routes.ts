@@ -333,7 +333,7 @@ export async function registerAutomaticPlanning(app:FastifyInstance){
           AND a.action='CREATE_FROM_AUTOMATIC_PLAN' AND a.entity_id=s.id::text
         WHERE s.department_id=$1 AND s.term_id=$2
           AND a.details->>'planId'=$3
-          AND (s.state<>'DRAFT' OR s.solver_status IN ('RUNNING','QUEUED'))
+          AND (s.state<>'DRAFT' OR s.solver_status<>'NOT_RUN')
         LIMIT 1`,[query.departmentId,body.termId,body.planId]);
       if(protectedScenario.rows[0])throw fail(
         'This imported plan is already linked to a scenario under review, approved, archived or being solved. Create a new plan version; existing cohort/block records were not changed.',409);
