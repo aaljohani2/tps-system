@@ -1,6 +1,7 @@
 import type {FastifyInstance,FastifyRequest} from 'fastify';
 import {z} from 'zod';
 import {createHash} from 'node:crypto';
+import {createScenarioDraft as createAtomicScenarioDraft} from './scenarios.js';
 import {allowedDepartment,requireEditor} from './security.js';
 import {pool} from './database.js';
 import {calculateAutomaticPlan,extractHistoricalCapacities,extractHistoricalCourseSettings,extractHistoricalLevelCounts,
@@ -9,7 +10,6 @@ import {calculateAutomaticPlan,extractHistoricalCapacities,extractHistoricalCour
   type OperationalCourseSetting} from '../automatic-planning.js';
 import {readAutomaticWorkbook,type WorkbookTable} from '../automatic-xlsx.js';
 import {getEffectivePolicy} from './policies.js';
-import {createScenarioDraft} from './scenarios.js';
 import type {Policy} from '../types.js';
 
 const uuid=z.string().uuid();
@@ -415,7 +415,7 @@ export async function registerAutomaticPlanning(app:FastifyInstance){
     }catch(error){await client.query('ROLLBACK');throw error;}finally{client.release();}
     let scenario:null|Awaited<ReturnType<typeof createScenarioDraft>>=null,scenarioError:string|null=null;
     try{
-      scenario=await createScenarioDraft(query.departmentId,body.termId,body.scenarioName,req.principal!.id);
+      scenario=await createAtomicScenarioDraft(query.departmentId,body.termId,body.scenarioName,req.principal!.id);
       await pool.query(`INSERT INTO audit_logs(user_id,action,entity_type,entity_id,details)
         VALUES($1,'CREATE_FROM_AUTOMATIC_PLAN','SCENARIO',$2,$3::jsonb)`,[req.principal!.id,scenario.id,
         JSON.stringify({planId:body.planId,termId:body.termId})]);
@@ -423,5 +423,294 @@ export async function registerAutomaticPlanning(app:FastifyInstance){
     return {...summary,scenarioId:scenario?.id??null,scenario:scenario?{state:scenario.state,solverStatus:scenario.solverStatus,
       metrics:scenario.result.metrics,gaps:scenario.result.gaps.length}:null,scenarioError,
       notice:'Blocks use the smallest approved capacity in each level so cohort conflicts remain enforceable; larger theory groups are not merged automatically.'};
+  });
+
+  // Preferred all-or-nothing importer. Client previews are advisory only:
+  // uploaded bytes are re-hashed and re-parsed server-side before any SQL write.
+  app.post('/api/v1/automatic-planning/full-import',{bodyLimit:40*1024*1024},async req=>{
+    requireEditor(req);await checkScope(req);
+    const upload=z.object({name:z.string().min(1).max(240),base64:z.string().min(1).max(29_000_000),
+      sha256:z.string().regex(/^[a-f0-9]{64}$/)}).strict();
+    const input=z.object({departmentId:uuid,termId:uuid,programId:uuid.optional(),
+      newProgramCode:z.string().trim().min(1).max(60).optional(),
+      newProgramName:z.string().trim().min(1).max(160).optional(),
+      existingPlanId:uuid.optional(),
+      planCode:z.string().trim().min(1).max(60),
+      versionLabel:z.string().trim().min(1).max(120),
+      scenarioName:z.string().trim().min(1).max(160),
+      plan:upload,trainees:upload,resources:upload.optional(),
+      sourceKind:z.enum(['ACTUAL_LEVEL_COUNTS','COURSE_REGISTRATIONS','HISTORICAL_WORKBOOK','LEVEL_TRANSITION']),
+      capacities:z.object({remoteTheory:z.number().int().positive(),
+        onsiteTheory:z.number().int().positive(),practical:z.number().int().positive(),
+        mixed:z.number().int().positive()}).strict(),
+      alternativeSelections:z.record(z.string(),z.string()).default({}),
+      defaultMaxLoad:z.number().positive().max(200).default(18)}).strict().parse(req.body);
+    if(input.departmentId!==scopeId(req))throw fail('Department scope mismatch',403);
+    if(!input.programId&&(!input.newProgramName||!input.newProgramCode))
+      throw fail('Program name and code are required when no existing program is selected');
+    const decode=(part:z.infer<typeof upload>):Buffer=>{
+      if(!/\.(csv|xlsx)$/i.test(part.name))throw fail('Only CSV and XLSX input is permitted',415);
+      if(!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(part.base64))
+        throw fail('Invalid uploaded file encoding');
+      const bytes=Buffer.from(part.base64,'base64');
+      if(!bytes.length||bytes.length>20*1024*1024)throw fail('Individual file must be <=20 MiB',413);
+      if(createHash('sha256').update(bytes).digest('hex')!==part.sha256)
+        throw fail('Upload bytes changed after preview. Re-analyze all files.',409);
+      return bytes;
+    };
+    const planBytes=decode(input.plan),traineeBytes=decode(input.trainees);
+    const resourceBytes=input.resources?decode(input.resources):null;
+    if(planBytes.length+traineeBytes.length+(resourceBytes?.length??0)>25*1024*1024)
+      throw fail('Combined source files exceed 25 MiB',413);
+    const parse=(part:z.infer<typeof upload>,bytes:Buffer):WorkbookTable[]=>{
+      if(part.name.toLowerCase().endsWith('.csv'))
+        return [{name:'CSV',rows:tableCsvToRows(bytes.toString('utf8'))}];
+      return readAutomaticWorkbook(bytes);
+    };
+    const planPreview=findPlan(parse(input.plan,planBytes));
+    const levelMap=Object.fromEntries(planPreview.curriculum.courses.map(c=>[c.normalizedCode,c.level]));
+    const counts=findCounts(parse(input.trainees,traineeBytes),levelMap);
+    const detected=counts.detection.kind;
+    if((detected==='COURSE_REMAINING'&&input.sourceKind!=='LEVEL_TRANSITION')||
+      (detected==='COURSE_REGISTRATIONS'&&input.sourceKind!=='COURSE_REGISTRATIONS')||
+      (detected==='LEVEL_COUNTS'&&!['ACTUAL_LEVEL_COUNTS','HISTORICAL_WORKBOOK'].includes(input.sourceKind)))
+      throw fail('Source classification does not match extracted file. Preview again.',409);
+    const department=await pool.query<{name:string;college_name:string}>(`
+      SELECT d.name,c.name AS college_name FROM departments d JOIN colleges c ON c.id=d.college_id
+      JOIN academic_terms t ON t.college_id=c.id
+      WHERE d.id=$1 AND t.id=$2`,[input.departmentId,input.termId]);
+    if(!department.rows[0])throw fail('Term and department belong to different colleges',409);
+    const detectedDept=planPreview.curriculum.metadata.department;
+    if(detectedDept&&normalizeArabic(detectedDept)!==normalizeArabic(department.rows[0].name))
+      throw fail('Detected curriculum department conflicts with selected department',409);
+    const detectedCollege=planPreview.curriculum.metadata.college;
+    if(detectedCollege&&normalizeArabic(detectedCollege)!==normalizeArabic(department.rows[0].college_name))
+      throw fail('Detected curriculum college conflicts with selected college',409);
+    const trainers=resourceBytes&&input.resources?
+      findInstructors(parse(input.resources,resourceBytes),department.rows[0].name):null;
+    const historical=['HISTORICAL_WORKBOOK','LEVEL_TRANSITION'].includes(input.sourceKind);
+    const sources:LevelDemandInput[]=[{kind:input.sourceKind,counts:counts.counts,
+      label:historical?'Conditional extracted source':'Verified registration source',
+      confidence:historical?'MEDIUM':'HIGH',isConfirmedForTarget:!historical,
+      targetTermId:input.termId}];
+    const resolved=resolveLevelDemand(planPreview.curriculum.levels.map(l=>l.level),sources);
+    const calculation=calculateAutomaticPlan(planPreview.curriculum,resolved.levels,
+      input.capacities,input.sourceKind==='HISTORICAL_WORKBOOK'?counts.settings:[],
+      input.alternativeSelections);
+    if(resolved.missing.length||calculation.missingInputs.length)
+      throw fail('Unresolved plan or level demand: '+[
+        ...resolved.missing.map(level=>'level '+level),...calculation.missingInputs].join('; '),409);
+    // Hash source bytes and operational choices, not filename or personal rows.
+    const requestHash=createHash('sha256').update(JSON.stringify({
+      departmentId:input.departmentId,termId:input.termId,programId:input.programId??null,
+      newProgramCode:input.newProgramCode??null,newProgramName:input.newProgramName??null,
+      existingPlanId:input.existingPlanId??null,planCode:input.planCode,versionLabel:input.versionLabel,
+      scenarioName:input.scenarioName,planSha:input.plan.sha256,traineeSha:input.trainees.sha256,
+      resourcesSha:input.resources?.sha256??null,sourceKind:input.sourceKind,capacities:input.capacities,
+      alternatives:input.alternativeSelections,defaultMaxLoad:input.defaultMaxLoad
+    })).digest('hex');
+    const client=await pool.connect();
+    try{
+      await client.query('BEGIN');
+      // Serialize imports for the same department/term to protect live blocks and demand.
+      await client.query('SELECT pg_advisory_xact_lock(hashtext($1),hashtext($2))',
+        [input.departmentId,input.termId]);
+      const previously=await client.query<{summary:Record<string,unknown>}>(`
+        SELECT summary FROM smart_import_receipts WHERE department_id=$1 AND term_id=$2 AND request_sha256=$3`,
+        [input.departmentId,input.termId,requestHash]);
+      if(previously.rows[0]){
+        await client.query('COMMIT');
+        return {...previously.rows[0].summary,replayed:true};
+      }
+      let programId=input.programId??'';
+      if(programId){
+        const exists=await client.query('SELECT 1 FROM training_programs WHERE id=$1 AND department_id=$2',
+          [programId,input.departmentId]);
+        if(!exists.rowCount)throw fail('Program is outside the selected department',409);
+      }else{
+        const program=await client.query<{id:string}>(`
+          INSERT INTO training_programs(department_id,code,name) VALUES($1,$2,$3) RETURNING id`,
+          [input.departmentId,input.newProgramCode,input.newProgramName]);
+        programId=program.rows[0]!.id;
+      }
+      let planId=input.existingPlanId??'';
+      if(planId){
+        const existing=await client.query<{source_sha256:string;state:string}>(`
+          SELECT cps.source_sha256,cp.state FROM curriculum_plans cp
+          JOIN curriculum_plan_sources cps ON cps.plan_id=cp.id
+          WHERE cp.id=$1 AND cp.program_id=$2 FOR UPDATE OF cp`,[planId,programId]);
+        if(existing.rows[0]?.state!=='DRAFT'||existing.rows[0].source_sha256!==input.plan.sha256)
+          throw fail('Existing version is not an unchanged draft from the same uploaded file',409);
+      }else{
+        const created=await client.query<{id:string}>(`
+          INSERT INTO curriculum_plans(program_id,code,version_label,state)
+          VALUES($1,$2,$3,'DRAFT') RETURNING id`,
+          [programId,input.planCode,input.versionLabel]);
+        planId=created.rows[0]!.id;
+        for(const c of planPreview.curriculum.courses){
+          const nonTimed=c.theoryHours+c.practicalHours+c.tutorialHours===0;
+          const original=await client.query<{id:string;level:number;theory_hours:number;
+            practical_hours:number;is_non_timetabled:boolean;active_ref:boolean}>(`
+            SELECT c.id,c.level,c.theory_hours,c.practical_hours,c.is_non_timetabled,
+              EXISTS(SELECT 1 FROM curriculum_items ci JOIN curriculum_plans cp ON cp.id=ci.plan_id
+                WHERE ci.course_id=c.id AND cp.state='ACTIVE') AS active_ref
+            FROM courses c WHERE c.department_id=$1 AND c.code=$2 FOR UPDATE OF c`,
+            [input.departmentId,c.normalizedCode]);
+          const old=original.rows[0];
+          if(old?.active_ref&&(Number(old.level)!==c.level||
+            Number(old.theory_hours)!==c.theoryHours+c.tutorialHours||
+            Number(old.practical_hours)!==c.practicalHours||
+            Boolean(old.is_non_timetabled)!==nonTimed))
+            throw fail('Active curriculum course differs from uploaded plan: '+c.normalizedCode,409);
+          const saved=await client.query<{id:string}>(`
+            INSERT INTO courses(department_id,code,title,level,theory_hours,practical_hours,
+              demand,mode,eligible_modes,blocks,is_non_timetabled)
+            VALUES($1,$2,$3,$4,$5,$6,0,'ONSITE','["ONSITE"]'::jsonb,'[]'::jsonb,$7)
+            ON CONFLICT(department_id,code) DO UPDATE SET
+              title=EXCLUDED.title,level=EXCLUDED.level,
+              theory_hours=EXCLUDED.theory_hours,practical_hours=EXCLUDED.practical_hours,
+              is_non_timetabled=EXCLUDED.is_non_timetabled,updated_at=now() RETURNING id`,
+            [input.departmentId,c.normalizedCode,c.title,c.level,c.theoryHours+c.tutorialHours,
+              c.practicalHours,nonTimed]);
+          const item=await client.query<{id:string}>(`
+            INSERT INTO curriculum_items(plan_id,course_id,level,is_required)
+            VALUES($1,$2,$3,$4) RETURNING id`,
+            [planId,saved.rows[0]!.id,c.level,!c.alternativeGroup]);
+          await client.query(`INSERT INTO curriculum_item_details(curriculum_item_id,
+            source_code,normalized_code,theory_hours,practical_hours,tutorial_hours,credits,
+            prerequisites,equivalents,responsible_department,alternative_group,special_kind,source_row)
+            VALUES($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9::jsonb,$10,$11,$12,$13)`,[
+            item.rows[0]!.id,c.code,c.normalizedCode,c.theoryHours,c.practicalHours,c.tutorialHours,
+            c.credits,JSON.stringify(c.prerequisites),JSON.stringify(c.equivalents),
+            c.responsibleDepartment,c.alternativeGroup,c.specialKind,c.sourceRow]);
+        }
+        await client.query(`INSERT INTO curriculum_plan_sources(plan_id,source_sha256,source_sheet,
+          metadata,summary,imported_by) VALUES($1,$2,$3,$4::jsonb,$5::jsonb,$6)`,[
+          planId,input.plan.sha256,planPreview.sheet,JSON.stringify(planPreview.curriculum.metadata),
+          JSON.stringify({levels:planPreview.curriculum.levels.length,
+            records:planPreview.curriculum.courses.length}),req.principal!.id]);
+      }
+      const scenarioAlready=await client.query(`
+        SELECT 1 FROM audit_logs WHERE entity_type='SCENARIO'
+          AND action='CREATE_FROM_AUTOMATIC_PLAN' AND details->>'planId'=$1 LIMIT 1`,[planId]);
+      if(scenarioAlready.rowCount)throw fail('Plan version already used for scheduling. Create a new version.',409);
+      // Never overwrite a manually supplied forecast or blocks managed by another workflow.
+      const sourceTag='TPS_AUTO:'+planId;
+      const foreignDemand=await client.query(`
+        SELECT c.code FROM demand_estimates de JOIN curriculum_items ci ON ci.course_id=de.course_id
+        JOIN courses c ON c.id=de.course_id WHERE ci.plan_id=$1 AND de.term_id=$2 LIMIT 1`,
+        [planId,input.termId]);
+      if(foreignDemand.rows[0])throw fail('Existing term demand must be reconciled before smart import: '+
+        foreignDemand.rows[0].code,409);
+      const courseRows=await client.query<{id:string;code:string;level:number;mode:StoredPlanCourse['mode'];
+        theory_hours:number;practical_hours:number;is_non_timetabled:boolean}>(`
+        SELECT c.id,c.code,c.level,c.mode,c.theory_hours,c.practical_hours,c.is_non_timetabled
+        FROM courses c JOIN curriculum_items ci ON ci.course_id=c.id
+        WHERE ci.plan_id=$1 ORDER BY ci.level,c.code`,[planId]);
+      if(courseRows.rows.length!==planPreview.curriculum.courses.length)
+        throw fail('Stored plan and uploaded curriculum disagree',409);
+      // Import only new instructors; prior course eligibility, schedule and load approvals survive.
+      let trainersAdded=0,trainersSkipped=0;
+      if(trainers){
+        const known=new Set(courseRows.rows.map(row=>row.code));
+        for(const inst of trainers.instructors){
+          const eligible=inst.eligibleCourseCodes.filter(code=>known.has(code));
+          if(!eligible.length){trainersSkipped++;continue;}
+          const inserted=await client.query(`
+            INSERT INTO instructors(department_id,code,name,max_load,eligible_course_codes,allowed_modes,available,overload)
+            VALUES($1,$2,$3,$4,$5::jsonb,'["ONSITE"]'::jsonb,NULL,NULL)
+            ON CONFLICT(department_id,code) DO NOTHING RETURNING id`,
+            [input.departmentId,inst.code,inst.name,inst.maxLoad??input.defaultMaxLoad,
+              JSON.stringify(eligible)]);
+          if(inserted.rowCount)trainersAdded++;else trainersSkipped++;
+        }
+      }
+      const effective=await getEffectivePolicy(input.departmentId,input.termId);
+      for(const level of resolved.levels){
+        await client.query(`INSERT INTO level_demand_sources(program_id,term_id,level,students,
+          source_kind,source_label,confidence,is_historical,recorded_at,updated_by)
+          VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,[
+          programId,input.termId,level.level,level.students,level.kind,
+          sourceTag+':'+level.sourceLabel,level.confidence,level.historical,
+          level.recordedAt??null,req.principal!.id]);
+      }
+      const chosen=new Map(calculation.courses.map(c=>[normalizeCourseCode(c.code),c]));
+      let importedDemand=0,blockCount=0,assignmentCount=0,cohortCount=0;
+      for(const item of calculation.courses){
+        const course=courseRows.rows.find(row=>row.code===normalizeCourseCode(item.code));
+        if(!course)throw fail('Calculated course absent from saved catalog',409);
+        await client.query(`INSERT INTO demand_estimates(course_id,term_id,base_students,
+          repeat_rate,projected_students,source,confidence,notes,updated_by)
+          VALUES($1,$2,$3,0,$3,$4,$5,$6,$7)`,[
+          course.id,input.termId,item.demand,sourceTag,item.confidence,
+          'Smart imported from '+input.sourceKind,req.principal!.id]);
+        await client.query('UPDATE courses SET demand=$2,updated_at=now() WHERE id=$1',
+          [course.id,item.demand]);
+        importedDemand++;
+      }
+      const policy=effective.policy;
+      for(const level of resolved.levels){
+        if(level.students<=0)continue;
+        const matched=courseRows.rows.filter(row=>row.level===level.level&&
+          !row.is_non_timetabled&&chosen.get(row.code)?.mode!==null);
+        const capacities=matched.map(row=>{
+          const limit=policy.capacities[row.mode];
+          const theoretical=Number(row.theory_hours),practical=Number(row.practical_hours);
+          return theoretical&&practical?Math.min(limit.theory!,limit.practical!):
+            theoretical?limit.theory:limit.practical;
+        }).filter((x):x is number=>x!==null&&Number.isFinite(x)&&x>0);
+        const fallback=Object.values(policy.capacities).flatMap(c=>[c.theory,c.practical])
+          .filter((x):x is number=>x!==null&&Number.isFinite(x)&&x>0);
+        const options=capacities.length?capacities:fallback;
+        if(!options.length)throw fail('No approved level capacity for '+level.level,409);
+        const cap=Math.floor(Math.min(...options));
+        const prefix=safeCode('AUTO-'+planId.slice(0,8)+'-'+input.termId.slice(0,8)+'-');
+        const cohort=await client.query<{id:string}>(`INSERT INTO cohorts(
+          department_id,program_id,code,name,level) VALUES($1,$2,$3,$4,$5) RETURNING id`,[
+          input.departmentId,programId,safeCode(prefix+'L'+level.level),
+          'تخطيط آلي — '+input.versionLabel+' — المستوى '+level.level,level.level]);
+        cohortCount++;
+        const sections=Math.ceil(level.students/cap);
+        for(let i=0;i<sections;i++){
+          const block=await client.query<{id:string}>(`INSERT INTO student_blocks(
+            cohort_id,code,name,size) VALUES($1,$2,$3,$4) RETURNING id`,[
+            cohort.rows[0]!.id,'B'+String(i+1).padStart(2,'0'),
+            'المستوى '+level.level+' — بلوك '+(i+1),Math.min(cap,level.students-i*cap)]);
+          blockCount++;
+          for(const row of matched){
+            await client.query(`INSERT INTO block_course_assignments(block_id,course_id,term_id)
+              VALUES($1,$2,$3)`,[block.rows[0]!.id,row.id,input.termId]);
+            assignmentCount++;
+          }
+        }
+      }
+      const scenario=await createAtomicScenarioDraft(input.departmentId,input.termId,input.scenarioName,
+        req.principal!.id,client,effective);
+      await client.query(`INSERT INTO audit_logs(user_id,action,entity_type,entity_id,details)
+        VALUES($1,'CREATE_FROM_AUTOMATIC_PLAN','SCENARIO',$2,$3::jsonb)`,[
+        req.principal!.id,scenario.id,
+        JSON.stringify({planId,termId:input.termId,atomic:true})]);
+      const summary={status:'COMMITTED',departmentId:input.departmentId,termId:input.termId,
+        programId,planId,scenarioId:scenario.id,
+        scenario:{state:scenario.state,solverStatus:scenario.solverStatus,
+          metrics:scenario.result.metrics,gaps:scenario.result.gaps.length},
+        demandRecords:importedDemand,cohorts:cohortCount,blocks:blockCount,
+        assignments:assignmentCount,instructorsImported:trainersAdded,instructorsSkipped:trainersSkipped,
+        sourceClassification:input.sourceKind,sourceLevels:Object.keys(counts.counts).length,
+        notice:'One atomic transaction: all source-derived records and the scenario draft were committed together. The Java solve starts separately.'};
+      await client.query(`INSERT INTO smart_import_receipts(department_id,term_id,request_sha256,
+        program_id,plan_id,scenario_id,plan_file_sha256,trainee_file_sha256,resources_file_sha256,
+        summary,imported_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11)`,[
+        input.departmentId,input.termId,requestHash,programId,planId,scenario.id,
+        input.plan.sha256,input.trainees.sha256,input.resources?.sha256??null,
+        JSON.stringify(summary),req.principal!.id]);
+      await client.query('COMMIT');
+      return {...summary,replayed:false};
+    }catch(e){
+      await client.query('ROLLBACK');
+      if((e as {code?:string}).code==='23505')throw fail(
+        'Program, plan or term demand already exists; nothing was partially committed. Review existing records.',409);
+      throw e;
+    }finally{client.release();}
   });
 }
