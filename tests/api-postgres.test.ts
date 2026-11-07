@@ -127,6 +127,80 @@ test('authenticated end-to-end workflow persists a synthetic TPS scenario in Pos
     assert.equal(imported.json().schemaVersion,'tps.catalog.v1');
     const trainer=await write('/instructors',{departmentId:department.id,code:'INS-1',name:'مدرب اصطناعي',maxLoad:18});
     const room=await write('/rooms',{collegeId:college.id,code:'R-1',name:'قاعة اختبار',type:'CLASSROOM',capacity:30});
+
+    // Non-templated Rayat instructor/room sheet: preview, strict scope,
+    // rollback on unresolved room, explicit skip and idempotent replay.
+    const {createHash:createSourceHash}=await import('node:crypto');
+    const resourceRows=[
+      ['الكلية','القسم','رقم المدرب','اسم المدرب','المقرر','رقم القاعة',
+        'اسم القاعة','سعة القاعة','نوع القاعة','النصاب'].join(','),
+      [college.name,department.name,'IR-'+uniq,'مدرب تلقائي موثق','TEST-101',
+        'RR-'+uniq,'معمل اختبار','30','معمل','20'].join(','),
+      [college.name,department.name,'IR-'+uniq,'مدرب تلقائي موثق','TEST-101',
+        'RR-'+uniq,'معمل اختبار','30','معمل','20'].join(','),
+      [college.name,department.name,'IR-'+uniq,'مدرب تلقائي موثق','TEST-101',
+        'RB-'+uniq,'قاعة ناقصة','','نظري','20'].join(','),
+      [college.name,sibling.name,'IR-OUT-'+uniq,'مدرب خارج القسم','OTHER-101',
+        'SH-'+uniq,'معمل مشترك','28','معمل','20'].join(','),
+      ['كلية مختلفة',department.name,'IR-OUT-C-'+uniq,'مدرب خارج الكلية','TEST-101',
+        'OX-'+uniq,'قاعة أخرى','55','نظرية','20'].join(',')
+    ].join('\n');
+    const resourceBytes=Buffer.from(resourceRows,'utf8');
+    const resourceSha=createSourceHash('sha256').update(resourceBytes).digest('hex');
+    const previewResources=await app.inject({
+      method:'POST',url:'/api/v1/raiyat-resources/preview?departmentId='+department.id+
+        '&collegeId='+college.id,
+      headers:{cookie:session,'x-csrf-token':csrf,'content-type':'text/csv'},
+      payload:resourceBytes});
+    assert.equal(previewResources.statusCode,200,previewResources.body);
+    assert.equal(previewResources.json().instructors.length,1);
+    assert.equal(previewResources.json().rooms.length,3,'Shared college room from sibling department is visible');
+    assert.equal(previewResources.json().instructors[0].sourceRows,3);
+    assert.equal(previewResources.json().sha256,resourceSha);
+    assert.equal(previewResources.json().unscoped,false);
+
+    const rayatUrl='/api/v1/raiyat-resources/commit';
+    const rayatPayload={departmentId:department.id,collegeId:college.id,
+      name:'rayat.csv',base64:resourceBytes.toString('base64'),sha256:resourceSha,
+      acceptUnscoped:false,importRooms:true,skipIncompleteRooms:false,roomDecisions:{}};
+    const invalidRoom=await app.inject({method:'POST',url:rayatUrl,
+      headers:{cookie:session,'x-csrf-token':csrf},payload:rayatPayload});
+    assert.equal(invalidRoom.statusCode,409,invalidRoom.body);
+    const noEarlyTrainer=await pool.query('SELECT count(*)::int AS total FROM instructors WHERE code=$1 AND department_id=$2',
+      ['IR-'+uniq,department.id]);
+    assert.equal(noEarlyTrainer.rows[0].total,0,'Missing room capacity rolls back any new trainers');
+
+    const noRoomForHead=await app.inject({method:'POST',url:rayatUrl,
+      headers:{cookie:limitedCookie,'x-csrf-token':limitedCsrf},
+      payload:{...rayatPayload,skipIncompleteRooms:true}});
+    assert.equal(noRoomForHead.statusCode,403,'Department head cannot create college-wide rooms');
+
+    const acceptedRayat=await app.inject({method:'POST',url:rayatUrl,
+      headers:{cookie:session,'x-csrf-token':csrf},
+      payload:{...rayatPayload,skipIncompleteRooms:true}});
+    assert.equal(acceptedRayat.statusCode,200,acceptedRayat.body);
+    assert.equal(acceptedRayat.json().importedInstructors,1);
+    assert.equal(acceptedRayat.json().importedRooms,2);
+    assert.equal(acceptedRayat.json().unresolvedRooms,1);
+    const createdFromExcel=await pool.query<{
+      max_load:string;eligible_course_codes:string[];allowed_modes:string[];available:unknown
+    }>('SELECT max_load,eligible_course_codes,allowed_modes,available FROM instructors WHERE code=$1 AND department_id=$2',
+      ['IR-'+uniq,department.id]);
+    assert.equal(Number(createdFromExcel.rows[0].max_load),20);
+    assert.deepEqual(createdFromExcel.rows[0].eligible_course_codes,[],
+      'Old teaching timetable cannot grant future eligibility or unrestricted courses');
+    assert.deepEqual(createdFromExcel.rows[0].allowed_modes,['ONSITE']);
+    assert.equal(createdFromExcel.rows[0].available,null);
+    const preservedRooms=await pool.query<{capacity:number}>(
+      'SELECT capacity FROM rooms WHERE college_id=$1 AND code=$2',[college.id,'RR-'+uniq]);
+    assert.equal(preservedRooms.rows[0].capacity,30);
+    const repeatedRayat=await app.inject({method:'POST',url:rayatUrl,
+      headers:{cookie:session,'x-csrf-token':csrf},
+      payload:{...rayatPayload,skipIncompleteRooms:true}});
+    assert.equal(repeatedRayat.statusCode,200,repeatedRayat.body);
+    assert.equal(repeatedRayat.json().importedInstructors,0);
+    assert.equal(repeatedRayat.json().importedRooms,0);
+
     const patch=async(url:string,payload:unknown)=>{
       const response=await app.inject({method:'PATCH',url:'/api/v1'+url,
         headers:{cookie:session,'x-csrf-token':csrf},payload:payload as Record<string,unknown>});
