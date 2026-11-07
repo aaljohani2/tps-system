@@ -919,5 +919,88 @@ test('authenticated end-to-end workflow persists a synthetic TPS scenario in Pos
     assert.equal(compare.statusCode,200,compare.body);
     assert.equal(compare.json().first.sections,1);
     assert.equal(compare.json().second.sections,1);
+
+    // Atomic flexible import: all course/trainee/trainer rows and the draft
+    // must commit together, with a durable receipt for exact replay.
+    const {createHash}=await import('node:crypto');
+    const proof=(name:string,bytes:Buffer)=>({name,base64:bytes.toString('base64'),
+      sha256:createHash('sha256').update(bytes).digest('hex')});
+    const atomicCode='ATOMIC-'+uniq;
+    const atomicPlan=Buffer.from([
+      'code,title,level,theory hours,practical hours,tutorial hours,credits',
+      atomicCode+',مقرر تلقائي آمن,المستوى الأول,2,0,0,2'
+    ].join('\n'),'utf8');
+    const atomicTrainees=Buffer.from([
+      'student id,course code,day',
+      '1001,'+atomicCode+',Sunday','1001,'+atomicCode+',Monday',
+      '1002,'+atomicCode+',Tuesday'
+    ].join('\n'),'utf8');
+    const atomicTrainers=Buffer.from([
+      'القسم,رقم المدرب,اسم المدرب,المقرر',
+      department.name+',AT-I-'+uniq+',مدرب تخطيط ذري,'+atomicCode
+    ].join('\n'),'utf8');
+    const atomicPayload={
+      departmentId:department.id,termId:term.id,programId:program.id,
+      planCode:'ATOMIC-P-'+uniq,versionLabel:'Atomic synthetic test',
+      scenarioName:'Atomic synthetic planning',
+      plan:proof('plan.csv',atomicPlan),
+      trainees:proof('trainees.csv',atomicTrainees),
+      resources:proof('instructors.csv',atomicTrainers),
+      sourceKind:'COURSE_REGISTRATIONS',capacities:{
+        remoteTheory:100,onsiteTheory:50,practical:40,mixed:40},
+      alternativeSelections:{},defaultMaxLoad:18
+    };
+    const atomicUrl='/api/v1/automatic-planning/full-import?departmentId='+department.id;
+    const atomicImport=await app.inject({method:'POST',url:atomicUrl,
+      headers:{cookie:session,'x-csrf-token':csrf},payload:atomicPayload});
+    assert.equal(atomicImport.statusCode,200,atomicImport.body);
+    const atomicResult=atomicImport.json();
+    assert.equal(atomicResult.replayed,false);
+    assert.equal(atomicResult.demandRecords,1);
+    assert.equal(atomicResult.cohorts,1);
+    assert.equal(atomicResult.blocks,1);
+    assert.equal(atomicResult.instructorsImported,1);
+    assert.ok(atomicResult.scenarioId);
+    const atomicReceipts=await pool.query(`SELECT summary,plan_file_sha256 FROM smart_import_receipts
+      WHERE plan_id=$1`,[atomicResult.planId]);
+    assert.equal(atomicReceipts.rowCount,1);
+    assert.equal(atomicReceipts.rows[0]?.plan_file_sha256,atomicPayload.plan.sha256);
+    const atomicReplayed=await app.inject({method:'POST',url:atomicUrl,
+      headers:{cookie:session,'x-csrf-token':csrf},payload:atomicPayload});
+    assert.equal(atomicReplayed.statusCode,200,atomicReplayed.body);
+    assert.equal(atomicReplayed.json().replayed,true);
+    assert.equal(atomicReplayed.json().scenarioId,atomicResult.scenarioId);
+    const sameReceipt=await pool.query('SELECT count(*)::int AS n FROM smart_import_receipts WHERE plan_id=$1',
+      [atomicResult.planId]);
+    assert.equal(sameReceipt.rows[0].n,1,'A retried upload cannot duplicate its plan or scenario');
+
+    // Force failure AFTER the new program and plan have been inserted. A
+    // pre-existing manual estimate is the blocking dependency; PostgreSQL
+    // must roll back the new program, draft and course metadata together.
+    const oldCourseTitle=await pool.query('SELECT title FROM courses WHERE id=$1',[advanced.id]);
+    const rollbackProgramCode='ROLL-'+uniq;
+    const rollbackPlan=Buffer.from([
+      'code,title,level,theory hours,practical hours,tutorial hours,credits',
+      'ADV-102,عنوان تعديل يجب التراجع عنه,المستوى الثاني,2,0,0,2'
+    ].join('\n'),'utf8');
+    const rollbackCounts=Buffer.from('level,students\n2,5\n','utf8');
+    const rolledBack=await app.inject({method:'POST',url:atomicUrl,
+      headers:{cookie:session,'x-csrf-token':csrf},payload:{
+        departmentId:department.id,termId:term.id,
+        newProgramCode:rollbackProgramCode,newProgramName:'برنامج فشل ذري',
+        planCode:'ROLL-PLAN-'+uniq,versionLabel:'Should be rolled back',
+        scenarioName:'Must never appear',plan:proof('rollback.csv',rollbackPlan),
+        trainees:proof('counts.csv',rollbackCounts),sourceKind:'ACTUAL_LEVEL_COUNTS',
+        capacities:atomicPayload.capacities,alternativeSelections:{}}
+    });
+    assert.equal(rolledBack.statusCode,409,rolledBack.body);
+    const rollbackCheck=await pool.query(`SELECT
+      (SELECT count(*)::int FROM training_programs WHERE department_id=$1 AND code=$2) AS programs,
+      (SELECT count(*)::int FROM curriculum_plans WHERE code=$3) AS plans`,[
+        department.id,rollbackProgramCode,'ROLL-PLAN-'+uniq]);
+    assert.deepEqual(rollbackCheck.rows[0],{programs:0,plans:0});
+    const rollbackCourse=await pool.query('SELECT title FROM courses WHERE id=$1',[advanced.id]);
+    assert.equal(rollbackCourse.rows[0].title,oldCourseTitle.rows[0].title,
+      'Rollback must restore the previous active-plan catalog record');
   }finally{await app.close();await pool.end();}
 });
