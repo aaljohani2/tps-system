@@ -264,9 +264,14 @@ test('authenticated end-to-end workflow persists a synthetic TPS scenario in Pos
     assert.deepEqual(preservedRoom.rows[0].equipment_codes,['PC']);
 
 
-    const invalidWindow=await app.inject({method:'PATCH',url:'/api/v1/rooms/'+room.id,
+    // Master-data availability must support fixed-period Thursday afternoons;
+    // legacy timetable restrictions are enforced by validateRequest, not the catalog.
+    const fixedPeriodWindow=await app.inject({method:'PATCH',url:'/api/v1/rooms/'+room.id,
       headers:{cookie:session,'x-csrf-token':csrf},payload:{available:[{day:'THU',from:8,to:12}]}});
-    assert.equal(invalidWindow.statusCode,400,'Thursday room availability must respect schedule limits');
+    assert.equal(fixedPeriodWindow.statusCode,200,'Catalog availability may include Thursday afternoons');
+    const resetWindow=await app.inject({method:'PATCH',url:'/api/v1/rooms/'+room.id,
+      headers:{cookie:session,'x-csrf-token':csrf},payload:{available:null}});
+    assert.equal(resetWindow.statusCode,200,'The shared room availability must be restored for later synthetic scenarios');
 
     const injectedPolicy=await app.inject({method:'POST',url:'/api/v1/scenarios',
       headers:{cookie:session,'x-csrf-token':csrf},
