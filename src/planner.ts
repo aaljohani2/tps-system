@@ -4,6 +4,9 @@ import {trainerQualified,roomQualified} from './eligibility.js';
 import {hasSharedBlock} from './cohort-grouping.js';
 import {sectionCapacity} from './section-capacity.js';
 import {courseType,typePreference,instructorTotals,exceedsTeachingLimits} from './instructor-rules.js';
+import {courseClockHours} from './lecture-periods.js';
+import {makePeriodSessions} from './period-scheduler.js';
+import {reserveLoadTargets} from './load-targets.js';
 
 const round = (n: number) => Math.round((n + Number.EPSILON) * 1000) / 1000;
 const days: Day[] = ['SUN', 'MON', 'TUE', 'WED', 'THU'];
@@ -44,6 +47,7 @@ function effectiveLimit(i: Instructor): number { return i.maxLoad + (i.overload?
 function findSchedule(
   s: Section, c: Course, instructor: Instructor, allSessions: Session[], rooms: Room[], input: PlanRequest
 ): Session[] | null {
+  if(input.policy.lecturePeriods&&c.mode==='ONSITE')return makePeriodSessions(c,s,instructor,input,jobs(c),allSessions);
   const proposed: Session[] = [];
   let serial = 1;
   const all = () => [...allSessions, ...proposed];
@@ -121,6 +125,7 @@ export function buildDraftPlan(input: PlanRequest): PlanResult {
     for (let n = 0; n < count; n++) {
       const students = c.blockSizes?.[n] ?? (cap === null ? c.demand : Math.min(cap, c.demand - n * cap));
       const sec: Section = {
+        ...(input.policy.lecturePeriods?{clockHours:courseClockHours(c,input.policy)}:{}),
         id: `${c.code}-${String(n + 1).padStart(3, '0')}`,
         courseCode: c.code, level: c.level, index: n + 1, mode: c.mode,
         students, capacity: cap, blockId: c.blocks?.[n] ?? null,
@@ -137,11 +142,21 @@ export function buildDraftPlan(input: PlanRequest): PlanResult {
   const courseOwner = new Map<string, string>();
   if(input.instructors.some(instructor=>instructor.teachingRules?.preferredCourseTypes?.includes('PRACTICAL')))
     required.sort((a,b)=>Number(courseType(b.course)==='PRACTICAL')-Number(courseType(a.course)==='PRACTICAL'));
+  // A stable ordering preserves existing trainer preferences within each coverage class.
+  if(input.policy.priorityCourseCodes?.length){
+    const priority=new Set(input.policy.priorityCourseCodes);
+    required.sort((a,b)=>Number(priority.has(b.course.code))-Number(priority.has(a.course.code)));
+  }
+  const reserved=reserveLoadTargets(input,required);
+  if(reserved.size)required.sort((a,b)=>Number(reserved.has(b.s.id))-Number(reserved.has(a.s.id)));
   for (const {s, course: c} of required) {
+    // Reserved bundles avoid filling a 24-hour target to 22 with only 3/4-hour sections left.
     const allowed = input.instructors.filter(i => canTeach(i, c) &&
       (!c.exclusiveInstructor || !courseOwner.has(c.code) || courseOwner.get(c.code) === i.id));
     const ranked = allowed.sort((a, b) => {
+      const reservation=Number(reserved.get(s.id)===b.id)-Number(reserved.get(s.id)===a.id);if(reservation)return reservation;
       const preference=(instructor:Instructor)=>typePreference(instructor,c)+
+        Math.max(0,(instructor.teachingRules?.preferredCreditedLoad??0)-(instructorLoads.get(instructor.id)?.credited??0))*100+
         (instructorTotals(instructor.id,sections).sections<(instructor.teachingRules?.preferredSections??0)?40:0);
       const priority=preference(b)-preference(a);if(priority)return priority;
       // Preserve a fixed course owner. Otherwise prioritize more remaining weighted capacity.
@@ -154,7 +169,7 @@ export function buildDraftPlan(input: PlanRequest): PlanResult {
     for (const inst of ranked) {
       const state = instructorLoads.get(inst.id)!;
       const owned=instructorTotals(inst.id,sections);
-      if(exceedsTeachingLimits(inst,owned.sections+1,owned.contact+s.contactHours))continue;
+      if(exceedsTeachingLimits(inst,owned.sections+1,owned.contact+(s.clockHours??s.contactHours)))continue;
       if (state.credited + s.creditedLoad > effectiveLimit(inst) + 1e-8) continue;
       if (c.mode === 'SELF_PACED') {
         s.instructorId = inst.id;
@@ -197,6 +212,7 @@ export function buildDraftPlan(input: PlanRequest): PlanResult {
       const state = instructorLoads.get(i.id)!;
       const exception = i.overload?.additionalHours ?? 0;
       return {id: i.id, baseLimit: i.maxLoad, approvedException: exception,
+        ...(input.policy.lecturePeriods?{clockHours:sessions.filter(session=>session.instructorId===i.id).reduce((sum,s)=>sum+s.end-s.start,0)}:{}),
         credited: round(state.credited), contact: state.contact,
         remaining: round(i.maxLoad + exception - state.credited)};
     }),

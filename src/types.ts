@@ -4,6 +4,8 @@ export type Day = 'SUN' | 'MON' | 'TUE' | 'WED' | 'THU';
 export type Component = 'THEORY' | 'PRACTICAL';
 export type CourseType = 'THEORY' | 'PRACTICAL' | 'MIXED';
 export interface InstructorTeachingRules {
+  /** Desired credited teaching load, distinct from wall-clock occupancy. */
+  preferredCreditedLoad?: number;
   maxContactHours?: number;
   maxSections?: number;
   preferredSections?: number;
@@ -73,7 +75,17 @@ export interface Room {
   available?: TimeWindow[];
 }
 export interface CapacityPolicy {theory: number | null; practical: number | null}
+export interface LecturePeriod {startMinute:number;endMinute:number;trainingHours:number}
+export interface LecturePeriodPolicy {
+  academicHourMinutes:number;
+  partialPeriod:'TRIM_END'|'FULL_PERIOD';
+  regular:LecturePeriod[];
+  courseOverrides:Record<string,{periods:LecturePeriod[];allowCohortOverlap:boolean}>;
+}
 export interface Policy {
+  /** Department courses covered before other demand, subject to all hard constraints. */
+  priorityCourseCodes?: string[];
+  lecturePeriods?:LecturePeriodPolicy;
   /** Explicit local planning choice; room type/equipment/time constraints still apply. */
   ignoreRoomCapacity?: boolean;
   /** Explicit course exceptions may override the general section-capacity envelope. */
@@ -104,6 +116,8 @@ export interface PlanRequest {
   };
 }
 export interface Section {
+  /** Expected wall-clock occupancy, distinct from curriculum training hours. */
+  clockHours?:number;
   id: string;
   courseCode: string;
   level: number;
@@ -121,6 +135,9 @@ export interface Section {
   state: 'SCHEDULED' | 'UNASSIGNED' | 'ASYNC';
 }
 export interface Session {
+  /** Curriculum hours delivered in this fixed-period meeting. */
+  trainingHours?:number;
+  cohortOverlapWarning?:boolean;
   id: string;
   sectionId: string;
   courseCode: string;
@@ -154,7 +171,7 @@ export interface PlanResult {
   sections: Section[];
   sessions: Session[];
   gaps: Gap[];
-  instructorLoads: Array<{id: string; baseLimit: number; approvedException: number; credited: number; contact: number; remaining: number}>;
+  instructorLoads: Array<{id: string; baseLimit: number; approvedException: number; credited: number; contact: number; clockHours?:number; remaining: number}>;
   metrics: {requiredContactHours: number; assignedContactHours: number; uncoveredContactHours: number; sectionCount: number; uncoveredSectionCount: number};
   notices: string[];
 }

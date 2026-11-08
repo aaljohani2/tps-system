@@ -3,10 +3,10 @@ export type Entity={id:string;name?:string;code?:string;label?:string;[key:strin
 export type Plan={
   externalSections?:Array<{id:string;courseCode:string;title:string;level:number;students:number;capacity:number;contactHours:number;
     responsibleDepartment:string|null;status:string}>;
-  sections:Array<{id:string;courseCode:string;level:number;students:number;blockId:string|null;state:string;mode:string;instructorId:string|null;contactHours:number}>;
-  sessions:Array<{id:string;sectionId:string;courseCode:string;instructorId:string;roomId:string|null;day:string;start:number;end:number;mode:string;blockId:string|null}>;
+  sections:Array<{id:string;courseCode:string;level:number;students:number;blockId:string|null;state:string;mode:string;instructorId:string|null;contactHours:number;clockHours?:number}>;
+  sessions:Array<{id:string;sectionId:string;courseCode:string;instructorId:string;roomId:string|null;day:string;start:number;end:number;mode:string;blockId:string|null;trainingHours?:number;cohortOverlapWarning?:boolean}>;
   gaps:Array<{sectionId:string;courseCode:string;reason:string;contactHours:number;equivalentLoad:number}>;
-  instructorLoads:Array<{id:string;credited:number;contact:number;remaining:number}>;
+  instructorLoads:Array<{id:string;credited:number;contact:number;clockHours?:number;remaining:number}>;
   metrics:{sectionCount:number;requiredContactHours:number;assignedContactHours:number;uncoveredSectionCount:number;uncoveredContactHours:number};
   notices:string[];
 };

@@ -12,7 +12,7 @@ public class TpsConstraintProvider implements ConstraintProvider {
         return new Constraint[]{
                 overlappingSessions(f), instructorOverload(f), exclusiveCourse(f),
                 timetableContactLimit(f), sectionCountLimit(f), preferredSectionCount(f), preferredCourseType(f),
-                minimizeUncovered(f), preferSundayToWednesday(f)
+                preferredCreditedLoad(f), minimizeUncovered(f), preferSundayToWednesday(f), cohortOverlapWarnings(f)
         };
     }
     private Constraint overlappingSessions(ConstraintFactory f) {
@@ -20,6 +20,12 @@ public class TpsConstraintProvider implements ConstraintProvider {
                 .filter((a,b) -> a.getSelected().conflictsWith(b.getSelected()))
                 .penalize(HardSoftScore.ONE_HARD, (a,b) -> 1)
                 .asConstraint("No instructor room or cohort collision");
+    }
+    private Constraint cohortOverlapWarnings(ConstraintFactory f) {
+        return f.forEachUniquePair(PlanningTask.class)
+                .filter((a,b)->a.getSelected().cohortWarningCount(b.getSelected())>0)
+                .penalize(HardSoftScore.ONE_SOFT,(a,b)->a.getSelected().cohortWarningCount(b.getSelected())*20)
+                .asConstraint("Visible permitted Economics cohort overlaps");
     }
     private Constraint instructorOverload(ConstraintFactory f) {
         return f.forEach(PlanningTask.class)
@@ -72,8 +78,18 @@ public class TpsConstraintProvider implements ConstraintProvider {
     }
     private Constraint minimizeUncovered(ConstraintFactory f) {
         return f.forEach(PlanningTask.class).filter(t -> t.getSelected().uncovered())
-                .penalize(HardSoftScore.ONE_SOFT, t -> Math.max(t.getContactHours(), 1) * 100)
+                .penalize(HardSoftScore.ONE_SOFT, t -> Math.max(t.getContactHours(), 1) * 100
+                        + (t.isPriorityCoverage() ? 100000 : 0))
                 .asConstraint("Maximize fully covered sections");
+    }
+    private Constraint preferredCreditedLoad(ConstraintFactory f) {
+        return f.forEach(PlanningTask.class)
+                .filter(t -> !t.getSelected().uncovered() && t.getSelected().preferredCreditedMilli()!=null)
+                .groupBy(t -> t.getSelected().instructorId(),t -> t.getSelected().preferredCreditedMilli(),
+                        ConstraintCollectors.sum(t -> t.getSelected().creditedMilli()))
+                .reward(HardSoftScore.ONE_SOFT,(id,target,total) -> {
+                    return (int)Math.min(target,total);
+                }).asConstraint("Fill requested credited trainer loads");
     }
     private Constraint preferSundayToWednesday(ConstraintFactory f) {
         return f.forEach(PlanningTask.class).filter(t -> !t.getSelected().uncovered())

@@ -15,6 +15,21 @@ function fixture(rules:InstructorTeachingRules):PlanRequest{
   instructors:[{id:'ONE',name:'Synthetic',maxLoad:100,allowedModes:['ONSITE'],teachingRules:rules}],
   rooms:[{id:'LAB',name:'Synthetic lab',type:'LAB',capacity:30}]};
 }
+test('credited targets fill preferred trainers while practical-only eligibility remains hard and shortages visible',async()=>{
+ const input=fixture({allowedCourseTypes:['PRACTICAL']});
+ input.courses.push({...input.courses[0]!,code:'THEORY',title:'Theory',demand:20,blocks:['C'],theoryHours:3,practicalHours:0});
+ input.instructors.push({id:'TARGET',name:'Target trainer',maxLoad:3,allowedModes:['ONSITE'],teachingRules:{preferredCreditedLoad:3,allowedCourseTypes:['THEORY','MIXED']}});
+ input.rooms.push({id:'THEORY',name:'Theory room',type:'CLASSROOM',capacity:30});
+ const payload=prepareSolverPayload(input,4);
+ assert.ok(payload.tasks.filter(task=>task.courseCode==='LAB').every(task=>task.choices.every(choice=>choice.instructorId!=='TARGET')));
+ assert.ok(payload.tasks.find(task=>task.courseCode==='THEORY')!.choices.some(choice=>choice.preferredCreditedMilli===3000));
+ const result=await optimizeWithTimefold(input,{seconds:1,candidatesPerInstructor:4});
+ assert.equal(result.instructorLoads.find(load=>load.id==='TARGET')!.credited,3);
+ assert.ok(!assessReadiness(input,result,'COMPLETED').issues.some(issue=>issue.code==='INSTRUCTOR_LOAD_TARGET'));
+ input.instructors[1]!.maxLoad=24;input.instructors[1]!.teachingRules!.preferredCreditedLoad=24;
+ assert.ok(assessReadiness(input,result,'COMPLETED').issues.some(issue=>issue.code==='INSTRUCTOR_LOAD_TARGET'&&issue.severity==='WARNING'));
+ input.instructors[1]!.teachingRules!.preferredCreditedLoad=25;assert.throws(()=>validateRequest(input),/credited-load target/);
+});
 test('actual contact hours and section limits apply independently of weighted trainer load',()=>{
  const input=fixture({maxContactHours:6,maxSections:2});input.policy.onsitePracticalLoadFactor=0.5;
  const result=buildDraftPlan(input);

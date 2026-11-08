@@ -7,6 +7,18 @@ from pathlib import Path
 from openpyxl import load_workbook
 
 class ExportScenarioTest(unittest.TestCase):
+    def test_fixed_period_minutes_survive_all_timetable_exports(self):
+        payload = {"sections": [], "gaps": [], "instructorLoads": [], "notices": [],
+                   "sessions": [{"id": "P", "courseCode": "MAIN", "sectionId": "S", "component": "THEORY",
+                                 "mode": "ONSITE", "day": "SUN", "start": 8, "end": 580 / 60,
+                                 "trainingHours": 2, "instructorId": "T", "roomId": "R", "blockId": "B"}]}
+        result = subprocess.run([sys.executable, str(Path(__file__).with_name("export_scenario.py"))],
+                                input=json.dumps(payload).encode(), capture_output=True, timeout=20)
+        self.assertEqual(result.returncode, 0, result.stderr.decode())
+        book = load_workbook(io.BytesIO(result.stdout))
+        self.assertEqual(book["الجداول"]["H2"].value, "09:40")
+        self.assertEqual(book["جداول المدربين"]["H2"].value, "09:40")
+        book.close()
     def test_external_courses_have_their_own_roster_without_entering_department_sections(self):
         payload = {"sections": [], "sessions": [], "gaps": [], "instructorLoads": [], "notices": [],
                    "externalSections": [{"id": "G-EXT-001", "courseCode": "GENERAL", "title": "لغة عامة",

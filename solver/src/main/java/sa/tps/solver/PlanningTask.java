@@ -12,6 +12,7 @@ public class PlanningTask {
     private int level;
     private int contactHours;
     private boolean exclusiveInstructor;
+    private boolean priorityCoverage;
     private List<Placement> choices;
     private Placement selected;
     private String initialCandidateId;
@@ -26,6 +27,8 @@ public class PlanningTask {
     public void setContactHours(int contactHours) { this.contactHours = contactHours; }
     public boolean isExclusiveInstructor() { return exclusiveInstructor; }
     public void setExclusiveInstructor(boolean exclusiveInstructor) { this.exclusiveInstructor = exclusiveInstructor; }
+    public boolean isPriorityCoverage() { return priorityCoverage; }
+    public void setPriorityCoverage(boolean priorityCoverage) { this.priorityCoverage = priorityCoverage; }
     @ValueRangeProvider(id = "candidateRange") public List<Placement> getChoices() { return choices; }
     public void setChoices(List<Placement> choices) { this.choices = choices; }
     @PlanningVariable(valueRangeProviderRefs = "candidateRange") public Placement getSelected() { return selected; }

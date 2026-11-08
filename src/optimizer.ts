@@ -11,6 +11,8 @@ import {buildDraftPlan} from './planner.js';
 import {trainerQualified,roomQualified} from './eligibility.js';
 import {hasSharedBlock} from './cohort-grouping.js';
 import {typePreference,instructorTotals,exceedsTeachingLimits} from './instructor-rules.js';
+import {trainingHours,hardSessionConflict,validPeriodSession} from './lecture-periods.js';
+import {makePeriodSessions} from './period-scheduler.js';
 
 const DAYS: Day[] = ['SUN', 'MON', 'TUE', 'WED', 'THU'];
 const round = (n: number) => Math.round((n + Number.EPSILON) * 1000) / 1000;
@@ -28,6 +30,7 @@ export interface AtomicCandidate {
   contactLimitMilli?: number;
   sectionLimit?: number;
   preferredSectionCount?: number;
+  preferredCreditedMilli?: number;
   preferenceScore?: number;
 }
 export interface AtomicTask {
@@ -35,6 +38,7 @@ export interface AtomicTask {
   courseCode: string;
   level: number;
   contactHours: number;
+  priorityCoverage?: boolean;
   exclusiveInstructor: boolean;
   choices: AtomicCandidate[];
   initialCandidateId?: string;
@@ -68,6 +72,7 @@ function compatible(room: Room, course: Course, component: Component, students: 
 }
 /** Alternative atomic schedules for one trainer; never share the section with another trainer. */
 function makeSessions(c: Course, sec: Section, inst: Instructor, input: PlanRequest, seed: number): Session[] | null {
+  if(input.policy.lecturePeriods&&c.mode==='ONSITE')return makePeriodSessions(c,sec,inst,input,jobs(c),[],seed);
   const allocated: Session[] = [];
   // Spread rooms across eligible instructors as well as temporal candidate seeds.
   // Previously all instructors chose rooms[seed], so even 20 available rooms
@@ -123,11 +128,12 @@ export function prepareSolverPayload(input: PlanRequest, maxChoicesPerInstructor
   const draft = buildDraftPlan(input); // validates course/policy/instructor/room schema.
   if (draft.sections.length > 250) throw new Error('Experimental optimizer supports at most 250 sections per scenario.');
   const courses = new Map(input.courses.map(c => [c.code, c]));
-  const seedFromPreview=input.instructors.some(instructor=>instructor.teachingRules&&Object.keys(instructor.teachingRules).length>0);
+  const seedFromPreview=!!input.policy.priorityCourseCodes?.length||input.instructors.some(instructor=>instructor.teachingRules&&Object.keys(instructor.teachingRules).length>0);
   const limits=(inst:Instructor,course:Course)=>({
     ...(inst.teachingRules?.maxContactHours!==undefined?{contactLimitMilli:Math.round(inst.teachingRules.maxContactHours*1000)}:{}),
     ...(inst.teachingRules?.maxSections!==undefined?{sectionLimit:inst.teachingRules.maxSections}:{}),
     ...(inst.teachingRules?.preferredSections!==undefined?{preferredSectionCount:inst.teachingRules.preferredSections}:{}),
+    ...(inst.teachingRules?.preferredCreditedLoad!==undefined?{preferredCreditedMilli:Math.round(inst.teachingRules.preferredCreditedLoad*1000)}:{}),
     ...(typePreference(inst,course)?{preferenceScore:typePreference(inst,course)}:{})
   });
   const tasks: AtomicTask[] = draft.sections.map(sec => {
@@ -167,6 +173,7 @@ export function prepareSolverPayload(input: PlanRequest, maxChoicesPerInstructor
       }
     }
     return {id: sec.id, courseCode: course.code, level: course.level, contactHours: sec.contactHours,
+      ...(input.policy.priorityCourseCodes?.includes(course.code)?{priorityCoverage:true}:{}),
       exclusiveInstructor: course.exclusiveInstructor ?? false, choices,...(seedFromPreview?{initialCandidateId}:{})};
   });
   return {schemaVersion: 'tps.timefold.v1', tasks, seconds: 5};
@@ -209,7 +216,7 @@ export function applySolverChoice(input: PlanRequest, payload: SolverPayload, re
       if (chosen.sessions.length) throw new Error('Self-paced has unexpected sessions');
     } else {
       section.state = 'SCHEDULED';
-      if (chosen.sessions.reduce((sum, x) => sum + x.end - x.start, 0) !== section.contactHours) throw new Error('Incorrect assigned contact hours');
+      if (Math.abs(chosen.sessions.reduce((sum,x)=>sum+trainingHours(x,input.policy),0)-section.contactHours)>1e-8) throw new Error('Incorrect assigned contact hours');
     }
     const credited = (usedLoad.get(instructor.id) ?? 0) + chosen.creditedMilli;
     if (credited > Math.round((instructor.maxLoad + (instructor.overload?.additionalHours ?? 0)) * 1000)) throw new Error('Solver exceeded instructor load');
@@ -218,7 +225,8 @@ export function applySolverChoice(input: PlanRequest, payload: SolverPayload, re
   }
   for (const a of sessions) {
     const instructor = input.instructors.find(i => i.id === a.instructorId)!;
-    if (a.day === 'THU' && a.end > 10 || !available(instructor.available, a.day, a.start, a.end)) throw new Error('Invalid day/availability');
+    if ((!input.policy.lecturePeriods&&a.day === 'THU' && a.end > 10) || !available(instructor.available, a.day, a.start, a.end)) throw new Error('Invalid day/availability');
+    if(input.policy.lecturePeriods&&a.mode==='ONSITE'&&!validPeriodSession(a,input.policy))throw new Error('Invalid fixed lecture period');
     const c = input.courses.find(x => x.code === a.courseCode)!;
     if (c.mode === 'HYBRID' && (a.mode === 'ONSITE' ? a.end > 12 : a.start < 16 || a.end > 22)) throw new Error('Invalid hybrid time');
     if (a.mode === 'ONSITE') {
@@ -230,9 +238,7 @@ export function applySolverChoice(input: PlanRequest, payload: SolverPayload, re
   for (let i = 0; i < sessions.length; i++) {
     for (let j = i + 1; j < sessions.length; j++) {
       const a = sessions[i]!, b = sessions[j]!;
-      if (a.day === b.day && collide(a, b) &&
-          (a.instructorId === b.instructorId || hasSharedBlock(a,b) ||
-           (a.roomId !== null && a.roomId === b.roomId) || a.sectionId === b.sectionId))
+      if (hardSessionConflict(a,b,input.policy))
         throw new Error(`Timefold returned a collision: ${a.id} and ${b.id}`);
     }
   }
@@ -249,6 +255,7 @@ export function applySolverChoice(input: PlanRequest, payload: SolverPayload, re
     const exception = i.overload?.additionalHours ?? 0;
     const credited = (usedLoad.get(i.id) ?? 0) / 1000;
     return {id: i.id, baseLimit: i.maxLoad, approvedException: exception, credited,
+      ...(input.policy.lecturePeriods?{clockHours:sessions.filter(session=>session.instructorId===i.id).reduce((sum,s)=>sum+s.end-s.start,0)}:{}),
       contact: usedContact.get(i.id) ?? 0, remaining: round(i.maxLoad + exception - credited)};
   });
   draft.metrics.assignedContactHours = draft.sections.filter(s => s.state === 'SCHEDULED').reduce((v, s) => v + s.contactHours, 0);

@@ -6,12 +6,27 @@ const positiveInt = (v: number) => Number.isInteger(v) && v > 0;
 const hours = (v: number) => Number.isInteger(v) && v >= 0;
 const validCodes=(v:string[]|undefined)=>v===undefined || (Array.isArray(v)&&v.length<=30&&new Set(v).size===v.length&&v.every(x=>typeof x==='string'&&/^[A-Za-z0-9][A-Za-z0-9_.-]{0,59}$/.test(x)));
 
-function validWindow(w: TimeWindow): boolean {
+function validWindow(w: TimeWindow,fixed=false): boolean {
   return DAYS.includes(w.day) && Number.isInteger(w.from*2) && Number.isInteger(w.to*2)
     && w.from >= 0 && w.to <= 24 && w.from < w.to
-    && !(w.day === 'THU' && w.to > 10);
+    && (fixed||!(w.day === 'THU' && w.to > 10));
 }
 function validatePolicy(p: Policy, errors: string[]): void {
+  if(p.priorityCourseCodes!==undefined&&(!Array.isArray(p.priorityCourseCodes)||p.priorityCourseCodes.length>30||
+    new Set(p.priorityCourseCodes).size!==p.priorityCourseCodes.length||
+    p.priorityCourseCodes.some(code=>typeof code!=='string'||!code.trim()||code.length>60)))errors.push('Invalid priority course codes.');
+  if(p.lecturePeriods){
+    const fixed=p.lecturePeriods;
+    const validPeriods=(periods:typeof fixed.regular)=>Array.isArray(periods)&&periods.length>0&&periods.length<=12&&
+      periods.every(period=>Number.isInteger(period.startMinute)&&Number.isInteger(period.endMinute)&&period.startMinute>=0&&
+        period.endMinute<=1440&&period.endMinute>period.startMinute&&positiveInt(period.trainingHours)&&
+        period.endMinute-period.startMinute===period.trainingHours*fixed.academicHourMinutes)&&
+      new Set(periods.map(period=>period.startMinute)).size===periods.length;
+    if(!positiveInt(fixed.academicHourMinutes)||fixed.academicHourMinutes>60||!['TRIM_END','FULL_PERIOD'].includes(fixed.partialPeriod)||
+      !validPeriods(fixed.regular)||!fixed.courseOverrides||Object.entries(fixed.courseOverrides).some(([code,override])=>
+        !code.trim()||!validPeriods(override.periods)||typeof override.allowCohortOverlap!=='boolean'))errors.push('Invalid fixed lecture-period policy');
+    if(p.enabledModes.some(mode=>mode!=='ONSITE'))errors.push('Fixed lecture periods currently require onsite-only policy');
+  }
   if(p.ignoreRoomCapacity!==undefined&&typeof p.ignoreRoomCapacity!=='boolean')errors.push('Invalid room-capacity planning option.');
   if(p.courseSectionCapacities&&Object.entries(p.courseSectionCapacities).some(([code,capacity])=>
     !code.trim()||code.length>60||!positiveInt(capacity)||capacity>5000))errors.push('Invalid explicit course-capacity exception.');
@@ -28,11 +43,12 @@ function validatePolicy(p: Policy, errors: string[]): void {
   if (!Number.isFinite(p.onsitePracticalLoadFactor) || p.onsitePracticalLoadFactor <= 0) errors.push('Invalid onsite practical load factor.');
   if (p.selfPacedLoadPerOffering !== null && (!Number.isFinite(p.selfPacedLoadPerOffering) || p.selfPacedLoadPerOffering < 0)) errors.push('Invalid self-paced load policy.');
   if (!positiveInt(p.sessionMaxHours)) errors.push('sessionMaxHours must be a positive integer.');
-  if (!Array.isArray(p.slots) || p.slots.some(s => !validWindow(s))) errors.push('Invalid time window or Thursday after 10:00.');
+  if (!Array.isArray(p.slots) || p.slots.some(s => !validWindow(s,!!p.lecturePeriods))) errors.push('Invalid time window or Thursday after 10:00.');
 }
 function validateCourse(c: Course, p: Policy, errors: string[],cohortBlocks?:PlanRequest['cohortBlocks']): void {
   if (!c.code || !c.title || !positiveInt(c.level)) errors.push(`Invalid course identity: ${c.code}`);
   if(c.assignmentScope!==undefined&&!['DEPARTMENT','EXTERNAL'].includes(c.assignmentScope))errors.push(`Invalid assignment scope: ${c.code}`);
+  if(c.assignmentScope==='EXTERNAL'&&p.priorityCourseCodes?.includes(c.code))errors.push(`Priority coverage requires department ownership: ${c.code}`);
   if(c.externalSectionCapacity!==undefined&&(!positiveInt(c.externalSectionCapacity)||c.externalSectionCapacity>5000))errors.push(`Invalid external section capacity: ${c.code}`);
   if(!validCodes(c.requiredSpecialties)||!validCodes(c.requiredEquipment))errors.push(`Invalid specialty or equipment requirements for ${c.code}`);
   if (!Number.isInteger(c.demand) || c.demand < 0) errors.push(`Invalid demand for ${c.code}`);
@@ -109,6 +125,7 @@ export function validateRequest(input: PlanRequest): void {
     if (!i.id || !i.name || !Number.isFinite(i.maxLoad) || i.maxLoad < 0) errors.push(`Invalid instructor: ${i.id}`);
     const rules=i.teachingRules;
     if(rules){
+      if(rules.preferredCreditedLoad!==undefined&&(!Number.isFinite(rules.preferredCreditedLoad)||rules.preferredCreditedLoad<0||rules.preferredCreditedLoad>168||rules.preferredCreditedLoad>i.maxLoad))errors.push(`Invalid instructor credited-load target: ${i.id}`);
       if(rules.maxContactHours!==undefined&&(!Number.isFinite(rules.maxContactHours)||rules.maxContactHours<0||rules.maxContactHours>168))errors.push(`Invalid instructor contact limit: ${i.id}`);
       for(const key of ['maxSections','preferredSections'] as const)
         if(rules[key]!==undefined&&(!Number.isInteger(rules[key])||rules[key]!<0||rules[key]!>250))errors.push(`Invalid instructor section limit: ${i.id}`);
@@ -118,7 +135,7 @@ export function validateRequest(input: PlanRequest): void {
     }
     if(!validCodes(i.specialties))errors.push(`Invalid instructor specialties: ${i.id}`);
     if (!i.allowedModes?.every(m => MODES.includes(m))) errors.push(`Invalid instructor modes: ${i.id}`);
-    if (i.available?.some(w => !validWindow(w))) errors.push(`Invalid instructor availability: ${i.id}`);
+    if (i.available?.some(w => !validWindow(w,!!input.policy.lecturePeriods))) errors.push(`Invalid instructor availability: ${i.id}`);
     if (i.overload && (!Number.isFinite(i.overload.additionalHours) || i.overload.additionalHours <= 0 || !i.overload.reason?.trim())) errors.push(`Overload needs amount and reason: ${i.id}`);
   }
   for (const c of input.courses) if (c.assignmentScope!=='EXTERNAL'&&c.assignedInstructorId && !ids.has(c.assignedInstructorId)) errors.push(`Locked instructor not found for ${c.code}`);
@@ -129,7 +146,7 @@ export function validateRequest(input: PlanRequest): void {
     if (!r.id || !r.name || (r.capacity!==null&&!positiveInt(r.capacity)) ||
       (r.type!==null&&!['CLASSROOM', 'LAB', 'MULTI'].includes(r.type))) errors.push(`Invalid room: ${r.id}`);
     if(!validCodes(r.equipmentCodes))errors.push(`Invalid room equipment identifiers: ${r.id}`);
-    if (r.available?.some(w => !validWindow(w))) errors.push(`Invalid room availability: ${r.id}`);
+    if (r.available?.some(w => !validWindow(w,!!input.policy.lecturePeriods))) errors.push(`Invalid room availability: ${r.id}`);
   }
   if (errors.length) throw new Error(errors.join('\n'));
 }

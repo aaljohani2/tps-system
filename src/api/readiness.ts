@@ -3,6 +3,7 @@ import {trainerQualified,roomQualified} from '../eligibility.js';
 import {hasSharedBlock} from '../cohort-grouping.js';
 import {sectionCapacity} from '../section-capacity.js';
 import {instructorTotals,exceedsTeachingLimits} from '../instructor-rules.js';
+import {trainingHours,validPeriodSession,cohortOverlapIsWarning,hardSessionConflict,formatClock} from '../lecture-periods.js';
 
 export interface ReadinessIssue{
   code:string;severity:'BLOCKER'|'WARNING';message:string;sectionId?:string;courseCode?:string;instructorId?:string;
@@ -14,6 +15,14 @@ export function assessReadiness(input:PlanRequest,result:PlanResult,solverStatus
     issues.push({code,severity,message,...(sectionId?{sectionId}:{}),...(courseCode?{courseCode}:{})});
   };
   if(solverStatus!=='COMPLETED')add('SOLVER_NOT_COMPLETED','Timefold has not completed successfully.');
+  for(const code of input.policy.priorityCourseCodes??[]){
+    const course=input.courses.find(course=>course.code===code);
+    if(!course||course.demand===0)continue;
+    const sections=result.sections.filter(section=>section.courseCode===code);
+    if(course.assignmentScope==='EXTERNAL')add('PRIORITY_COURSE_EXTERNAL','مقرر أولوية التغطية مصنف بإسناد خارجي: '+course.title,undefined,code);
+    else if(!sections.length||sections.some(section=>section.state==='UNASSIGNED'))
+      add('PRIORITY_COURSE_UNCOVERED','لم تكتمل تغطية مقرر القسم ذي الأولوية: '+course.title,undefined,code);
+  }
   if(result.externalSections?.length)add('EXTERNAL_ASSIGNMENT_PENDING',
     `${result.externalSections.length} شعبة عامة بانتظار إسناد خارجي؛ معروضة منفصلة عن عجز القسم ونصاب مدربيه.`,undefined,undefined,'WARNING');
   const externalCodes=new Set(input.courses.filter(course=>course.assignmentScope==='EXTERNAL').map(course=>course.code));
@@ -33,8 +42,8 @@ export function assessReadiness(input:PlanRequest,result:PlanResult,solverStatus
     if(section.state==='UNASSIGNED')add('UNCOVERED_SECTION','Section has no assigned timetable.',section.id,section.courseCode);
     if(section.students>0&&!section.blockId)add('MISSING_BLOCK','No verified student cohort block for section.',section.id,section.courseCode);
     if(section.state==='SCHEDULED'){
-      const actual=sessions.reduce((sum,m)=>sum+m.end-m.start,0);
-      if(actual!==section.contactHours)add('INCOMPLETE_HOURS',
+      const actual=sessions.reduce((sum,m)=>sum+trainingHours(m,input.policy),0);
+      if(!Number.isFinite(actual)||Math.abs(actual-section.contactHours)>1e-8)add('INCOMPLETE_HOURS',
         `Section requires ${section.contactHours} hours but has ${actual}.`,section.id,section.courseCode);
     }
     if(section.state!=='SCHEDULED'&&sessions.length)
@@ -55,7 +64,7 @@ export function assessReadiness(input:PlanRequest,result:PlanResult,solverStatus
   };
   const componentHours=(course:PlanRequest['courses'][number],sessions:Session[])=>{
     const sum=(component:'THEORY'|'PRACTICAL',mode:'ONSITE'|'REMOTE')=>
-      sessions.filter(s=>s.component===component&&s.mode===mode).reduce((v,s)=>v+s.end-s.start,0);
+      sessions.filter(s=>s.component===component&&s.mode===mode).reduce((v,s)=>v+trainingHours(s,input.policy),0);
     if(course.mode==='HYBRID'){
       const h=course.hybridSplit;
       return !!h && sum('THEORY','ONSITE')===h.theoryOnsiteHours &&
@@ -89,11 +98,14 @@ export function assessReadiness(input:PlanRequest,result:PlanResult,solverStatus
     if(!course||!section||section.courseCode!==session.courseCode||section.blockId!==session.blockId||
       JSON.stringify(section.blockIds??[])!==JSON.stringify(session.blockIds??[]))
       add('SESSION_COHORT_MISMATCH','Course, section and block identity do not match.',session.sectionId,session.courseCode);
-    if(!Number.isInteger(session.start*2)||!Number.isInteger(session.end*2)||
+    const fixed=!!input.policy.lecturePeriods&&session.mode==='ONSITE';
+    if(fixed?!validPeriodSession(session,input.policy)||!inside(input.policy.slots,session):
+      !Number.isInteger(session.start*2)||!Number.isInteger(session.end*2)||
       session.start>=session.end || session.end-session.start>input.policy.sessionMaxHours ||
       !inside(input.policy.slots,session) ||
       (session.day==='THU'&&session.end>10))
-      add('INVALID_TIME','Session is outside approved policy windows or half-hour granularity.',session.sectionId,session.courseCode);
+      add('INVALID_TIME',fixed?'الجلسة خارج فترات المحاضرات المحفوظة أو مدتها لا تطابق الساعات التدريبية.':
+        'Session is outside approved policy windows or half-hour granularity.',session.sectionId,session.courseCode);
     if(course && (course.mode==='SELF_PACED' ||
       (course.mode!=='HYBRID' && session.mode!==course.mode) ||
       (course.mode==='HYBRID' && (session.mode==='ONSITE'?session.end>12:session.start<16||session.end>22))))
@@ -113,28 +125,34 @@ export function assessReadiness(input:PlanRequest,result:PlanResult,solverStatus
     for(let j=i+1;j<result.sessions.length;j++){
       const b=result.sessions[j]!;
       if(!overlap(a,b))continue;
-      const context=`${a.day} ${a.start}–${a.end} vs ${b.start}–${b.end}, sessions ${a.id} / ${b.id}`;
-      const reportBoth=(code:string,description:string)=>{
-        add(code,description+' | '+context,a.sectionId,a.courseCode);
-        if(b.sectionId!==a.sectionId)add(code,description+' | '+context,b.sectionId,b.courseCode);
+      const context=`${a.day} ${formatClock(a.start)}–${formatClock(a.end)} / ${formatClock(b.start)}–${formatClock(b.end)}، الجلسات ${a.id} / ${b.id}`;
+      const reportBoth=(code:string,description:string,severity:'BLOCKER'|'WARNING'='BLOCKER')=>{
+        add(code,description+' | '+context,a.sectionId,a.courseCode,severity);
+        if(b.sectionId!==a.sectionId)add(code,description+' | '+context,b.sectionId,b.courseCode,severity);
       };
       if(a.instructorId===b.instructorId)
         reportBoth('TRAINER_COLLISION','Trainer '+a.instructorId+' is scheduled simultaneously');
       if(a.roomId!==null&&a.roomId===b.roomId)
         reportBoth('ROOM_OCCUPIED','Room '+a.roomId+' is occupied by overlapping sessions');
-      if(hasSharedBlock(a,b))
-        reportBoth('BLOCK_COLLISION','Cohort block '+a.blockId+' has another simultaneous class');
+      if(hasSharedBlock(a,b)){
+        if(cohortOverlapIsWarning(a,b,input.policy))
+          reportBoth('ECONOMICS_COHORT_OVERLAP',`تداخل مقدمة الاقتصاد مع مقرر ${a.courseCode} / ${b.courseCode} للمتدربين أنفسهم؛ البلوك ${a.blockId} / ${b.blockId}. يسمح ببناء الجدول مع إظهار التداخل.`,'WARNING');
+        else reportBoth('BLOCK_COLLISION','Cohort block '+a.blockId+' has another simultaneous class');
+      }
       if(a.sectionId===b.sectionId)
         reportBoth('SECTION_COLLISION','The same section has simultaneous components');
-      if(a.instructorId===b.instructorId ||
-        (a.roomId!==null&&a.roomId===b.roomId) ||
-        hasSharedBlock(a,b)||a.sectionId===b.sectionId)
+      if(hardSessionConflict(a,b,input.policy))
         reportBoth('TIMETABLE_COLLISION','Conflicting meetings');
     }
   }
   for(const instructor of result.instructorLoads)
     if(instructor.remaining < -0.0001)add('LOAD_EXCEEDED',`Trainer ${instructor.id} exceeds credited load.`);
   for(const instructor of input.instructors){
+    const target=instructor.teachingRules?.preferredCreditedLoad;
+    const credited=result.sections.filter(section=>section.instructorId===instructor.id&&section.state!=='UNASSIGNED').reduce((n,section)=>n+section.creditedLoad,0);
+    if(solverStatus==='COMPLETED'&&target!==undefined&&credited+1e-8<target)
+      issues.push({code:'INSTRUCTOR_LOAD_TARGET',severity:'WARNING',instructorId:instructor.id,
+        message:`المدرب ${instructor.name}: النصاب المغطى ${credited} من المستهدف ${target} ساعة؛ المتبقي ${Number((target-credited).toFixed(3))}.`});
     const totals=instructorTotals(instructor.id,result.sections);
     const actual=result.sessions.filter(session=>session.instructorId===instructor.id).reduce((sum,session)=>sum+session.end-session.start,0);
     if(exceedsTeachingLimits(instructor,totals.sections,Math.max(totals.contact,actual)))

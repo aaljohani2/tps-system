@@ -5,7 +5,13 @@ import java.util.List;
 public record Placement(String id, String sectionId, String courseCode, String instructorId,
         int creditedMilli, int effectiveLimitMilli, boolean uncovered,
         List<SessionSlot> sessions, Integer contactLimitMilli, Integer sectionLimit,
-        Integer preferredSectionCount, Integer preferenceScore) {
+        Integer preferredSectionCount, Integer preferenceScore, Integer preferredCreditedMilli) {
+    public Placement(String id,String sectionId,String courseCode,String instructorId,int creditedMilli,
+            int effectiveLimitMilli,boolean uncovered,List<SessionSlot> sessions,Integer contactLimitMilli,
+            Integer sectionLimit,Integer preferredSectionCount,Integer preferenceScore) {
+        this(id,sectionId,courseCode,instructorId,creditedMilli,effectiveLimitMilli,uncovered,sessions,
+                contactLimitMilli,sectionLimit,preferredSectionCount,preferenceScore,null);
+    }
     public Placement(String id,String sectionId,String courseCode,String instructorId,int creditedMilli,
             int effectiveLimitMilli,boolean uncovered,List<SessionSlot> sessions) {
         this(id,sectionId,courseCode,instructorId,creditedMilli,effectiveLimitMilli,uncovered,sessions,null,null,null,null);
@@ -17,6 +23,13 @@ public record Placement(String id, String sectionId, String courseCode, String i
         if (uncovered || other.uncovered) return false;
         for (var a : sessions) for (var b : other.sessions) if (a.conflictsWith(b)) return true;
         return false;
+    }
+    public int cohortWarningCount(Placement other) {
+        if(uncovered||other.uncovered)return 0;
+        int count=0;
+        for(var a:sessions)for(var b:other.sessions)
+            if(a.overlaps(b)&&a.sharesBlock(b)&&a.cohortOverlapIsWarning(b))count++;
+        return count;
     }
     public int undesirableHours() {
         if (uncovered) return 0;

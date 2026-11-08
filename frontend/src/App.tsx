@@ -17,10 +17,13 @@ import AutomaticPlanningPage from './AutomaticPlanningPage';
 import ScenarioProjectionSummary from './ScenarioProjectionSummary';
 import ExternalAssignmentsPanel from './ExternalAssignmentsPanel';
 import InstructorAssignmentSummary from './InstructorAssignmentSummary';
+import LecturePeriodsPanel from './LecturePeriodsPanel';
+import ScenarioReportsPanel from './ScenarioReportsPanel';
+import CourseCoveragePanel from './CourseCoveragePanel';
 
 const labels:Record<string,string>={ONSITE:'حضوري',REMOTE:'عن بُعد',SELF_PACED:'ذاتي',HYBRID:'مدمج'};
 const days:Record<string,string>={SUN:'الأحد',MON:'الإثنين',TUE:'الثلاثاء',WED:'الأربعاء',THU:'الخميس'};
-const clock=(n:number)=>String(Math.floor(n)).padStart(2,'0')+':'+(n%1===0.5?'30':'00');
+import {clock} from './time';
 type Message=(s:string)=>void;
 function useStore<T>(key:string,initial:T):[T,(v:T)=>void]{
   const [value,set]=useState<T>(()=>{try{return JSON.parse(localStorage.getItem(key)??'null')??initial;}catch{return initial;}});
@@ -278,6 +281,9 @@ function ScenarioPage({ctx,notify,user}:{ctx:Context;notify:Message;user:Auth}){
       <ScenarioProjectionSummary input={current.input_snapshot} result={p}/>
       <ExternalAssignmentsPanel scenario={current}/>
       <InstructorAssignmentSummary input={current.input_snapshot} result={p}/>
+      <LecturePeriodsPanel input={current.input_snapshot}/>
+      <CourseCoveragePanel input={current.input_snapshot} result={p}/>
+      <ScenarioReportsPanel scenarioId={current.id}/>
       <h3>فحص جاهزية الاعتماد</h3>
       <div className={readiness.data?.technicalReady?'alert success':'alert'}>
         {readiness.data?.technicalReady?'اكتمل التحقق الفني من البيانات الأساسية، ويمكن طلب الاعتماد بحسب الصلاحيات.':
@@ -295,8 +301,8 @@ function ScenarioPage({ctx,notify,user}:{ctx:Context;notify:Message;user:Auth}){
       <ManualScheduleEditor scenario={current} notify={notify} proposal={gridProposal} canEdit={canEdit}/>
       <h3>كشف العجز</h3>{p.gaps.length?<div className="table-wrap"><table><thead><tr><th>الشعبة</th><th>المقرر</th><th>السبب</th><th>ساعات التدريب</th><th>النصاب المطلوب</th></tr></thead>
         <tbody>{p.gaps.map(g=><tr key={g.sectionId}><td>{g.sectionId}</td><td>{g.courseCode}</td><td>{g.reason}</td><td>{g.contactHours}</td><td>{g.equivalentLoad}</td></tr>)}</tbody></table></div>:<p className="success">لا يوجد عجز مسجل في النتيجة الحالية. يلزم التحقق من هوية البلوكات قبل اعتمادها.</p>}
-      <h3>أنصبة المدربين</h3><div className="table-wrap"><table><thead><tr><th>المدرب</th><th>الساعات الفعلية</th><th>النصاب المكافئ</th><th>المتبقي</th></tr></thead><tbody>
-        {p.instructorLoads.map(i=><tr key={i.id}><td>{i.id}</td><td>{i.contact}</td><td>{i.credited}</td><td>{i.remaining}</td></tr>)}</tbody></table></div>
+      <h3>أنصبة المدربين</h3><div className="table-wrap"><table><thead><tr><th>المدرب</th><th>الساعات التدريبية</th><th>الوقت الفعلي بالساعات</th><th>النصاب المكافئ</th><th>المتبقي</th></tr></thead><tbody>
+        {p.instructorLoads.map(i=><tr key={i.id}><td>{i.id}</td><td>{i.contact}</td><td>{Number((i.clockHours??i.contact).toFixed(2))}</td><td>{i.credited}</td><td>{i.remaining}</td></tr>)}</tbody></table></div>
       {p.notices.length>0&&<div className="alert">{p.notices.join(' | ')}</div>}
       <details><summary>إنشاء سيناريو بديل مستقل من هذا السيناريو</summary>
         <p className="hint">غيّر الطلب المتوقع أو البلوكات هنا دون تعديل المقررات الرئيسية أو السيناريو الأصلي. يجب إعادة تشغيل Timefold للبديل؛ ولا تعني هذه العملية اعتماد الجدول.</p>

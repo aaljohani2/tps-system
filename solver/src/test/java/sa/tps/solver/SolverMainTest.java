@@ -4,6 +4,34 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.*;
 
 class SolverMainTest {
+    @Test void priorityCoverageDoesNotBypassHardTrainerLoad() {
+        var tasks=new java.util.ArrayList<PlanningTask>();
+        for(int index=0;index<2;index++) {
+            var id="C"+index;
+            var slot=new SessionSlot(id,id,id,"THEORY","ONSITE","SUN",8+index*2,10+index*2,"R","T",id);
+            var covered=new Placement(id+":yes",id,id,"T",2000,2000,false,List.of(slot));
+            var none=new Placement(id+":no",id,id,null,0,0,true,List.of());
+            var task=new PlanningTask();task.setId(id);task.setCourseCode(id);task.setContactHours(2);
+            task.setPriorityCoverage(index==1);task.setChoices(List.of(none,covered));tasks.add(task);
+        }
+        var result=SolverMain.solve(new SolverMain.Input("tps.timefold.v1",tasks,1));
+        assertEquals(0,result.hardScore());
+        assertEquals("C0:no",result.choices().stream().filter(choice->choice.taskId().equals("C0")).findFirst().orElseThrow().candidateId());
+        assertEquals("C1:yes",result.choices().stream().filter(choice->choice.taskId().equals("C1")).findFirst().orElseThrow().candidateId());
+    }
+    @Test void economicsCohortOverlapIsSoftButResourcesAndOrdinaryCohortsRemainHard() {
+        var economics=new SessionSlot("E","ECO","ECO","THEORY","ONSITE","SUN",10,12.5,"R1","T1","G::A",null,3.0,true);
+        var ordinary=new SessionSlot("O","MAIN","MAIN","THEORY","ONSITE","SUN",10,11+40.0/60,"R2","T2","G::A",null,2.0,false);
+        assertFalse(economics.conflictsWith(ordinary));assertFalse(ordinary.conflictsWith(economics));
+        var sameRoom=new SessionSlot("R","MAIN","MAIN","THEORY","ONSITE","SUN",10,11+40.0/60,"R1","T2","G::A",null,2.0,false);
+        assertTrue(economics.conflictsWith(sameRoom));
+        var sameTrainer=new SessionSlot("T","MAIN","MAIN","THEORY","ONSITE","SUN",10,11+40.0/60,"R2","T1","G::A",null,2.0,false);
+        assertTrue(economics.conflictsWith(sameTrainer));
+        var secondOrdinary=new SessionSlot("B","OTHER","OTHER","THEORY","ONSITE","SUN",10,11+40.0/60,"R3","T3","G::A",null,2.0,false);
+        assertTrue(ordinary.conflictsWith(secondOrdinary));
+        var placement=new Placement("P","ECO","ECO","T1",3000,12000,false,List.of(economics));
+        assertEquals(2500,placement.contactMilli());
+    }
     @Test void hardSectionCountCannotBeBypassedByLowWeightedLoad() {
         var tasks = new java.util.ArrayList<PlanningTask>();
         for (int index=0;index<3;index++) {

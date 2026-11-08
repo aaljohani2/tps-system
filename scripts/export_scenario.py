@@ -18,6 +18,12 @@ def safe(value):
         return "'" + value
     return value[:30000]
 
+def format_clock(hours):
+    if not isinstance(hours, (int, float)):
+        return ""
+    total = round(hours * 60)
+    return f"{total // 60:02d}:{total % 60:02d}"
+
 def page(book, title, columns, rows):
     ws = book.create_sheet(title)
     ws.sheet_view.rightToLeft = True
@@ -36,7 +42,7 @@ def page(book, title, columns, rows):
     ws.auto_filter.ref = ws.dimensions
 
 def main():
-    payload = json.load(sys.stdin)
+    payload = json.load(sys.stdin.buffer)
     metadata = payload.get("metadata") if isinstance(payload, dict) and "plan" in payload else None
     plan = payload.get("plan") if metadata is not None else payload
     if not isinstance(plan, dict) or not isinstance(plan.get("sections"), list):
@@ -61,14 +67,14 @@ def main():
                "بانتظار إسناد القسم الآخر", "", "", "", "", ""] for item in external])
     page(book, "الجداول",
         ["المقرر", "الشعبة", "المدرب", "القاعة", "النمط", "اليوم", "من", "إلى", "البلوك"],
-        [[s.get(k) for k in ("courseCode", "sectionId", "instructorId", "roomId",
+        [[format_clock(s.get(k)) if k in ("start", "end") and s.get("trainingHours") is not None else s.get(k) for k in ("courseCode", "sectionId", "instructorId", "roomId",
                             "mode", "day", "start", "end", "blockId")] for s in sessions])
     page(book, "الشعب",
         ["رمز الشعبة", "المقرر", "المستوى", "المتدربون", "السعة", "النمط", "مدرب", "حالة"],
         [[s.get(k) for k in ("id", "courseCode", "level", "students", "capacity",
                             "mode", "instructorId", "state")] for s in plan["sections"]])
     page(book, "الأنصبة",
-        ["المدرب", "النصاب", "الاستثناء", "المكافئ", "الساعات الفعلية", "المتبقي"],
+        ["المدرب", "النصاب", "الاستثناء", "المكافئ", "الساعات التدريبية", "المتبقي"],
         [[s.get(k) for k in ("id", "baseLimit", "approvedException", "credited",
                             "contact", "remaining")] for s in plan.get("instructorLoads", [])])
     page(book, "العجز",
@@ -84,9 +90,7 @@ def main():
             float(item.get("start") or 0),
             str(item.get("sectionId") or "")))
     def clock(hours):
-        if not isinstance(hours, (int, float)):
-            return ""
-        return f"{int(hours):02d}:{'30' if round((hours % 1) * 2) == 1 else '00'}"
+        return format_clock(hours)
     page(book, "جداول المدربين",
         ["المدرب", "المقرر", "الشعبة", "المكون", "النمط", "اليوم", "من", "إلى", "القاعة", "البلوك"],
         [[s.get("instructorId"),s.get("courseCode"),s.get("sectionId"),s.get("component"),

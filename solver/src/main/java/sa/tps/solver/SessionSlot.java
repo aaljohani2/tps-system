@@ -8,7 +8,11 @@ import java.util.HashSet;
  */
 public record SessionSlot(String id, String sectionId, String courseCode, String component,
         String mode, String day, double start, double end, String roomId,
-        String instructorId, String blockId, List<String> blockIds) {
+        String instructorId, String blockId, List<String> blockIds,Double trainingHours,Boolean cohortOverlapWarning) {
+    public SessionSlot(String id,String sectionId,String courseCode,String component,String mode,String day,
+            double start,double end,String roomId,String instructorId,String blockId,List<String> blockIds) {
+        this(id,sectionId,courseCode,component,mode,day,start,end,roomId,instructorId,blockId,blockIds,null,null);
+    }
 
     /** Backward-compatible constructor for existing single-block solver fixtures. */
     public SessionSlot(String id, String sectionId, String courseCode, String component,
@@ -32,6 +36,10 @@ public record SessionSlot(String id, String sectionId, String courseCode, String
     public boolean conflictsWith(SessionSlot other) {
         if (!overlaps(other)) return false;
         return sectionId.equals(other.sectionId) || instructorId.equals(other.instructorId)
-                || (roomId != null && roomId.equals(other.roomId)) || sharesBlock(other);
+                || (roomId != null && roomId.equals(other.roomId)) || (sharesBlock(other)&&!cohortOverlapIsWarning(other));
+    }
+    public boolean cohortOverlapIsWarning(SessionSlot other) {
+        return !sectionId.equals(other.sectionId) && !courseCode.equals(other.courseCode)
+                && (Boolean.TRUE.equals(cohortOverlapWarning)||Boolean.TRUE.equals(other.cohortOverlapWarning));
     }
 }

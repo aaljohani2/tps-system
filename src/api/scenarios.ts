@@ -14,7 +14,10 @@ import {getEffectivePolicy} from './policies.js';
 import {sectionCapacity} from '../section-capacity.js';
 import {applyCourseCapacityException} from '../course-capacity-exception.js';
 import {applyExternalAssignments} from '../external-assignment.js';
+import {formatClock} from '../lecture-periods.js';
 import {assessReadiness} from './readiness.js';
+import {buildScenarioReport} from '../scenario-reports.js';
+import {exportScheduleReport} from './reports.js';
 import type {Course,Instructor,PlanRequest,PlanResult,Policy,Room} from '../types.js';
 
 const uuid=z.string().uuid();
@@ -506,7 +509,8 @@ export async function registerScenarios(app:FastifyInstance):Promise<void>{
     const header=['حالة الاعتماد','المقرر','الشعبة','المدرب','القاعة','النمط','اليوم','البداية','النهاية','البلوك'];
     const lines=[header.map(csvCell).join(',')];
     for(const s of sc.result_snapshot.sessions){
-      lines.push([state,s.courseCode,s.sectionId,s.instructorId,s.roomId,s.mode,s.day,s.start,s.end,s.blockId].map(csvCell).join(','));
+      lines.push([state,s.courseCode,s.sectionId,s.instructorId,s.roomId,s.mode,s.day,
+        ...(sc.input_snapshot.policy.lecturePeriods?[formatClock(s.start),formatClock(s.end)]:[s.start,s.end]),s.blockId].map(csvCell).join(','));
     }
     reply.header('content-type','text/csv; charset=utf-8');
     reply.header('content-disposition','attachment; filename="tps-schedule-'+state+'.csv"');
@@ -521,6 +525,25 @@ export async function registerScenarios(app:FastifyInstance):Promise<void>{
     reply.header('Content-Security-Policy',"default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; base-uri 'none'; form-action 'none'");
     reply.header('Cache-Control','private, no-store');
     return reply.send(html);
+  });
+  app.get('/api/v1/scenarios/:id/reports/:kind/:format',async(req,reply)=>{
+    const selected=z.object({id:uuid,kind:z.enum(['instructors','trainees','rooms']),format:z.enum(['xlsx','pdf'])}).parse(req.params);
+    const scenario=await find(req,selected.id);
+    const context=(await pool.query(`SELECT c.name AS college_name,d.name AS department_name,t.code AS term_code,t.label AS term_label
+      FROM departments d JOIN colleges c ON c.id=d.college_id JOIN academic_terms t ON t.college_id=c.id
+      WHERE d.id=$1 AND t.id=$2`,[scenario.department_id,scenario.term_id])).rows[0];
+    if(!context)throw invalid('Scenario reporting context unavailable',409);
+    const readiness=assessReadiness(scenario.input_snapshot,scenario.result_snapshot,scenario.solver_status);
+    const report=buildScenarioReport(scenario.input_snapshot,scenario.result_snapshot,{
+      scenarioId:scenario.id,scenarioName:scenario.name,state:scenario.state,solverStatus:scenario.solver_status,
+      revision:scenario.revision,policyRevision:scenario.policy_revision,collegeName:context.college_name,
+      departmentName:context.department_name,termCode:context.term_code,termLabel:context.term_label,
+      generatedAt:new Date().toLocaleString('sv-SE',{timeZone:'Asia/Riyadh'})},selected.kind,readiness.issues);
+    const bytes=await exportScheduleReport(report,selected.format);
+    reply.header('content-type',selected.format==='pdf'?'application/pdf':'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    reply.header('content-disposition',`attachment; filename="tps-${selected.kind}-${scenario.id.slice(0,8)}.${selected.format}"; filename*=UTF-8''${encodeURIComponent(scenario.name.slice(0,90)+' - '+report.title+'.'+selected.format)}`);
+    reply.header('cache-control','private, no-store');
+    return reply.send(bytes);
   });
   app.get('/api/v1/scenarios/:id/export.xlsx',async(req,reply)=>{
     const scenario=await find(req,params(req));

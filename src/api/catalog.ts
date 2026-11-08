@@ -30,6 +30,7 @@ const courseBase=z.object({
 const course=courseBase.refine(v=>v.theoryHours+v.practicalHours>0,{message:'Contact hours required'});
 const instructor=z.object({departmentId:uuid,code,name,maxLoad:z.number().nonnegative(),
  teachingRules:z.object({maxContactHours:z.number().nonnegative().max(168).optional(),
+  preferredCreditedLoad:z.number().nonnegative().max(168).optional(),
   maxSections:z.number().int().nonnegative().max(250).optional(),preferredSections:z.number().int().nonnegative().max(250).optional(),
   allowedCourseTypes:z.array(z.enum(['THEORY','PRACTICAL','MIXED'])).optional(),
   preferredCourseTypes:z.array(z.enum(['THEORY','PRACTICAL','MIXED'])).optional()}).strict()
@@ -38,6 +39,10 @@ const instructor=z.object({departmentId:uuid,code,name,maxLoad:z.number().nonneg
  allowedModes:z.array(mode).default(['ONSITE']),eligibleCourseCodes:z.array(z.string()).optional(),
  specialties:codes.default([]),available:windows,
  overload:z.object({additionalHours:z.number().positive(),reason:name}).optional()});
+function checkLoadTarget(rules:{preferredCreditedLoad?:number},limit:number){
+ if(rules.preferredCreditedLoad!==undefined&&rules.preferredCreditedLoad>limit)
+  throw Object.assign(new Error('Preferred credited load exceeds base load limit'),{statusCode:400});
+}
 const room=z.object({collegeId:uuid,code,name,type:z.enum(['CLASSROOM','LAB','MULTI']).nullable(),
  capacity:z.number().int().positive().nullable(),equipmentCodes:codes.default([]),building:z.string().max(240).optional(),available:windows});
 function query(req:FastifyRequest,key:string):string|undefined{
@@ -202,13 +207,14 @@ export async function registerCatalog(app:FastifyInstance){
   });
   app.post('/api/v1/instructors',async(req)=>{
     requireEditor(req);const v=parse(instructor.omit({overload:true}).strict(),req.body);await assertDepartment(req,v.departmentId);
+    checkLoadTarget(v.teachingRules,v.maxLoad);
     const rows=await db.insert(instructors).values({...v,maxLoad:String(v.maxLoad),eligibleCourseCodes:v.eligibleCourseCodes??null,available:v.available??null,overload:null}).returning();
     await audit(req.principal!.id,'CREATE','INSTRUCTOR',rows[0]!.id);return rows[0];
   });
   app.patch('/api/v1/instructors/:id',async(req)=>{
     requireEditor(req);
     const id=uuid.parse((req.params as {id:string}).id);
-    const found=await pool.query<{department_id:string}>('SELECT department_id FROM instructors WHERE id=$1',[id]);
+    const found=await pool.query<{department_id:string;max_load:string;teaching_rules:{preferredCreditedLoad?:number}}>('SELECT department_id,max_load,teaching_rules FROM instructors WHERE id=$1',[id]);
     if(!found.rows[0])throw Object.assign(new Error('Instructor not found'),{statusCode:404});
     await assertDepartment(req,found.rows[0].department_id);
     const v=suppliedOnly(parse(instructor.omit({departmentId:true,overload:true}).partial().extend({
@@ -217,6 +223,7 @@ export async function registerCatalog(app:FastifyInstance){
     }).strict(),req.body),req.body);
     if(!Object.keys(v).length)throw Object.assign(new Error('No changes supplied'),{statusCode:400});
     const values={...v,maxLoad:v.maxLoad===undefined?undefined:String(v.maxLoad)};
+    checkLoadTarget(v.teachingRules??found.rows[0].teaching_rules,Number(v.maxLoad??found.rows[0].max_load));
     const updated=await db.update(instructors).set(values).where(eq(instructors.id,id)).returning();
     await audit(req.principal!.id,'UPDATE','INSTRUCTOR',id,{fields:Object.keys(v)});
     return updated[0];

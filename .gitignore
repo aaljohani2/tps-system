@@ -24,3 +24,6 @@ frontend/test-results/
 test-reports/
 *.tpsbak
 *.partial
+/outputs/tps-reports-*/
+/output/pdf/tps-reports-*/
+/tmp/tps-report-qa/

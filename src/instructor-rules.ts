@@ -8,7 +8,7 @@ export function typePreference(instructor:Instructor,course:Course):number{
 }
 export function instructorTotals(instructorId:string,sections:Section[]){
   const owned=sections.filter(section=>section.instructorId===instructorId&&section.state!=='UNASSIGNED');
-  return {sections:owned.length,contact:owned.filter(section=>section.state==='SCHEDULED').reduce((sum,section)=>sum+section.contactHours,0)};
+  return {sections:owned.length,contact:owned.filter(section=>section.state==='SCHEDULED').reduce((sum,section)=>sum+(section.clockHours??section.contactHours),0)};
 }
 export function exceedsTeachingLimits(instructor:Instructor,sections:number,contact:number):boolean{
   const rules=instructor.teachingRules;

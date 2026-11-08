@@ -1,5 +1,6 @@
 import type {PlanResult} from './types.js';
 import type {ReadinessIssue} from './api/readiness.js';
+import {formatClock} from './lecture-periods.js';
 
 const escapeHtml=(value:unknown)=>String(value??'').replace(/[&<>"']/g,ch=>
   ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]??ch));
@@ -12,6 +13,9 @@ export function renderPrintableScenario(args:{
   result:PlanResult;issues:ReadinessIssue[]
 }):string{
   const {name,state,termId,policyRevision,result,issues}=args;
+  const meetings=result.sessions.map(session=>'<tr>'+[session.courseCode,session.sectionId,session.instructorId,session.roomId,
+    session.day,formatClock(session.start),formatClock(session.end),session.trainingHours??session.end-session.start]
+    .map(value=>'<td>'+escapeHtml(value)+'</td>').join('')+'</tr>').join('');
   const counts=result.metrics;
   const externalRows=(result.externalSections??[]).map(section=>'<tr>'+[
     section.courseCode,section.title,section.level,section.students,section.capacity,'بانتظار إسناد خارجي'
@@ -33,7 +37,7 @@ export function renderPrintableScenario(args:{
     [i.code,i.severity,i.courseCode??'—',i.sectionId??'—',i.message]
       .map(value=>'<td>'+escapeHtml(value)+'</td>').join('')+'</tr>').join('');
   const load=result.instructorLoads.map(i=>'<tr>'+
-    [i.id,i.baseLimit,i.approvedException,i.credited,i.contact,i.remaining]
+    [i.id,i.baseLimit,i.approvedException,i.credited,i.contact,Number((i.clockHours??i.contact).toFixed(2)),i.remaining]
       .map(value=>'<td>'+escapeHtml(value)+'</td>').join('')+'</tr>').join('');
   return `<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -54,6 +58,7 @@ export function renderPrintableScenario(args:{
   <p class="disclaimer">نسخة تخطيطية محلية من بيانات السيناريو المحفوظ في PostgreSQL.
     حالة اعتماد TPS داخلية ولا تمثل اعتمادًا مؤسسيًا أو رفعًا إلى رايات.</p>
   <h2>ملخص السيناريو</h2><table><tbody>${rows.map(([a,b])=>summary(String(a),b)).join('')}</tbody></table>
+  <h2>المحاضرات والأوقات الفعلية</h2><table><thead><tr><th>المقرر</th><th>الشعبة</th><th>المدرب</th><th>القاعة</th><th>اليوم</th><th>من</th><th>إلى</th><th>ساعات تدريبية</th></tr></thead><tbody>${meetings}</tbody></table>
   ${externalRows?'<h2>مقررات عامة بإسناد خارجي — خارج نصاب القسم وعجزه</h2><table><thead><tr><th>المقرر</th><th>الاسم</th><th>المستوى</th><th>المتدربون</th><th>السعة</th><th>الحالة</th></tr></thead><tbody>'+externalRows+'</tbody></table>':''}
   <h2>كشف العجز (${result.gaps.length})</h2>
   <table><thead><tr><th>المقرر</th><th>الشعبة</th><th>المستوى</th><th>المتدربون</th>
@@ -63,8 +68,8 @@ export function renderPrintableScenario(args:{
   <table><thead><tr><th>الرمز</th><th>الخطورة</th><th>المقرر</th><th>الشعبة</th><th>التفاصيل</th></tr></thead>
     <tbody>${diagnostics||'<tr><td colspan="5">لا توجد موانع مسجلة.</td></tr>'}</tbody></table>
   <h2>أنصبة المدربين</h2><table><thead><tr><th>المدرب</th><th>النصاب الأساسي</th><th>الاستثناء المعتمد</th>
-    <th>المكافئ</th><th>الاتصال</th><th>المتبقي</th></tr></thead>
-    <tbody>${load||'<tr><td colspan="6">لا توجد أنصبة.</td></tr>'}</tbody></table>
+    <th>المكافئ</th><th>ساعات تدريبية</th><th>الوقت الفعلي بالساعات</th><th>المتبقي</th></tr></thead>
+    <tbody>${load||'<tr><td colspan="7">لا توجد أنصبة.</td></tr>'}</tbody></table>
   <footer>هذا المستند قابل للطباعة إلى PDF من المتصفح المحلي؛ لم يُرسل أي محتوى إلى خدمة خارجية.</footer>
   </body></html>`;
 }
