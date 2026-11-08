@@ -30,6 +30,10 @@ test('24-hour preparation preserves the instructor base limit and all source sna
 test('unapproved increase, missing target, reference scenario and implicit split never proceed',()=>{
  const source=fixture();source.instructors[0]!.maxLoad=23;
  assert.throws(()=>prepareLoad24Input(source,()=>source),/approved capacity/);
+ source.instructors[0]!.overload={additionalHours:1,reason:'Synthetic approved local overload'};
+ const withApproval=prepareLoad24Input(source,()=>{throw Error('No split expected');});
+ assert.equal(withApproval.instructors[0]!.maxLoad,23);
+ assert.equal(withApproval.instructors[0]!.overload?.additionalHours,1);
  source.instructors[0]!.maxLoad=24;source.instructors.pop();
  assert.throws(()=>prepareLoad24Input(source,()=>source),/code absent/);
  const ref=fixture();delete ref.projection;
