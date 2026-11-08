@@ -41,7 +41,14 @@ test('approved local period policy persists, creates visible permitted overlaps 
    payload:{available:[{day:'SUN',from:10,to:12}]}});
   assert.equal(restored.statusCode,200,restored.body);
   await post('/courses',{departmentId:department.id,code:'اقصد-101',title:'مقدمة الاقتصاد',level:1,demand:20,theoryHours:3,practicalHours:0,blocks:['G::A'],assignedInstructorId:'2'});
-  await post('/courses',{departmentId:department.id,code:'MAIN',title:'Synthetic theory',level:1,demand:20,theoryHours:2,practicalHours:0,blocks:['G::A']});
+  const unsafeLock=await app.inject({method:'POST',url:'/api/v1/courses',headers,payload:{
+   departmentId:department.id,code:'PRACTICAL-ONLY',title:'Synthetic practical-only',level:1,demand:20,
+   theoryHours:0,practicalHours:2,assignedInstructorId:'OTHER'}});
+  assert.equal(unsafeLock.statusCode,409,'An instructor restricted to theory/mixed cannot be locked to a practical-only course');
+  const mainCourse=await post('/courses',{departmentId:department.id,code:'MAIN',title:'Synthetic theory',level:1,demand:20,theoryHours:2,practicalHours:0,blocks:['G::A']});
+  const unsafeConversion=await app.inject({method:'PATCH',url:'/api/v1/courses/'+mainCourse.id,headers,
+   payload:{theoryHours:0,practicalHours:2,assignedInstructorId:'OTHER'}});
+  assert.equal(unsafeConversion.statusCode,409,'A course edit must also respect the locked trainer course-type rules');
   for(const code of ['A','B'])await post('/rooms',{collegeId:college.id,code,name:'Synthetic classroom '+code,type:'CLASSROOM',capacity:30});
   const policy=withRequestedLecturePeriods(defaultPolicy(),'TRIM_END');policy.slots=[{day:'SUN',from:7,to:14.5}];
   policy.priorityCourseCodes=['MAIN'];
