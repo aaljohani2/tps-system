@@ -71,10 +71,17 @@ export function verifyLoad24Result(source:PlanRequest,before:PlanResult,input:Pl
  const targetLoads:Record<string,number>={};
  for(const code of LOAD24_TARGETS){
   const trainer=input.instructors.find(i=>i.id===code),load=result.instructorLoads.find(l=>l.id===code);
-  if(!trainer||!load||!close(load.credited,24)||!close(trainer.teachingRules?.preferredCreditedLoad??-1,24))
+  const sectionCredited=result.sections.filter(sec=>sec.instructorId===code&&sec.state!=='UNASSIGNED')
+   .reduce((sum,sec)=>sum+sec.creditedLoad,0);
+  if(!trainer||!load||!close(load.credited,24)||!close(sectionCredited,24)||
+    !close(trainer.teachingRules?.preferredCreditedLoad??-1,24))
    return fail('24 credited hours not proven for trainer '+code);
   targetLoads[code]=load.credited;
  }
+ if(input.instructors.some(i=>i.id==='1')&&result.sections.filter(s=>s.instructorId==='1'&&s.state!=='UNASSIGNED').length!==2)
+  return fail('Preserved trainer 1 must retain exactly two sections');
+ if(input.instructors.some(i=>i.id==='2')&&!close(result.instructorLoads.find(l=>l.id==='2')?.credited??-1,12))
+  return fail('Preserved trainer 2 must retain 12 credited hours');
  for(const sec of result.sections.filter(s=>s.instructorId&&s.state!=='UNASSIGNED')){
   const course=right.get(sec.courseCode);
   if(!course)return fail('Assigned section lacks an input course');
