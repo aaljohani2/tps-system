@@ -21,9 +21,25 @@ test('approved local period policy persists, creates visible permitted overlaps 
   const department=await post('/departments',{collegeId:college.id,name:'Synthetic period department'});
   const term=await post('/terms',{collegeId:college.id,code:key,label:'Synthetic',startsOn:'2027-01-01',endsOn:'2027-06-01'});
   await post('/instructors',{departmentId:department.id,code:'2',name:'Synthetic Economics trainer',maxLoad:12,eligibleCourseCodes:['اقصد-101'],available:[{day:'SUN',from:10,to:12.5}]});
-  const other=await post('/instructors',{departmentId:department.id,code:'OTHER',name:'Synthetic other',maxLoad:24,teachingRules:{preferredCreditedLoad:2,allowedCourseTypes:['THEORY','MIXED']},eligibleCourseCodes:['MAIN'],available:[{day:'SUN',from:10,to:12}]});
+  const other=await post('/instructors',{departmentId:department.id,code:'OTHER',name:'Synthetic other',maxLoad:24,teachingRules:{preferredCreditedLoad:2,preferredSections:1,allowedCourseTypes:['THEORY','MIXED']},eligibleCourseCodes:['MAIN'],available:[{day:'SUN',from:10,to:12}]});
   const invalidTarget=await app.inject({method:'PATCH',url:'/api/v1/instructors/'+other.id,headers,payload:{maxLoad:1}});assert.equal(invalidTarget.statusCode,400);
   const changed=await app.inject({method:'PATCH',url:'/api/v1/instructors/'+other.id,headers,payload:{name:'Synthetic renamed target'}});assert.equal(changed.statusCode,200,changed.body);assert.equal(changed.json().teachingRules.preferredCreditedLoad,2);
+  // PATCHing one rule must retain the existing theoretical/mixed-only guard and 2-hour load target.
+  // A room or trainer can be available on Thursday afternoon in a fixed-period policy.
+  const thursday=await app.inject({method:'PATCH',url:'/api/v1/instructors/'+other.id,headers,
+   payload:{teachingRules:{maxSections:3},available:[{day:'THU',from:12,to:14.5}]}});
+  assert.equal(thursday.statusCode,200,thursday.body);
+  assert.equal(thursday.json().teachingRules.preferredCreditedLoad,2);
+  assert.equal(thursday.json().teachingRules.preferredSections,1);
+  assert.deepEqual(thursday.json().teachingRules.allowedCourseTypes,['THEORY','MIXED']);
+  assert.equal(thursday.json().teachingRules.maxSections,3);
+  assert.deepEqual(thursday.json().available,[{day:'THU',from:12,to:14.5}]);
+  const incompatible=await app.inject({method:'PATCH',url:'/api/v1/instructors/'+other.id,headers,
+   payload:{teachingRules:{maxSections:0}}});
+  assert.equal(incompatible.statusCode,400,'Cannot lower max sections below the preserved preferred count');
+  const restored=await app.inject({method:'PATCH',url:'/api/v1/instructors/'+other.id,headers,
+   payload:{available:[{day:'SUN',from:10,to:12}]}});
+  assert.equal(restored.statusCode,200,restored.body);
   await post('/courses',{departmentId:department.id,code:'اقصد-101',title:'مقدمة الاقتصاد',level:1,demand:20,theoryHours:3,practicalHours:0,blocks:['G::A'],assignedInstructorId:'2'});
   await post('/courses',{departmentId:department.id,code:'MAIN',title:'Synthetic theory',level:1,demand:20,theoryHours:2,practicalHours:0,blocks:['G::A']});
   for(const code of ['A','B'])await post('/rooms',{collegeId:college.id,code,name:'Synthetic classroom '+code,type:'CLASSROOM',capacity:30});
