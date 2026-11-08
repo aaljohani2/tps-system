@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {defaultPolicy} from '../src/policy.js';
 import type {PlanRequest} from '../src/types.js';
 import {prepareLoad24Input,verifyLoad24Result} from '../src/load24-verification.js';
+import {diagnoseLoad24Capacity} from '../src/load24-diagnostics.js';
 import {buildDraftPlan} from '../src/planner.js';
 import {optimizeWithTimefold} from '../src/optimizer.js';
 
@@ -52,4 +53,26 @@ test('actual Timefold result must prove both 24-hour targets and a hard score of
  assert.throws(()=>verifyLoad24Result(source,before,input,fakeHard),/zero-hard-score/);
  const population=structuredClone(input);population.courses[0]!.demand++;
  assert.throws(()=>verifyLoad24Result(source,before,population,result),/Course population changed|course fact changed/);
+});
+
+test('read-only capacity diagnosis separates an outdated snapshot from a currently approved exception',()=>{
+ const input=fixture(),before=structuredClone(input),result=buildDraftPlan(input);
+ input.instructors[1]!.maxLoad=20;
+ const summary=diagnoseLoad24Capacity(input,result,[
+  {code:'5',name:'Synthetic 5',maxLoad:24,approvedExceptionHours:0},
+  {code:'6',name:'Synthetic 6',maxLoad:20,approvedExceptionHours:4}
+ ]);
+ const target=summary.find(row=>row.code==='6')!;
+ assert.equal(target.scenarioBaseLimit,20);
+ assert.equal(target.scenarioApprovedException,0);
+ assert.equal(target.scenarioEffectiveLimit,20);
+ assert.equal(target.missingCapacityTo24,4);
+ assert.equal(target.masterEffectiveLimit,24);
+ assert.equal(target.snapshotDiffersFromMaster,true);
+ assert.equal(target.targetFeasibleWithinSavedCapacity,false);
+ assert.equal(input.instructors[1]!.maxLoad,20);
+ assert.equal(before.instructors[1]!.maxLoad,24);
+ const noMaster=diagnoseLoad24Capacity(input,result,[]).find(row=>row.code==='6')!;
+ assert.equal(noMaster.masterEffectiveLimit,null);
+ assert.equal(noMaster.snapshotDiffersFromMaster,null);
 });
