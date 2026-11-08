@@ -63,8 +63,8 @@ async function verifyBackup(){
  note('Encrypted operational backup verified locally.');
 }
 async function main(){
- if(!['list','prepare','commit'].includes(action))
-  throw Error('Usage: node scripts/load24-operational.mjs list|prepare|commit --department-id UUID [...]');
+ if(!['list','diagnose','prepare','commit'].includes(action))
+  throw Error('Usage: node scripts/load24-operational.mjs list|diagnose|prepare|commit --department-id UUID [...]');
  if(!process.env.DATABASE_URL)process.loadEnvFile('.env');
  verifyLocal();
  const department=uuid(must(opt('department-id'),'department-id'),'department-id');
@@ -74,6 +74,28 @@ async function main(){
    const rows=(await pool.query(`SELECT id,department_id,term_id,name,state,solver_status,revision,policy_revision,input_snapshot
      FROM scenarios WHERE department_id=$1 ORDER BY created_at DESC,id DESC`,[department])).rows;
    note(JSON.stringify(rows.map(safelyDescribe),null,2));return;
+  }
+  if(action==='diagnose'){
+   const ids=selectedIds(),rows=await requireOriginals(pool,department,ids);
+   const {diagnoseLoad24Capacity}=await import('../dist/src/load24-diagnostics.js');
+   const output=[];
+   for(const row of rows){
+    const raw=(await pool.query(`SELECT i.code,i.name,i.max_load,
+      COALESCE(e.additional_hours,0) AS approved_exception_hours
+      FROM instructors i
+      LEFT JOIN instructor_load_exceptions e
+       ON e.instructor_id=i.id AND e.term_id=$2 AND e.state='APPROVED'
+      WHERE i.department_id=$1 ORDER BY i.code`,[department,row.term_id])).rows;
+    const current=raw.map(item=>({
+     code:item.code,name:item.name,maxLoad:Number(item.max_load),
+     approvedExceptionHours:Number(item.approved_exception_hours)
+    }));
+    output.push({scenario:row.input_snapshot.projection?.key,scenarioId:row.id,
+      trainers:diagnoseLoad24Capacity(row.input_snapshot,row.result_snapshot,current)});
+   }
+   note('READ_ONLY_CAPACITY_DIAGNOSIS: '+JSON.stringify(output,null,2));
+   note('No scenario, instructor master, exception, or policy was modified.');
+   return;
   }
   if(action==='prepare'){
    const ids=selectedIds(),rows=await requireOriginals(pool,department,ids);
