@@ -28,7 +28,8 @@ export function diagnoseLoad24Capacity(
    masterApprovedException:current?.approvedExceptionHours??null,
    masterEffectiveLimit:currentEffective,
    snapshotDiffersFromMaster:current?(!Number.isFinite(currentEffective!)||
-    !Number.isFinite(limit)||round(currentEffective!)!==round(limit)):null,
+    !Number.isFinite(limit)||round(current.maxLoad)!==round(base)||
+    round(current.approvedExceptionHours)!==round(exception)):null,
    targetFeasibleWithinSavedCapacity:['5','6'].includes(code)?limit>=24:null
   };
  });
