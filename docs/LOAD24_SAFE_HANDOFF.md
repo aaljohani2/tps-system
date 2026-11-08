@@ -41,6 +41,20 @@ node scripts/load24-operational.mjs list --department-id $DepartmentId
 
 اختر **معرّفات الثلاثة فقط** التي تحمل المفاتيح `BASE_157` و`CAP_100_50_40` و`CAP_120_40_ECO50`. لا تستخدم السيناريوهات المرجعية أو المسودات الأخرى. الأداة تتحقق من العدد والتمييز والحالة والفصل قبل أي حساب.
 
+## 2أ — تشخيص حدود النصاب عند التوقف (قراءة فقط)
+
+إذا ظهرت الرسالة `LOAD24_GATE: Trainer 6 has no approved capacity for 24 credited hours`، فلا ترفع `maxLoad` أو تضع استثناءً داخل لقطة السيناريو تلقائيًا.
+
+```powershell
+node scripts/load24-operational.mjs diagnose --department-id $DepartmentId --scenario-ids $ScenarioIds
+```
+
+يعرض التشخيص لكل مدرب في كل سيناريو: `scenarioBaseLimit` والزيادة المعتمدة داخل اللقطة `scenarioApprovedException` ومجموعهما `scenarioEffectiveLimit` والساعات المسندة حاليًا `currentCredited` والفجوة إلى 24 `missingCapacityTo24`، بالإضافة إلى `masterBaseLimit` و`masterApprovedException` من قاعدة البيانات الحالية للفصل. `snapshotDiffersFromMaster=true` يعني أن بيانات المدرب أو الاستثناء المعتمد تغيرت بعد حفظ لقطة السيناريو، ولا يجوز تحديث اللقطة التاريخية بصمت. التشخيص لا يكتب أي شيء في PostgreSQL.
+
+- إذا كان `scenarioEffectiveLimit < 24` و`masterEffectiveLimit >= 24`، فقد يكون السيناريو القديم لا يعكس حدودًا أو استثناءات معتمدة حاليًا؛ يجب إنشاء سيناريو جديد من البيانات المصرّح بها مع الاحتفاظ بالأصل.
+- إذا كان الاثنان أقل من 24، لا تصف النقص بأنه خلل Timefold. يلزم قرار إداري مستقل وفق سياسة الكلية بشأن إمكانية زيادة النصاب أو استثناء رسمي للفصل؛ وإلا تبقى نتيجة أقل من 24.
+- لا تنشر أسماء المدربين أو بياناتهم أو المخرجات التفصيلية في GitHub. عند مشاركة التشخيص، يكفي رمز المدرب والأرقام اللازمة مع حجب الاسم.
+
 ## 3 — تجربة Timefold وحفظ إثبات خاص (قراءة فقط)
 
 ```powershell
