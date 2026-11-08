@@ -15,7 +15,9 @@ const codes=z.array(z.string().trim().regex(/^[A-Za-z0-9][A-Za-z0-9_.-]{0,59}$/)
   .refine(v=>new Set(v).size===v.length,'Duplicate qualification/equipment codes');
 const windows=z.array(z.object({day:z.enum(['SUN','MON','TUE','WED','THU']),
   from:z.number().multipleOf(0.5).min(0).max(23.5),to:z.number().multipleOf(0.5).min(0.5).max(24)})
-  .refine(w=>w.to>w.from && (w.day!=='THU'||w.to<=10),'Invalid availability time')).max(30).optional();
+  // Availability is master data; the selected scenario policy enforces legacy Thursday limits.
+  // Fixed lecture-period scenarios may legitimately train until 14:30 on Thursday.
+  .refine(w=>w.to>w.from,'Invalid availability time')).max(30).optional();
 const courseBase=z.object({
  departmentId:uuid,code,title:name,level:z.number().int().min(1).max(12),theoryHours:z.number().int().min(0),
  assignmentScope:z.enum(['DEPARTMENT','EXTERNAL']).default('DEPARTMENT'),externalSectionCapacity:z.number().int().min(1).max(5000).default(40),
@@ -222,8 +224,14 @@ export async function registerCatalog(app:FastifyInstance){
       available:windows.nullable()
     }).strict(),req.body),req.body);
     if(!Object.keys(v).length)throw Object.assign(new Error('No changes supplied'),{statusCode:400});
-    const values={...v,maxLoad:v.maxLoad===undefined?undefined:String(v.maxLoad)};
-    checkLoadTarget(v.teachingRules??found.rows[0].teaching_rules,Number(v.maxLoad??found.rows[0].max_load));
+    // PATCH of a single teaching rule must never erase existing eligibility restrictions.
+    const existingRules=found.rows[0].teaching_rules??{};
+    const effectiveRules=v.teachingRules===undefined?existingRules:
+      parse(instructor.shape.teachingRules,{...existingRules,...v.teachingRules});
+    const values={...v,
+      ...(v.teachingRules===undefined?{}:{teachingRules:effectiveRules}),
+      maxLoad:v.maxLoad===undefined?undefined:String(v.maxLoad)};
+    checkLoadTarget(effectiveRules,Number(v.maxLoad??found.rows[0].max_load));
     const updated=await db.update(instructors).set(values).where(eq(instructors.id,id)).returning();
     await audit(req.principal!.id,'UPDATE','INSTRUCTOR',id,{fields:Object.keys(v)});
     return updated[0];
