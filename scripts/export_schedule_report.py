@@ -220,6 +220,12 @@ def export_pdf(report):
     font_dir = Path(os.environ.get('TPS_REPORT_FONT_DIR', 'C:/Windows/Fonts'))
     regular = font_dir / 'arial.ttf'
     bold = font_dir / 'arialbd.ttf'
+    # Keep Windows Arial as the normal production font. On Linux runners use
+    # installed DejaVu Arabic glyphs without shipping font files in the repo.
+    if not os.environ.get('TPS_REPORT_FONT_DIR') and (not regular.is_file() or not bold.is_file()):
+        linux_fonts = Path('/usr/share/fonts/truetype/dejavu')
+        regular = linux_fonts / 'DejaVuSans.ttf'
+        bold = linux_fonts / 'DejaVuSans-Bold.ttf'
     if not regular.is_file() or not bold.is_file():
         raise ValueError('Arabic report fonts missing; configure TPS_REPORT_FONT_DIR with arial.ttf and arialbd.ttf')
     pdfmetrics.registerFont(TTFont('TPS', str(regular)))
