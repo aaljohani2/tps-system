@@ -61,16 +61,17 @@ async function main(){
   for(const row of rows.sort((a,b)=>a.input_snapshot.projection.key.localeCompare(b.input_snapshot.projection.key))){
    const key=row.input_snapshot.projection.key;
    const baseline=Object.fromEntries(row.result_snapshot.instructorLoads.map(x=>[x.id,x.credited]));
-   let input;
-   try{input=makeUnapprovedMohammed24WhatIf(row.input_snapshot);}
+   let prepared;
+   try{prepared=makeUnapprovedMohammed24WhatIf(row.input_snapshot);}
    catch(e){failures++;console.log(JSON.stringify({key,status:'FAILED_PRECHECK',reason:String(e.message)}));continue;}
+   const {simulationSource,input}=prepared;
    let result,verified,latestReason='not solved';
    for(const seconds of [15,30]){
     try{
      result=await optimizeWithTimefold(input,{seconds,candidatesPerInstructor:24});
-     verified=verifyLoad24Result(
-      structuredClone(input),row.result_snapshot,input,result
-     );
+     // Validate actual split/demand/membership changes against the hypothetical
+     // pre-split source, not against the already-modified input itself.
+     verified=verifyLoad24Result(simulationSource,row.result_snapshot,input,result);
      break;
     }catch(e){latestReason=String(e instanceof Error?e.message:e);}
    }
