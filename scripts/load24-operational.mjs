@@ -20,8 +20,10 @@ const uuid=(value,name)=>{if(!UUID.test(value??''))throw Error('Invalid '+name);
 const verifyLocal=()=>{
  if(!process.env.DATABASE_URL)throw Error('DATABASE_URL missing from local .env');
  const url=new URL(process.env.DATABASE_URL);
- if(!['127.0.0.1'].includes(url.hostname)||decodeURIComponent(url.pathname)!=='/tps_operational_local')
-  throw Error('Only the local operational PostgreSQL database on 127.0.0.1 is allowed');
+ if(url.hostname!=='127.0.0.1')throw Error('Only localhost 127.0.0.1 PostgreSQL is allowed');
+ // Pin the operational DB before importing the pool; never use the development DB.
+ url.pathname='/tps_operational_local';url.search='';
+ process.env.DATABASE_URL=url.href;
 };
 const snapshotHash=row=>({input:HASH(row.input_snapshot),result:HASH(row.result_snapshot)});
 const note=(...chunks)=>console.log(...chunks);
@@ -80,11 +82,19 @@ async function main(){
    const {optimizeWithTimefold}=await import('../dist/src/optimizer.js');
    const stage=[];
    for(const row of rows){
+    const roster=row.input_snapshot.instructors;
+    if(roster.length!==6||!['1','2','3','4','5','6'].every(code=>roster.some(i=>i.id===code)))
+     throw Error('Expected exactly the six verified trainer codes in '+row.id);
+    const targetNames=['5','6'].map(code=>roster.find(i=>i.id===code).name);
+    if(!targetNames.some(name=>name.includes('محمد'))||!targetNames.some(name=>name.includes('فهد')))
+     throw Error('Trainer code 5/6 mapping does not identify both محمد and فهد; stop and verify identities locally');
     const input=prepareLoad24Input(row.input_snapshot,splitTeachingSections);
-    let result,settings,verified;
+    let result,settings,verified,solveStart,solveEnd,elapsedMs;
     for(const seconds of [15,30]){
      settings={seconds,candidatesPerInstructor:24};
+     solveStart=new Date().toISOString();const started=Date.now();
      result=await optimizeWithTimefold(input,settings);
+     elapsedMs=Date.now()-started;solveEnd=new Date().toISOString();
      try{verified=verifyLoad24Result(row.input_snapshot,row.result_snapshot,input,result);break;}
      catch(e){note('Scenario '+input.projection.key+' failed '+seconds+'-second strict gate: '+String(e.message));}
     }
@@ -92,7 +102,7 @@ async function main(){
     stage.push({sourceId:row.id,departmentId:row.department_id,termId:row.term_id,
      sourceName:row.name,revision:row.revision,policyRevision:row.policy_revision,expected:snapshotHash(row),
      sourceInput:row.input_snapshot,priorResult:row.result_snapshot,
-     input,result,settings,verified});
+     input,result,settings,verified,solveStart,solveEnd,elapsedMs});
     note('PASSED '+JSON.stringify(verified));
    }
    const file=resolve('private-data/load24','load24-'+new Date().toISOString().replace(/[:.]/g,'-')+'-'+randomUUID().slice(0,8)+'.json');
@@ -130,6 +140,7 @@ async function main(){
    const user=(await client.query(`SELECT u.id,u.role,u.active,u.department_id,u.college_id,d.college_id AS selected_college
     FROM users u JOIN departments d ON d.id=$2 WHERE u.id=$1`,[actor,department])).rows[0];
    if(!user?.active||!['SYSTEM_ADMIN','COLLEGE_ADMIN','DEPARTMENT_HEAD','SCHEDULER'].includes(user.role)||
+     (user.role!=='SYSTEM_ADMIN'&&!user.department_id&&!user.college_id)||
      (user.department_id&&user.department_id!==department)||
      (user.college_id&&user.college_id!==user.selected_college))
     throw Error('Actor is not authorized to create drafts in this department');
@@ -150,11 +161,13 @@ async function main(){
        solver_details,created_by,revision,policy_revision,parent_scenario_id)
       VALUES ($1,$2,$3,$4,'DRAFT','COMPLETED',$5::jsonb,$6::jsonb,$7::jsonb,$8,1,$9,$10)`,
       [id,row.department_id,row.term_id,name,JSON.stringify(item.input),JSON.stringify(item.result),
-       JSON.stringify({mode:'Timefold',runId,score,settings:item.settings,at:new Date().toISOString(),sourceId:row.id,gate:'load24-verified'}),actor,row.policy_revision,row.id]);
+       JSON.stringify({mode:'Timefold',runId,score,settings:item.settings,at:item.solveEnd,elapsedMs:item.elapsedMs,
+        sourceId:row.id,offlineStaged:true,gate:'load24-verified'}),actor,row.policy_revision,row.id]);
     await client.query(`INSERT INTO solver_runs
        (id,scenario_id,requested_by,status,started_at,finished_at,elapsed_ms,result_metrics,score,progress_stage,progress_at,requested_settings)
-       VALUES ($1,$2,$3,'COMPLETED',now(),now(),0,$4::jsonb,$5::jsonb,'COMPLETED',now(),$6::jsonb)`,
-       [runId,id,actor,JSON.stringify(item.result.metrics),JSON.stringify(score),JSON.stringify(item.settings)]);
+       VALUES ($1,$2,$3,'COMPLETED',$7::timestamptz,$8::timestamptz,$9,$4::jsonb,$5::jsonb,'COMPLETED',now(),$6::jsonb)`,
+       [runId,id,actor,JSON.stringify(item.result.metrics),JSON.stringify(score),JSON.stringify(item.settings),
+        item.solveStart,item.solveEnd,item.elapsedMs]);
     await client.query(`INSERT INTO audit_logs(user_id,action,entity_type,entity_id,details)
        VALUES($1,'CREATE_LOAD24_REVIEW','SCENARIO',$2,$3::jsonb)`,
        [actor,id,JSON.stringify({parentId:row.id,sourceInputHash:item.expected.input,key:item.verified.key,targetHours:24,backupVerified:true})]);
