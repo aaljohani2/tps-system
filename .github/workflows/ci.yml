@@ -27,6 +27,7 @@ jobs:
       - run: npm ci --ignore-scripts --no-audit
       - run: npm run solver:build
       - run: node --check scripts/load24-operational.mjs
+      - run: node --check scripts/load24-whatif.mjs
       - run: npm test
   xlsx-import-tests:
     runs-on: ubuntu-latest
