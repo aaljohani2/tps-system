@@ -7,7 +7,7 @@ import {splitTeachingSections} from './load-targets.js';
  * Never store this prepared input, pass it to the real commit workflow or API, or
  * interpret its results as authority to exceed the original instructor limit.
  */
-export function makeUnapprovedMohammed24WhatIf(source:PlanRequest):PlanRequest {
+export function makeUnapprovedMohammed24WhatIf(source:PlanRequest):{simulationSource:PlanRequest;input:PlanRequest} {
  const original=structuredClone(source);
  const mohammed=original.instructors.find(i=>i.id==='6');
  const fahd=original.instructors.find(i=>i.id==='5');
@@ -23,5 +23,5 @@ export function makeUnapprovedMohammed24WhatIf(source:PlanRequest):PlanRequest {
  const prepared=prepareLoad24Input(original,splitTeachingSections);
  if(prepared.instructors.find(i=>i.id==='6')?.maxLoad!==22)
   throw Error('WHATIF: official base changed unexpectedly');
- return prepared;
+ return {simulationSource:original,input:prepared};
 }
