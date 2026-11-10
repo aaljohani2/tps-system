@@ -27,3 +27,19 @@ test-reports/
 /outputs/tps-reports-*/
 /output/pdf/tps-reports-*/
 /tmp/tps-report-qa/
+
+# Local operational snapshots, exports and machine-specific installation evidence.
+/outputs/
+/LOCAL_INSTALL_REPORT.md
+
+# One-off local operations tied to private snapshots and scenario identities.
+/scripts/close-small-stable-blocks.mjs
+/scripts/export-stable-blocks.mjs
+/scripts/fixed-general-stage.mjs
+/scripts/match-principles-economics.mjs
+/scripts/preview-small-block-closure.mjs
+/scripts/read-fixed-general-stage.py
+/scripts/reassign-department.mjs
+/scripts/run-fixed-general-e2e.mjs
+/scripts/stable-blocks-operational.mjs
+/frontend/e2e/fixed-general-stage-real.spec.ts
