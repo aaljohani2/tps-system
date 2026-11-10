@@ -3,8 +3,8 @@ import {courseType} from './instructor-rules.js';
 import {trainerQualified} from './eligibility.js';
 import {validateRequest} from './validation.js';
 
-export type EconomicsAssignment='KEEP_WITH_ANS'|'MOVE_TO_FAHAD_MOHAMMED';
-const abdullahCodes=['ادار-101','رياد-262'];
+export type EconomicsAssignment='KEEP_WITH_TRAINER_2'|'MOVE_TO_TRAINERS_5_6';
+const fixedTrainer4Codes=['ادار-101','رياد-262'];
 const internal=(c:Course)=>c.assignmentScope!=='EXTERNAL';
 const sectionHours=(c:Course)=>(c.blockSizes?.length??0)*(c.theoryHours+c.practicalHours);
 
@@ -31,7 +31,7 @@ export function matchPrinciplesEconomicsSections(source:PlanRequest):PlanRequest
   refinement.requiredCourseCodes=[...new Set([...(refinement.requiredCourseCodes??[]),'ادار-101','رياد-262','اقصد-101'])];
   if(refinement.requiredCreditedLoads)refinement.requiredCreditedLoads['4']=reserved;
  }
- input.projection?.assumptions.push('بتوجيه المستخدم: أعداد شعب مبادئ الإدارة وعضوياتها مطابقة للاقتصاد، مع بقاء أربع ساعات منهج للمقرر وإسناده لعبدالله. الزيادة في عدد الشعب خاصة بهذا الطلب، وليست لاستكمال أنصبة فهد ومحمد.');
+ input.projection?.assumptions.push('بتوجيه المستخدم: أعداد شعب مبادئ الإدارة وعضوياتها مطابقة للاقتصاد، مع بقاء أربع ساعات منهج للمقرر وإسناده لالمدرب ذي الرمز 4. الزيادة في عدد الشعب خاصة بهذا الطلب، وليست لاستكمال أنصبة المدرب ذي الرمز 5 والمدرب ذي الرمز 6.');
  validateRequest(input);return input;
 }
 
@@ -51,14 +51,14 @@ export function withApprovedAfternoonPeriods(source:PlanRequest,includeNecessary
 export function reassignmentCapacity(input:PlanRequest){
  const available=input.courses.filter(c=>internal(c)&&input.instructors.some(i=>['5','6'].includes(i.id)&&trainerQualified(i,c)));
  const hours=available.reduce((n,c)=>n+sectionHours(c),0);
- type Bundle={fahad:string[];mohammed:string[]};
- let states=new Map<string,Bundle>([['0/0',{fahad:[],mohammed:[]}]]);
+ type Bundle={trainer5:string[];trainer6:string[]};
+ let states=new Map<string,Bundle>([['0/0',{trainer5:[],trainer6:[]}]]);
  for(const c of available)for(let i=0;i<(c.blockSizes?.length??0);i++){
   const id=`${c.code}-${String(i+1).padStart(3,'0')}`,weight=c.theoryHours+c.practicalHours;
   const next=new Map(states);
   for(const [key,ids] of states){const [a,b]=key.split('/').map(Number) as [number,number];
-   if(a+weight<=24&&trainerQualified(input.instructors.find(i=>i.id==='5')!,c)&&!next.has(`${a+weight}/${b}`))next.set(`${a+weight}/${b}`,{fahad:[...ids.fahad,id],mohammed:ids.mohammed});
-   if(b+weight<=24&&trainerQualified(input.instructors.find(i=>i.id==='6')!,c)&&!next.has(`${a}/${b+weight}`))next.set(`${a}/${b+weight}`,{fahad:ids.fahad,mohammed:[...ids.mohammed,id]});
+   if(a+weight<=24&&trainerQualified(input.instructors.find(i=>i.id==='5')!,c)&&!next.has(`${a+weight}/${b}`))next.set(`${a+weight}/${b}`,{trainer5:[...ids.trainer5,id],trainer6:ids.trainer6});
+   if(b+weight<=24&&trainerQualified(input.instructors.find(i=>i.id==='6')!,c)&&!next.has(`${a}/${b+weight}`))next.set(`${a}/${b+weight}`,{trainer5:ids.trainer5,trainer6:[...ids.trainer6,id]});
   }
   states=next;
  }
@@ -66,16 +66,16 @@ export function reassignmentCapacity(input:PlanRequest){
   b.loads[0]+b.loads[1]-a.loads[0]-a.loads[1]||Math.abs(a.loads[0]-a.loads[1])-Math.abs(b.loads[0]-b.loads[1])||b.loads[0]-a.loads[0])[0]!;
  const practical=input.courses.filter(c=>internal(c)&&courseType(c)==='PRACTICAL');
  const practicalHours=practical.reduce((n,c)=>n+sectionHours(c),0);
- const abdullahReserved=input.courses.filter(c=>abdullahCodes.includes(c.code)).reduce((n,c)=>n+sectionHours(c),0);
- const abdullah=input.instructors.find(i=>i.id==='4')!;
- const abdullahPracticalHours=Math.max(0,Math.floor((abdullah.maxLoad-abdullahReserved)/4)*4);
+ const trainer4Reserved=input.courses.filter(c=>fixedTrainer4Codes.includes(c.code)).reduce((n,c)=>n+sectionHours(c),0);
+ const trainer4=input.instructors.find(i=>i.id==='4')!;
+ const trainer4PracticalHours=Math.max(0,Math.floor((trainer4.maxLoad-trainer4Reserved)/4)*4);
  const otherPracticalCapacity=input.instructors.filter(i=>i.id!=='4'&&practical.some(c=>trainerQualified(i,c))).reduce((n,i)=>n+Math.floor(i.maxLoad/4)*4,0);
  return {availableCourseCodes:available.map(c=>c.code),availableHours:hours,requestedHours:48,
   shortfallHours:48-split.loads[0]-split.loads[1],balancedWholeSectionLoads:split.loads,
-  suggestedFahadSections:states.get(split.key)!.fahad,suggestedMohammedSections:states.get(split.key)!.mohammed,
-  abdullahReservedHours:abdullahReserved,abdullahLimit:abdullah.maxLoad,
-  practicalHours,maximumPracticalHoursWithinCurrentLimits:otherPracticalCapacity+abdullahPracticalHours,
-  practicalShortfallHours:Math.max(0,practicalHours-otherPracticalCapacity-abdullahPracticalHours),
+  suggestedTrainer5Sections:states.get(split.key)!.trainer5,suggestedTrainer6Sections:states.get(split.key)!.trainer6,
+  trainer4ReservedHours:trainer4Reserved,trainer4Limit:trainer4.maxLoad,
+  practicalHours,maximumPracticalHoursWithinCurrentLimits:otherPracticalCapacity+trainer4PracticalHours,
+  practicalShortfallHours:Math.max(0,practicalHours-otherPracticalCapacity-trainer4PracticalHours),
   scope:'ARITHMETIC_ONLY_NOT_SCHEDULING_FEASIBILITY' as const};
 }
 
@@ -83,42 +83,42 @@ export function reassignmentCapacity(input:PlanRequest){
 export function applyDepartmentReassignment(source:PlanRequest,economics:EconomicsAssignment,allowPractical=false):PlanRequest {
  validateRequest(source);
  if(!source.stableBlockPlan)throw Error('Stable-block source required');
- if(!['KEEP_WITH_ANS','MOVE_TO_FAHAD_MOHAMMED'].includes(economics))throw Error('Explicit Economics decision required');
+ if(!['KEEP_WITH_TRAINER_2','MOVE_TO_TRAINERS_5_6'].includes(economics))throw Error('Explicit Economics decision required');
  const input=structuredClone(source);
  for(const id of ['1','2','3','4','5','6'])if(!input.instructors.some(i=>i.id===id))throw Error('Missing department trainer '+id);
- for(const code of abdullahCodes){
+ for(const code of fixedTrainer4Codes){
   const c=input.courses.find(c=>c.code===code&&internal(c));if(!c)throw Error('Missing explicitly assigned course '+code);
   c.assignedInstructorId='4';c.exclusiveInstructor=true;
  }
  const practicalCodes=input.courses.filter(c=>internal(c)&&courseType(c)==='PRACTICAL').map(c=>c.code);
- const theoreticalCodes=input.courses.filter(c=>internal(c)&&courseType(c)!=='PRACTICAL'&&!abdullahCodes.includes(c.code)&&
-  (economics==='MOVE_TO_FAHAD_MOHAMMED'||c.code!=='اقصد-101')).map(c=>c.code);
+ const theoreticalCodes=input.courses.filter(c=>internal(c)&&courseType(c)!=='PRACTICAL'&&!fixedTrainer4Codes.includes(c.code)&&
+  (economics==='MOVE_TO_TRAINERS_5_6'||c.code!=='اقصد-101')).map(c=>c.code);
  for(const c of input.courses.filter(c=>theoreticalCodes.includes(c.code)))delete c.assignedInstructorId;
  for(const i of input.instructors){
   if(i.id==='4'){
    i.teachingRules={...i.teachingRules,allowedCourseTypes:['THEORY','PRACTICAL','MIXED']};
    // The request authorizes this mixed course; it does not open every mixed course to trainer 4.
-   i.eligibleCourseCodes=[...abdullahCodes,...practicalCodes];
+   i.eligibleCourseCodes=[...fixedTrainer4Codes,...practicalCodes];
   }else if(i.id==='1'||i.id==='3'&&!allowPractical){
    i.eligibleCourseCodes=practicalCodes.filter(code=>!i.eligibleCourseCodes||i.eligibleCourseCodes.includes(code));
   }else if(['5','6'].includes(i.id)){
    i.eligibleCourseCodes=[...theoreticalCodes,...(allowPractical?practicalCodes:[])];
    i.teachingRules={...i.teachingRules,allowedCourseTypes:['THEORY','MIXED',...(allowPractical?['PRACTICAL' as const]:[])],preferredCreditedLoad:24};
-  }else if(i.id==='2')i.eligibleCourseCodes=economics==='KEEP_WITH_ANS'?['اقصد-101']:[];
+  }else if(i.id==='2')i.eligibleCourseCodes=economics==='KEEP_WITH_TRAINER_2'?['اقصد-101']:[];
  }
  const eco=input.courses.find(c=>c.code==='اقصد-101');if(eco){
-  if(economics==='KEEP_WITH_ANS')eco.assignedInstructorId='2';else delete eco.assignedInstructorId;
+  if(economics==='KEEP_WITH_TRAINER_2')eco.assignedInstructorId='2';else delete eco.assignedInstructorId;
  }
  if(input.scheduleRefinement){
   input.scheduleRefinement.keepInstructors=false;
-  for(const s of input.scheduleRefinement.referenceSessions)if(abdullahCodes.includes(s.courseCode))s.instructorId='4';
+  for(const s of input.scheduleRefinement.referenceSessions)if(fixedTrainer4Codes.includes(s.courseCode))s.instructorId='4';
   for(const [id] of Object.entries(input.scheduleRefinement.referenceInstructors)){
-   if(abdullahCodes.some(c=>id.startsWith(c+'-')))input.scheduleRefinement.referenceInstructors[id]='4';
+   if(fixedTrainer4Codes.some(c=>id.startsWith(c+'-')))input.scheduleRefinement.referenceInstructors[id]='4';
    else if(theoreticalCodes.some(c=>id.startsWith(c+'-')))delete input.scheduleRefinement.referenceInstructors[id];
   }
  }
- input.projection?.assumptions.push('بتوجيه المستخدم: مبادئ الإدارة وريادة الأعمال في مجال الإدارة لعبدالله؛ بقية النظري والمختلط لفهد ومحمد؛ مستهدف كل منهما 24 دون تقسيم إضافي أو ساعات مخترعة.');
- if(allowPractical)input.projection?.assumptions.push('توجيه المستخدم الأحدث يسمح باستكمال نصابي فهد ومحمد من العملي أيضًا؛ أولوية النظري والمختلط مع حفظ الساعات والأنصبة وعضويات البلوكات. قد يلزم إسناد بعض النظري لعيسى لتحقيق توزيع الساعات الصحيحة دون تقسيم الشعب.');
+ input.projection?.assumptions.push('بتوجيه المستخدم: مبادئ الإدارة وريادة الأعمال في مجال الإدارة لالمدرب ذي الرمز 4؛ بقية النظري والمختلط لالمدرب ذي الرمز 5 والمدرب ذي الرمز 6؛ مستهدف كل منهما 24 دون تقسيم إضافي أو ساعات مخترعة.');
+ if(allowPractical)input.projection?.assumptions.push('توجيه المستخدم الأحدث يسمح باستكمال نصابي المدرب ذي الرمز 5 والمدرب ذي الرمز 6 من العملي أيضًا؛ أولوية النظري والمختلط مع حفظ الساعات والأنصبة وعضويات البلوكات. قد يلزم إسناد بعض النظري لالمدرب ذي الرمز 1 لتحقيق توزيع الساعات الصحيحة دون تقسيم الشعب.');
  validateRequest(input);return input;
 }
 
@@ -127,7 +127,7 @@ export function reassignmentIssues(input:PlanRequest,result:PlanResult){
  return {capacity,
   remainingUncovered:result.gaps.map(g=>({sectionId:g.sectionId,courseCode:g.courseCode,contactHours:g.contactHours})),
   requestedOwnershipSatisfied:result.sections.every(s=>s.state==='UNASSIGNED'||
-   (abdullahCodes.includes(s.courseCode)?s.instructorId==='4':courseType(input.courses.find(c=>c.code===s.courseCode)!)==='PRACTICAL'||s.courseCode==='اقصد-101'&&input.courses.find(c=>c.code===s.courseCode)?.assignedInstructorId==='2'||['5','6'].includes(s.instructorId??''))),
+   (fixedTrainer4Codes.includes(s.courseCode)?s.instructorId==='4':courseType(input.courses.find(c=>c.code===s.courseCode)!)==='PRACTICAL'||s.courseCode==='اقصد-101'&&input.courses.find(c=>c.code===s.courseCode)?.assignedInstructorId==='2'||['5','6'].includes(s.instructorId??''))),
   actualLoads:Object.fromEntries(result.instructorLoads.filter(l=>['4','5','6'].includes(l.id)).map(l=>[l.id,l.credited]))};
 }
 

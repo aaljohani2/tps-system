@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * ONE-WAY, READ-ONLY WHAT-IF. Mathematical simulation of a temporary,
- * UNAPPROVED +2 teaching-hour allowance for trainer 6 (محمد).
+ * UNAPPROVED +2 teaching-hour allowance for trainer 6 (رمز 6).
  * Not an administrative approval. Cannot create a staged commit or write DB.
  */
 import {URL} from 'node:url';
