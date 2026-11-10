@@ -31,10 +31,13 @@ async function main(){
  const department=needed('department-id');
  if(!UUID.test(department))throw Error('Invalid department UUID');
  const ids=parseIds();
+ const verified={trainer5Name:process.env.TPS_LOAD24_EXPECTED_NAME_5?.trim(),trainer6Name:process.env.TPS_LOAD24_EXPECTED_NAME_6?.trim()};
+ if(!verified.trainer5Name||!verified.trainer6Name||verified.trainer5Name===verified.trainer6Name)
+  throw Error('Verified local trainer name mapping is required before running the what-if');
  setupDb();
  // Only read from locally controlled TPS database. This script includes NO INSERT/UPDATE/DELETE.
  const {pool}=await import('../dist/src/api/database.js');
- const {makeUnapprovedMohammed24WhatIf}=await import('../dist/src/load24-whatif.js');
+ const {makeUnapprovedTrainer6CapacityWhatIf}=await import('../dist/src/load24-whatif.js');
  const {optimizeWithTimefold}=await import('../dist/src/optimizer.js');
  const {verifyLoad24Result}=await import('../dist/src/load24-verification.js');
  let failures=0;
@@ -62,7 +65,7 @@ async function main(){
    const key=row.input_snapshot.projection.key;
    const baseline=Object.fromEntries(row.result_snapshot.instructorLoads.map(x=>[x.id,x.credited]));
    let prepared;
-   try{prepared=makeUnapprovedMohammed24WhatIf(row.input_snapshot);}
+   try{prepared=makeUnapprovedTrainer6CapacityWhatIf(row.input_snapshot,verified);}
    catch(e){failures++;console.log(JSON.stringify({key,status:'FAILED_PRECHECK',reason:String(e.message)}));continue;}
    const {simulationSource,input}=prepared;
    let result,verified,latestReason='not solved';
