@@ -44,13 +44,21 @@ $('demo').addEventListener('click',async()=>{
 $('catalog-import').addEventListener('click',async()=>{
   try {
     const file=$('catalog').files?.[0];if(!file)throw new Error('اختر ملف CSV أولًا.');
-    const response=await fetch('/api/v1/catalog/import-csv',{method:'POST',headers:{'content-type':'text/csv; charset=utf-8'},body:await file.text()});
+    if(file.size > 5 * 1024 * 1024)throw new Error('الحد الأعلى لحجم الملف 5 ميغابايت.');
+    const xlsx=/\.xlsx$/i.test(file.name);
+    if(!xlsx && !/\.csv$/i.test(file.name))throw new Error('نوع الملف يجب أن يكون Excel (.xlsx) أو CSV.');
+    const response=await fetch(xlsx?'/api/v1/catalog/import-xlsx':'/api/v1/catalog/import-csv',{
+      method:'POST',
+      headers:{'content-type':xlsx?'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet':'text/csv; charset=utf-8'},
+      body:xlsx?await file.arrayBuffer():await file.text()
+    });
     const catalog=await response.json();if(!response.ok)throw new Error(catalog.error??'فشل قراءة الخطة');
     const policy=await (await fetch('/api/v1/policy/default')).json();
     const scenario={scenarioName:'مسودة مستوردة من '+file.name,termId:'144720',courses:catalog.courses,
       instructors:[],rooms:[],policy};
     $('payload').value=JSON.stringify(scenario,null,2);$('filename').textContent=file.name;
-    $('catalog-status').textContent=`${catalog.courses.length} مقررًا مقروءًا، ${catalog.ignored.length} مستبعدًا. لم تُستورد أعداد التسجيل ولا المدربون والقاعات. ${catalog.warnings.join(' | ')}`;
+    const hasDemand=catalog.courses.some(c=>c.demand>0);
+    $('catalog-status').textContent=`${catalog.courses.length} مقررًا، ${catalog.ignored.length} مستبعدًا. ${hasDemand?'أعداد المتدربين مستوردة وتحتاج مراجعة':'الطلب صفر أو غير متاح؛ أكمل الأعداد قبل الجدولة'}. المدربون والقاعات غير مستوردين. ${catalog.warnings.join(' | ')}`;
     $('error').hidden=true;
   }catch(e){$('error').textContent=e.message;$('error').hidden=false;}
 });

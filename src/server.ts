@@ -5,13 +5,14 @@ import {resolve} from 'node:path';
 import {buildDraftPlan} from './planner.js';
 import {validateRequest} from './validation.js';
 import {importCurriculumCsv} from './importer.js';
+import {importCatalogXlsx} from './xlsx-import.js';
 import {optimizeWithTimefold} from './optimizer.js';
 import {defaultPolicy} from './policy.js';
 import type {PlanRequest} from './types.js';
 
 const host = process.env.HOST ?? '127.0.0.1'; // No authentication: local-only development preview.
 const port = Number(process.env.PORT ?? '8787');
-const maxBytes = Number(process.env.MAX_REQUEST_BYTES ?? '1048576');
+const maxBytes = Number(process.env.MAX_REQUEST_BYTES ?? '5242880');
 function reply(res: ServerResponse, status: number, payload: unknown): void {
   res.writeHead(status, {'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store',
     'access-control-allow-origin': 'http://localhost:8787'});
@@ -33,7 +34,9 @@ const publicFiles: Record<string, {file: string; type: string}> = {
   '/': {file: 'web/index.html', type: 'text/html; charset=utf-8'},
   '/app.js': {file: 'web/app.js', type: 'text/javascript; charset=utf-8'},
   '/style.css': {file: 'web/style.css', type: 'text/css; charset=utf-8'},
-  '/example.json': {file: 'examples/onsite.json', type: 'application/json; charset=utf-8'}
+  '/example.json': {file: 'examples/onsite.json', type: 'application/json; charset=utf-8'},
+  '/templates/courses.xlsx': {file: 'web/templates/TPS_Course_Demand_144720.xlsx', type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'},
+  '/templates/curriculum.csv': {file: 'web/templates/TPS_Curriculum_144720.csv', type: 'text/csv; charset=utf-8'}
 };
 const root = resolve(fileURLToPath(new URL('../../', import.meta.url)));
 export const app = createServer(async (req, res) => {
@@ -52,6 +55,18 @@ export const app = createServer(async (req, res) => {
       const bytes = await readRaw(req);
       return reply(res, 200, importCurriculumCsv(bytes.toString('utf8')));
     } catch (e) {return reply(res, 400, {error: e instanceof Error ? e.message : 'Invalid CSV'});}
+  }
+  if (req.method === 'POST' && req.url === '/api/v1/catalog/import-xlsx') {
+    if (!(req.headers['content-type'] ?? '').startsWith('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'))
+      return reply(res, 415, {error: 'XLSX content type required'});
+    try {
+      return reply(res, 200, await importCatalogXlsx(await readRaw(req)));
+    } catch (e) {
+      const message = e instanceof Error ? e.message : 'Invalid XLSX';
+      const unavailable = /ENOENT|not found|Cannot find|No module named/.test(message);
+      return reply(res, unavailable ? 503 : /size limit|5 MiB/.test(message) ? 413 : 400,
+        {error: unavailable ? 'XLSX importer unavailable; install Python 3 and openpyxl locally' : message});
+    }
   }
   if (req.method === 'POST' && req.url === '/api/v1/plans/optimize') {
     if (!(req.headers['content-type'] ?? '').startsWith('application/json')) return reply(res, 415, {error: 'JSON required'});
@@ -74,7 +89,7 @@ export const app = createServer(async (req, res) => {
   }
   return reply(res, 404, {error: 'Not found'});
 });
-if (process.argv[1]?.endsWith('/server.js')) {
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   // On purpose, never bind to all interfaces by default before auth + TLS + RBAC exist.
   app.listen(port, host, () => console.log(`TPS development API: http://${host}:${port}`));
 }

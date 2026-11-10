@@ -11,7 +11,7 @@ public final class SolverMain {
     private SolverMain() {}
     public record Input(String schemaVersion, List<PlanningTask> tasks, int seconds) {}
     public record Selected(String taskId, String candidateId) {}
-    public record Output(String schemaVersion, List<Selected> choices, int hardScore, int softScore) {}
+    public record Output(String schemaVersion, List<Selected> choices, long hardScore, long softScore) {}
     public static Output solve(Input input) {
         if (!"tps.timefold.v1".equals(input.schemaVersion()) || input.tasks() == null || input.tasks().size() > 1000)
             throw new IllegalArgumentException("Unsupported schema or too many sections");

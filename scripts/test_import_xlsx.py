@@ -26,3 +26,30 @@ class XlsxImportTest(unittest.TestCase):
                 parse(p)
 
 if __name__ == '__main__': unittest.main()
+
+class XlsxSecurityTest(unittest.TestCase):
+    def test_formula_value_not_trusted(self):
+        w=Workbook();s=w.active;s.title='المقررات'
+        s.append(['رمز المقرر','اسم المقرر','المستوى','الطلب المتوقع','نظري + تمارين','عملي'])
+        s.append(['ادار-101','مقرر',1,'=2+2',3,0])
+        with tempfile.TemporaryDirectory() as d:
+            p=Path(d)/'formula.xlsx';w.save(p)
+            with self.assertRaisesRegex(ValueError,'must be a nonnegative integer'):
+                parse(p)
+    def test_formula_like_course_identity_not_allowed(self):
+        w=Workbook();s=w.active;s.title='المقررات'
+        s.append(['رمز المقرر','اسم المقرر','المستوى','الطلب المتوقع','نظري + تمارين','عملي'])
+        s.append(["=HYPERLINK('https://example.invalid')",'مقرر',1,0,3,0])
+        with tempfile.TemporaryDirectory() as d:
+            p=Path(d)/'identity.xlsx';w.save(p)
+            with self.assertRaisesRegex(ValueError,'formula-like'):
+                parse(p)
+    def test_demand_imports_exact_integer(self):
+        w=Workbook();s=w.active;s.title='المقررات'
+        s.append(['رمز المقرر','اسم المقرر','المستوى','الطلب المتوقع','نظري + تمارين','عملي'])
+        s.append(['ادار-101','مقرر',1,137,2,2])
+        with tempfile.TemporaryDirectory() as d:
+            p=Path(d)/'filled.xlsx';w.save(p)
+            result=parse(p)
+            self.assertEqual(result['courses'][0]['demand'], 137)
+            self.assertEqual(result['courses'][0]['mode'], 'ONSITE')

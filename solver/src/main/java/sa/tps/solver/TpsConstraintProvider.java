@@ -1,5 +1,5 @@
 package sa.tps.solver;
-import ai.timefold.solver.core.api.score.buildin.hardsoft.HardSoftScore;
+import ai.timefold.solver.core.api.score.HardSoftScore;
 import ai.timefold.solver.core.api.score.stream.Constraint;
 import ai.timefold.solver.core.api.score.stream.ConstraintFactory;
 import ai.timefold.solver.core.api.score.stream.ConstraintProvider;
@@ -18,16 +18,16 @@ public class TpsConstraintProvider implements ConstraintProvider {
         return f.forEachUniquePair(PlanningTask.class)
                 .filter((a,b) -> a.getSelected().conflictsWith(b.getSelected()))
                 .penalize(HardSoftScore.ONE_HARD, (a,b) -> 1)
-                .asConstraint("No instructor, room or cohort collision");
+                .asConstraint("No instructor room or cohort collision");
     }
     private Constraint instructorOverload(ConstraintFactory f) {
         return f.forEach(PlanningTask.class)
                 .filter(t -> !t.getSelected().uncovered())
                 .groupBy(t -> t.getSelected().instructorId(),
-                        ConstraintCollectors.sum(t -> t.getSelected().creditedMilli()),
-                        ConstraintCollectors.max(t -> t.getSelected().effectiveLimitMilli()))
-                .filter((id, total, limit) -> total > limit)
-                .penalize(HardSoftScore.ONE_HARD, (id, total, limit) -> total - limit)
+                        t -> t.getSelected().effectiveLimitMilli(),
+                        ConstraintCollectors.sum(t -> t.getSelected().creditedMilli()))
+                .filter((id, limit, total) -> total > limit)
+                .penalize(HardSoftScore.ONE_HARD, (id, limit, total) -> total - limit)
                 .asConstraint("Approved trainer credit limit");
     }
     private Constraint exclusiveCourse(ConstraintFactory f) {

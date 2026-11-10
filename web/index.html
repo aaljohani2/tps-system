@@ -15,9 +15,10 @@
   </section>
   <section class="card">
     <h2>تجربة التخطيط والاستيراد</h2>
-    <p class="muted">ارفع ملف مدخلات JSON وفق نموذج API أو شغّل المثال الاصطناعي. لا ترفع بيانات متدربين شخصية إلى هذه النسخة التجريبية.</p>
-    <div class="row"><label class="upload">استيراد خطة CSV <input id="catalog" type="file" accept=".csv,text/csv"></label><button id="catalog-import" type="button">قراءة المقررات</button></div>
-    <p class="muted" id="catalog-status">استيراد CSV ينشئ مدخلات المقررات فقط دون مدربين أو قاعات، ودون اعتماد نمط غير حضوري. لتحويل XLSX استخدم أداة الاستيراد الموثقة.</p>
+    <p class="muted">حمّل القالب واملأ الطلب المتوقع، ثم ارفع Excel مباشرة، أو استخدم CSV لخطة المقررات. ويمكن تجربة JSON الاصطناعي. لا ترفع بيانات متدربين شخصية إلى هذه النسخة التجريبية.</p>
+    <div class="row"><a class="upload" href="/templates/courses.xlsx" download="TPS_Course_Demand_144720.xlsx">تحميل قالب Excel جاهز</a><a class="upload" href="/templates/curriculum.csv" download="TPS_Curriculum_144720.csv">تحميل نموذج CSV</a></div>
+    <div class="row"><label class="upload">رفع بيانات المقررات (Excel / CSV) <input id="catalog" type="file" accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"></label><button id="catalog-import" type="button">قراءة وتحقق من الملف</button></div>
+    <p class="muted" id="catalog-status">استيراد Excel يقرأ الطلب المتوقع، أما CSV للخطة فيترك الطلب صفرًا. لا يستورد المدربين أو القاعات ولا يعتمد أنماط التدريب الاختيارية.</p>
     <div class="row"><label class="upload">اختيار ملف JSON <input id="file" type="file" accept=".json,application/json"></label><button id="demo" type="button">تحميل المثال</button><button class="primary" id="run" type="button">بناء مسودة الجدول</button></div>
 <div class="row"><button id="optimize" type="button">تحسين بـ Timefold (إذا كان مشغّلًا)</button></div>
     <div class="editor-label">مدخلات السيناريو <span id="filename">لا يوجد ملف محمّل</span></div>

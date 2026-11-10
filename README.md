@@ -1,97 +1,20 @@
-# TPS | نظام تخطيط وجدولة التدريب
+# TPS — Training Planning & Scheduling
 
-نظام عربي قابل للتوسع لتقدير الطلب على المقررات، وتوليد الشعب، وإسناد المدربين، وفحص القيود الزمنية والمكانية، وإظهار العجز **دون إخفائه**.
+TPS is a locally operated training-planning and timetable prototype. It supports course catalogues, student-group demand, instructor and room resources, timetable scenarios, validation and report exports.
 
-> **الحالة: Prototype v0.2 / Draft only.** لم يُعتمد النظام للتشغيل الفعلي، ولا ينشر أي شعب إلى رايات. يعمل المحرك الحالي بخوارزمية تجريبية حتمية (greedy) ويحتاج لاحقًا إلى ربط Timefold Solver تجريبي يختار بين بدائل محدودة للشعب، لكن بناءه Java لم يُتحقق منه بعد؛ لا يُعتبر محرك تحسين إنتاجيًا.
+## Technical overview
 
-## قواعد الطبقات
+- TypeScript / Fastify backend and React / Vite frontend
+- PostgreSQL persistence and Java / Timefold optimization
+- Role-based access control, review stages and auditable operations
+- CSV/XLSX imports and timetable exports
 
-| النمط | النظري | العملي | الخصائص | الحالة الافتراضية |
-|---|---:|---:|---|---|
-| حضوري `ONSITE` | 45 | 30 | قاعة/معمل فعلي | مفعل |
-| عن بُعد `REMOTE` | 120 | 120 | لقاء متزامن دون قاعة فعلية | معطل |
-| ذاتي `SELF_PACED` | بلا سقف | بلا سقف | لا لقاء أسبوعي متزامن؛ سياسة نصاب مستقلة | معطل |
-| مدمج `HYBRID` | 45 | 45 | حضوري قبل 12:00، وبعيد 16:00–22:00 | معطل |
+## Project status
 
-- المقرر المختلط يُولد زوجًا 1:1 (نظري + عملي لنفس المجموعة). السعة الفعلية للزوج هي **أصغر السعتين**: حضوري 30، عن بُعد 120، مدمج 45.
-- العملي عن بُعد يحتسب `2/3` من الساعة في النصاب *كقاعدة تخطيطية قابلة للتغيير*، بينما ساعات التدريس الفعلية مستقلة.
-- لا تتجاوز حدود النصاب إلا باستثناء معلن ومسبب. لا تُسند الشعب المستحيلة آليًا لإخفاء العجز.
-- منع الخميس بعد 10:00، وتفضيل الأحد–الأربعاء؛ مجموعة متدربين مشتركة (`blockId`) لا تحضر لقاءين متزامنين.
-- **النمط والأهلية قرار إداري**: تفعيل الطبقة لا يجيز تلقائيًا تقديم مقرر عملي إلكترونيًا.
+This is development software, not an officially endorsed institutional service. No deployment to an institutional network, integration with official student systems, or processing of identifiable training records is authorized by publication of this repository.
 
-## تجربة تشغيل محلي
+Sample inputs and test fixtures must be synthetic. Operational data, staff identities, institutional identifiers, passwords, local paths, database backups, training schedules and internal operating decisions must remain outside public Git.
 
-المتطلبات: Node.js **22+**، وnpm.
+For technical setup and source-level checks, consult the project documentation. Use locally generated credentials, not examples from public repositories.
 
-```bash
-npm install
-npm test
-npm run demo
-npm run build
-npm start
-```
-
-افتح `http://127.0.0.1:8787`؛ واجهة أولية RTL فيها مثال اصطناعي وزر «بناء مسودة الجدول» وجداول المدربين والقاعات والمستويات والبلوكات.
-
-يمكن استدعاء API مباشرة:
-
-```bash
-curl http://127.0.0.1:8787/health
-curl http://127.0.0.1:8787/api/v1/policy/default
-curl -X POST http://127.0.0.1:8787/api/v1/plans/preview \
-  -H 'Content-Type: application/json' --data-binary @examples/onsite.json
-```
-
-**الملف `examples/onsite.json` اصطناعي بالكامل**؛ لا يحوي بيانات متدربين أو بيانات حقيقية للمدربين.
-
-## هيكل المشروع
-
-```text
-src/
-  optimizer.ts       Timefold candidate generation and runtime bridge
-  importer.ts        CSV curriculum import
-  types.ts          Domain contracts / models
-  policy.ts         Four-mode default policy
-  validation.ts     Input and eligibility validation
-  planner.ts        Deterministic draft section/assignment/timing engine
-  server.ts         Local-only JSON API + static UI
-  demo.ts           CLI sample runner
-web/                 Arabic RTL prototype
-examples/            Synthetic example data
-scripts/             Python XLSX importer and tests
-solver/              Java 21 Timefold candidate optimizer (Maven)
-tests/               Node built-in test runner
-docs/                Requirements, architecture, ADRs, API, security, roadmap
-.github/workflows/   CI build + tests
-```
-
-## حالة الوظائف الحالية
-
-**تم تنفيذه واختباره محليًا:** السعات والطبقات الأربع كقواعد نطاق، بوابات التفعيل والأهلية، تكوين الأزواج، نصاب عملي البعد، أنصبة المدربين واستثناءاتها، الكشف عن العجز، مواقع المحاضرات، إتاحة البلوكات، قيد الخميس، وعرض النتائج داخل واجهة محلية.
-
-**نُفذ في v0.2 مبدئيًا:** استيراد كتالوج المقررات من CSV؛ ومحول XLSX محلي، وواجهة Timefold Java مع مدخلات ومخرجات JSON وقيود أساسية. **لم يتم اختبار Java فعليًا في البيئة الحالية** لغياب Maven/اتصال الحزم؛ تحققت فقط اختبارات Node/Python.
-
-**لم يُنفّذ بعد:** التشغيل المؤكد لمحرك Timefold في بيئة CI، تقارير التسجيل من رايات، المصادقة والصلاحيات، التخزين الدائم، تزامن البيانات متعددة الأقسام، مقارنة السيناريوهات المعتمدة، اعتماد الجداول وإصدار ملفات رايات الرسمية، وتوليد الحل الأمثل.
-
-لا توجد دعوى بأن النتائج «خالية من تعارض المتدربين» إذا لم تُزود هوية البلوك/الفوج؛ المحرك يعطي تنبيهًا بهذا القيد.
-
-## المراجع الداخلية
-
-- [المتطلبات التشغيلية للأربع طبقات](docs/requirements-four-layers.md)
-- [القرارات المعمارية](docs/adr/0001-modular-monolith-and-solver-boundary.md)
-- [قواعد الحساب والتحقق](docs/business-rules.md)
-- [عقد API](docs/api.md)
-- [الأمن والخصوصية](docs/security.md)
-- [خارطة الطريق](docs/roadmap.md)
-
-**الترخيص:** لم يُحدد بعد، والمستودع خاص حاليًا؛ لا يُفترض نشره أو فتح ترخيص دون قرار مالك المشروع.
-
-## تحديث v0.2 — استيراد البيانات ومحرك Timefold
-
-```bash
-npm run import:csv -- source.csv catalog.json
-python scripts/import_xlsx.py source.xlsx --out catalog.json
-cd solver && mvn -B -ntp clean package
-```
-
-لتحسين الجدول بعد بناء المحرك: POST `/api/v1/plans/optimize`، أو استخدم زر «تحسين بـ Timefold» في الواجهة المحلية. **الفشل ظاهر ولا يتم استبداله بنتيجة المحرك التجريبي بصمت**. انظر [توثيق الربط](docs/timefold-integration.md) و[توثيق الاستيراد](docs/importing-data.md).
+**License:** No open-source license has been granted. Public source visibility does not by itself confer reuse rights.
