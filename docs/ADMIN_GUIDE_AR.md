@@ -6,7 +6,7 @@
 
 ## التثبيت المسموح لكودكس لاحقًا
 
-1. افحص `H:\\tps_system` باستخدام `git status`، واحفظ أي تغييرات غير مرفوعة. لا تستخدم `git reset --hard` أو `git clean` أو حذف Docker volumes.
+1. افحص `<LOCAL_TPS_DIR>` باستخدام `git status`، واحفظ أي تغييرات غير مرفوعة. لا تستخدم `git reset --hard` أو `git clean` أو حذف Docker volumes.
 2. تحقق من Node 22+، Java 21، Maven، Python 3/openpyxl، Docker Desktop والمنافذ المحلية.
 3. أنشئ `.env` خاصًا بالمشروع من `.env.example` دون تسجيل كلمات المرور أو رفعها.
 4. شغّل PostgreSQL محليًا، ثم `npm run db:migrate` و`npm run db:check`، وتحقق من الترحيلات `0001–0011`.

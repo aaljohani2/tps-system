@@ -6,7 +6,7 @@ As of 2026-11-06:
 - V1 `bbb62f1a`: GitHub CI tasks `node-tests`, `xlsx-import-tests`, `java-timefold`, `web-build`, `api-postgres-integration` succeeded on synthetic data (run 42208893085).
 - V1 `75b73019`: all GitHub CI tasks passed, including term policy/snapshot migration and readiness checks (runs 42212547437 and 42212555263).
 - Subsequent commits added scoped authorization regression tests. Verify their latest CI independently; do not reuse earlier results.
-- User's Windows checkout `H:\\tps_system`: not accessed by ChatGPT; installation, Playwright and local Docker restart persistence tests not performed.
+- User's Windows checkout `<LOCAL_TPS_DIR>`: not accessed by ChatGPT; installation, Playwright and local Docker restart persistence tests not performed.
 - Tests use synthetic information only; never actual student personal records.
 
 Review `docs/ACCEPTANCE_MATRIX.md` before local testing. Distinguish source implementation, GitHub Actions (Linux) and the user's Windows environment.
@@ -55,7 +55,7 @@ After commit `28f64044`, development continued with schema 0004, academic UI, de
 - Commit `afaa78fce9cc67ede63c89e342c7d6d0d5ea30e1` — run **42260816121**, all six jobs **SUCCESS**. Added actual assembled-JAR child-process abort test and a real Java Timefold synthetic scale smoke. Logs: 25 sections, 8 scheduled sessions, **17 gaps**, **4291 ms**, Node RSS **68 MB**. This exposed a room-candidate diversity defect despite a green CI check.
 - Commit `eedd6c5e84592bbb0c782088064f61ad57802c93` — run **42261333608**, all six jobs **SUCCESS**. After diversifying room choices by instructor and adding a candidate diversity regression: **25 sections, 25 scheduled sessions, 0 uncovered gaps**, **4279 ms**, Node RSS **68 MB** on the same synthetic 25-course/6-trainer/20-room/4-level/20-block workload.
 - **Interpretation:** the measured gain is from candidate-space quality, not increased room inventory or a claim of global optimum. Tests validate one synthetic feasible fixture; additional larger and adversarial configurations, stable repeated runs, all hard/soft constraints and real-world data remain to be verified.
-- **Not tested locally:** the user's Windows checkout `H:\\tps_system`, Docker restart persistence, all 20 real-API browser journey steps, official institutional policies or real trainee records.
+- **Not tested locally:** the user's Windows checkout `<LOCAL_TPS_DIR>`, Docker restart persistence, all 20 real-API browser journey steps, official institutional policies or real trainee records.
 - Subsequent documentation-only commits require a HEAD-matching CI pass before reporting a final green branch. No main merge or remote deployment.
 
 ## Additional larger Timefold workload (2026-11-06)
@@ -74,7 +74,7 @@ After commit `28f64044`, development continued with schema 0004, academic UI, de
 - Commit `277419017f450fb60c5cfc16bdf2776ceb0b9740`, GitHub Actions run **42264930048**, **7/7 success**, including `web-e2e-real`: disposable PostgreSQL 17 service + real Fastify/React + Java 21 Timefold + Chromium/Playwright, with ephemeral masked synthetic administrator. The test covers login, selecting college/department/term, reading actual stored master data, creating a scenario, asynchronous solve, persisted run stage, review, approval, real CSV/XLSX bytes, and logout. **This is one real browser journey, not yet the complete 20-step original-mandate suite.**
 - Run **42264700428** passed the PostgreSQL/Timefold job for impossible-slot validation: 8 synthetic sections, one room, one two-hour slot → **1 scheduled, 7 uncovered**. Earlier feasible scale checks cover 25/25 and 50/50 with zero gaps for their respective synthetic fixtures.
 - Additional optional scenario search/pagination (`limit` 1–100, `offset` 0–10000) and access-control tests were added in subsequent commits; they require a HEAD-matching CI run before acceptance.
-- **Not tested:** Windows `H:\\tps_system`, PostgreSQL persistence across Windows Docker restart, complete 20-step role-negative browser suite, broader curriculum/equipment constraints, multi-process durable job queue, performance with authentic institutional data, formal security review.
+- **Not tested:** Windows `<LOCAL_TPS_DIR>`, PostgreSQL persistence across Windows Docker restart, complete 20-step role-negative browser suite, broader curriculum/equipment constraints, multi-process durable job queue, performance with authentic institutional data, formal security review.
 
 ## Scoped scenario list search/pagination — confirmed 2026-11-06
 
@@ -87,7 +87,7 @@ After commit `28f64044`, development continued with schema 0004, academic UI, de
 
 - Migration **0013** introduced mandatory course `required_specialties`/`required_equipment`, instructor `specialties` and room `equipment_codes`, validated and checked by Greedy, Timefold, manual edits and readiness. **Commit `be29338cc474e45a533a721bac7f10930c32cc83`**, Actions **42270613282**, **7/7 jobs SUCCESS**. Real Java candidate tests forbid unqualified trainers and unequipped rooms; API integration tests reject invalid locked instructor qualifications and unauthorized room edits.
 - Migration **0014** adds reversible `is_active` status for courses, instructors and rooms. Lifecycle state and audit entry are committed atomically. New scenarios omit archived resources; a locked inactive trainer blocks a new scenario with 409. Archived courses cannot be used to activate curricula; courses in an already active curriculum cannot be archived. **Source commit `dc8d477d5f3e3353ecd80638a4be23c6b46ce91f`**, Actions **42272336053**, **7/7 jobs SUCCESS** including PostgreSQL/API, real Chromium/React/Fastify/Timefold, and both browser mock and Java tests.
-- **Limits:** no real user/trainee data, no Windows `H:\\tps_system` test, no complete 20-step and multi-role browser suite, no independent institutional confirmation of specialties/equipment. Other entities' archival and distributed solver queue remain open. Documentation-only commits after the tested code do not change the above source evidence.
+- **Limits:** no real user/trainee data, no Windows `<LOCAL_TPS_DIR>` test, no complete 20-step and multi-role browser suite, no independent institutional confirmation of specialties/equipment. Other entities' archival and distributed solver queue remain open. Documentation-only commits after the tested code do not change the above source evidence.
 
 ## Pre-production Windows bugfixes and reproducibility — 2026-11-06
 
@@ -97,7 +97,7 @@ After commit `28f64044`, development continued with schema 0004, academic UI, de
 - Checked in npm lockfiles captured from the audited dependency trees; CI and local installation scripts now use **npm ci** to avoid unplanned dependency resolution and npm 11 manifest mutation.
 - **Commit `c077e431749a7236d4add6cc4e14b2528b757b4c`: Actions TPS checks run `42285459292` — 8/8 SUCCESS**, including actual Windows Node/Python regression and isolated PowerShell 5.1 failure propagation, real Chromium, PostgreSQL, Java, mock browser, import and web build.
 - **Same commit: TPS production dependency security gate run `42285459720` — SUCCESS**, npm audit root: 0 total reported vulnerabilities, frontend: 0 total reported vulnerabilities. Clean npm audit is **not** an independent threat assessment.
-- Windows A07/A40 and all A01–A59 cases must be rerun on the user's actual `H:\tps_system` checkout after safe fast-forward and backed-up untracked lockfiles. No real-data production access, public network exposure, off-device restore verification or formal institutional sign-off has been performed.
+- Windows A07/A40 and all A01–A59 cases must be rerun on the user's actual `<LOCAL_TPS_DIR>` checkout after safe fast-forward and backed-up untracked lockfiles. No real-data production access, public network exposure, off-device restore verification or formal institutional sign-off has been performed.
 
 ## Encrypted backup/restore engineering verification (2026-11-07)
 
