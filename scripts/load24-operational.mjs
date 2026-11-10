@@ -107,9 +107,12 @@ async function main(){
     const roster=row.input_snapshot.instructors;
     if(roster.length!==6||!['1','2','3','4','5','6'].every(code=>roster.some(i=>i.id===code)))
      throw Error('Expected exactly the six verified trainer codes in '+row.id);
-    const targetNames=['5','6'].map(code=>roster.find(i=>i.id===code).name);
-    if(!targetNames.some(name=>name.includes('محمد'))||!targetNames.some(name=>name.includes('فهد')))
-     throw Error('Trainer code 5/6 mapping does not identify both محمد and فهد; stop and verify identities locally');
+    const expectedNames=['5','6'].map(code=>process.env['TPS_LOAD24_EXPECTED_NAME_'+code]?.trim());
+    if(expectedNames.some(name=>!name)||expectedNames[0]===expectedNames[1])
+     throw Error('STOP: supply two distinct verified trainer names using local TPS_LOAD24_EXPECTED_NAME_5 and _6 environment variables');
+    const actualNames=['5','6'].map(code=>roster.find(i=>i.id===code).name.trim());
+    if(actualNames.some((name,index)=>name!==expectedNames[index]))
+     throw Error('STOP: trainer code-to-identity verification failed; inspect the authorized local roster');
     const input=prepareLoad24Input(row.input_snapshot,splitTeachingSections);
     let result,settings,verified,solveStart,solveEnd,elapsedMs;
     for(const seconds of [15,30]){
