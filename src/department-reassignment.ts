@@ -21,7 +21,7 @@ export function matchPrinciplesEconomicsSections(source:PlanRequest):PlanRequest
  input.stableBlockPlan!.departmentSectionCounts['ادار-101']=principles.blockGroups.length;
  input.stableBlockPlan!.principlesEconomicsAlignment={reason:'USER_REQUEST_MATCH_ECONOMICS',previousPrinciplesSectionCount:source.stableBlockPlan.principlesEconomicsAlignment?.previousPrinciplesSectionCount??previous,referenceSectionCount:principles.blockGroups.length};
  const reserved=input.courses.filter(c=>c.assignedInstructorId==='4'&&internal(c)).reduce((n,c)=>n+sectionHours(c),0),trainer=input.instructors.find(i=>i.id==='4');
- if(!trainer||reserved>trainer.maxLoad+(trainer.overload?.additionalHours??0))throw Error('Requested enrolment alignment exceeds Abdullah load limit');
+ if(!trainer||reserved>trainer.maxLoad+(trainer.overload?.additionalHours??0))throw Error('Requested enrolment alignment exceeds trainer 4 load limit');
  const refinement=input.scheduleRefinement;
  if(refinement){
   for(const id of Object.keys(refinement.referenceInstructors))if(id.startsWith('ادار-101-'))delete refinement.referenceInstructors[id];
