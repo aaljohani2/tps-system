@@ -1,0 +1,24 @@
+{
+  "name": "tps-system",
+  "version": "0.2.0",
+  "private": true,
+  "description": "Training Planning & Scheduling - auditable planning foundation",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "npm run build && node --test dist/tests/*.test.js",
+    "start": "node dist/src/server.js",
+    "demo": "npm run build && node dist/src/demo.js",
+    "check": "npm test",
+    "import:csv": "npm run build && node dist/src/import-cli.js",
+    "solver:build": "cd solver && mvn -B -ntp clean package"
+  },
+  "devDependencies": {
+    "@types/node": "22.15.0",
+    "typescript": "5.8.3"
+  },
+  "license": "UNLICENSED"
+}

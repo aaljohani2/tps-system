@@ -1,0 +1,31 @@
+{
+  "scenarioName": "Demo - onsite only (synthetic data)",
+  "termId": "144720",
+  "courses": [
+    {"code":"ADM-101","title":"مبادئ الإدارة","level":1,"demand":90,"theoryHours":2,"practicalHours":0,"mode":"ONSITE","eligibleModes":["ONSITE"],"blocks":["L1-A","L1-B"]},
+    {"code":"ADM-152","title":"مهارات الطباعة","level":2,"demand":60,"theoryHours":1,"practicalHours":2,"mode":"ONSITE","eligibleModes":["ONSITE"],"blocks":["L2-A","L2-B"]}
+  ],
+  "instructors": [
+    {"id":"T01","name":"مدرب تجريبي أ","maxLoad":8,"allowedModes":["ONSITE"]},
+    {"id":"T02","name":"مدرب تجريبي ب","maxLoad":22,"allowedModes":["ONSITE"]}
+  ],
+  "rooms": [
+    {"id":"R101","name":"قاعة نظرية","type":"CLASSROOM","capacity":45},
+    {"id":"LAB1","name":"معمل تطبيقي","type":"LAB","capacity":30}
+  ],
+  "policy": {
+    "enabledModes":["ONSITE"],
+    "capacities":{"ONSITE":{"theory":45,"practical":30},"REMOTE":{"theory":120,"practical":120},"SELF_PACED":{"theory":null,"practical":null},"HYBRID":{"theory":45,"practical":45}},
+    "remotePracticalLoadFactor":0.6666666666666666,
+    "onsitePracticalLoadFactor":1,
+    "selfPacedLoadPerOffering":null,
+    "slots":[
+      {"day":"SUN","from":8,"to":16},{"day":"SUN","from":16,"to":22},
+      {"day":"MON","from":8,"to":16},{"day":"MON","from":16,"to":22},
+      {"day":"TUE","from":8,"to":16},{"day":"TUE","from":16,"to":22},
+      {"day":"WED","from":8,"to":16},{"day":"WED","from":16,"to":22},
+      {"day":"THU","from":8,"to":10}
+    ],
+    "sessionMaxHours":2
+  }
+}
