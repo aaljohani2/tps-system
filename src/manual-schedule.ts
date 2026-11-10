@@ -62,8 +62,10 @@ export function moveScheduledSession(input:PlanRequest,original:PlanResult,move:
   if(!readiness.technicalReady){
     const signature=(x:{code:string;sectionId?:string;courseCode?:string;instructorId?:string})=>
       x.code+'|'+(x.sectionId??'')+'|'+(x.courseCode??'')+'|'+(x.instructorId??'');
-    const previous=before.issues.filter(x=>x.severity==='BLOCKER');
-    const next=readiness.issues.filter(x=>x.severity==='BLOCKER');
+    // Missing external source detail blocks approval, but is not a collision
+    // that a safe internal timetable edit can be expected to resolve.
+    const previous=before.issues.filter(x=>x.severity==='BLOCKER'&&x.code!=='GENERAL_INTEGRATION_INCOMPLETE');
+    const next=readiness.issues.filter(x=>x.severity==='BLOCKER'&&x.code!=='GENERAL_INTEGRATION_INCOMPLETE');
     const counts=new Map<string,number>();
     for(const issue of previous){
       const key=signature(issue);
@@ -75,7 +77,7 @@ export function moveScheduledSession(input:PlanRequest,original:PlanResult,move:
         throw bad('Move introduces a new scheduling blocker: '+issue.code+' for '+(issue.sectionId??'scenario'));
       counts.set(key,remaining-1);
     }
-    if(next.length>=previous.length)
+    if(next.length>0&&next.length>=previous.length)
       throw bad('A conflicted timetable move must strictly reduce existing blockers');
   }
   if(!result.notices.some(n=>n.includes('Manual edits after Timefold')))

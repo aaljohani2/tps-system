@@ -8,6 +8,21 @@ from openpyxl import load_workbook
 from pypdf import PdfReader
 
 class ScheduleReportTest(unittest.TestCase):
+    def test_general_source_keeps_provenance_and_allows_readable_multi_page_native_printing(self):
+        payload = self.payload()
+        meeting = payload['entities'][0]['meetings'][0]
+        meeting['sourceRef'] = 'الإدارة!B4'
+        meeting['timingStatus'] = 'مبدئي؛ ربط تخطيطي مفترض'
+        book = load_workbook(io.BytesIO(self.render(payload, 'xlsx')))
+        self.assertEqual(book['المحاضرات']['N1'].value, 'مرجع المصدر')
+        self.assertEqual(book['المحاضرات']['N2'].value, 'الإدارة!B4')
+        self.assertEqual(book['المحاضرات']['O2'].value, meeting['timingStatus'])
+        self.assertEqual(book['قاعة 001'].page_setup.fitToHeight, 0)
+        self.assertEqual(book['المحاضرات'].page_setup.paperSize, 8)
+        book.close()
+        pdf = PdfReader(io.BytesIO(self.render(payload, 'pdf')))
+        self.assertIn('B4', ''.join(page.extract_text(extraction_mode='layout') for page in pdf.pages))
+
     def payload(self):
         meeting = {"id": "M", "courseCode": "C-101", "title": "مقرر اختبار", "sectionId": "C-101-001", "sectionNumber": 1,
                    "level": 1, "students": 20, "component": "نظري", "day": "SUN", "startMinute": 480, "endMinute": 580,

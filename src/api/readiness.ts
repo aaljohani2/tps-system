@@ -4,6 +4,8 @@ import {hasSharedBlock} from '../cohort-grouping.js';
 import {sectionCapacity} from '../section-capacity.js';
 import {instructorTotals,exceedsTeachingLimits} from '../instructor-rules.js';
 import {trainingHours,validPeriodSession,cohortOverlapIsWarning,hardSessionConflict,formatClock} from '../lecture-periods.js';
+import {generalLockConflict,validateGeneralSchedule} from '../general-courses.js';
+import {stableBlockDiagnostics,stableGeneralLocks,validateStableBlocks} from '../stable-blocks.js';
 
 export interface ReadinessIssue{
   code:string;severity:'BLOCKER'|'WARNING';message:string;sectionId?:string;courseCode?:string;instructorId?:string;
@@ -15,6 +17,29 @@ export function assessReadiness(input:PlanRequest,result:PlanResult,solverStatus
     issues.push({code,severity,message,...(sectionId?{sectionId}:{}),...(courseCode?{courseCode}:{})});
   };
   if(solverStatus!=='COMPLETED')add('SOLVER_NOT_COMPLETED','Timefold has not completed successfully.');
+  if(input.fixedGeneralStage)add('GENERAL_STAGE_ONLY','أوقات العامة مثبتة فقط؛ بناء جدول القسم والمدربين والمتدربين ينتظر تفاصيل المرحلة الثانية.');
+  for(const code of input.scheduleRefinement?.requiredCourseCodes??[])if(result.sections.some(s=>s.courseCode===code&&s.state==='UNASSIGNED'))
+    add('REQUIRED_COURSE_UNCOVERED','مقرر مطلوب تغطيته بالكامل غير مكتمل: '+code,undefined,code);
+  for(const [id,hours] of Object.entries(input.scheduleRefinement?.requiredCreditedLoads??{})){
+    const actual=result.sections.filter(s=>s.instructorId===id&&s.state!=='UNASSIGNED').reduce((n,s)=>n+s.creditedLoad,0);
+    if(Math.abs(actual-hours)>1e-8)add('REQUIRED_INSTRUCTOR_LOAD',`المدرب ${id}: النصاب الفعلي ${actual}، والمطلوب ${hours}.`);
+  }
+  if(input.stableBlockPlan){
+    try{validateStableBlocks(input);}catch(e){add('STABLE_BLOCK_SOURCE_INVALID',e instanceof Error?e.message:String(e));}
+    for(const issue of stableBlockDiagnostics(input,result))add(issue.code,issue.message,undefined,issue.courseCode);
+    for(const lock of stableGeneralLocks(input))for(const meeting of result.sessions)
+      if(generalLockConflict(meeting,lock))add('GENERAL_COHORT_OR_RESOURCE_CONFLICT','تعارض مع '+lock.sourceItemId,meeting.sectionId,lock.courseCode);
+  }
+  if(input.generalCourseSchedule){
+    try{validateGeneralSchedule(input);}catch(error){add('GENERAL_SOURCE_INVALID',error instanceof Error?error.message:'Invalid provisional source');}
+    for(const lock of input.generalCourseSchedule.locks)for(const meeting of result.sessions)
+      if(generalLockConflict(meeting,lock))add('GENERAL_COHORT_OR_RESOURCE_CONFLICT',
+        'تعارض مع محاضرة عامة مبدئية: '+lock.sourceCells.join('، '),meeting.sectionId,lock.courseCode);
+    if(input.generalCourseSchedule.planningAssumption)add('GENERAL_MAPPING_ASSUMED',
+      'ربط مجموعات المقررات العامة افتراض تخطيطي بتوجيه المستخدم؛ قوائم المتدربين الرسمية غير متاحة.',undefined,undefined,'WARNING');
+    if(input.generalCourseSchedule.issues.length)add('GENERAL_INTEGRATION_INCOMPLETE',
+      'المقررات العامة مدمجة جزئيًا؛ توجد أوقات أو ساعات أو مجموعات أو موارد تحتاج استكمالًا. المسودة غير جاهزة للاعتماد.');
+  }
   for(const code of input.policy.priorityCourseCodes??[]){
     const course=input.courses.find(course=>course.code===code);
     if(!course||course.demand===0)continue;

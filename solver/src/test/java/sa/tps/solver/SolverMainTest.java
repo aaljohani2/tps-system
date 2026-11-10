@@ -4,6 +4,58 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.*;
 
 class SolverMainTest {
+    @Test void requiredLoadIsHardAndMissingHoursCannotBeReportedAsSatisfied() {
+        var slot=new SessionSlot("s","S","C","THEORY","ONSITE","SUN",8,10,"R","T","B");
+        var task=new PlanningTask();task.setId("S");task.setCourseCode("C");task.setContactHours(2);
+        task.setChoices(List.of(new Placement("none","S","C",null,0,0,true,List.of()),new Placement("yes","S","C","T",2000,24000,false,List.of(slot))));
+        var weights=new RefinementContext.Weights(0,0,0,0,0,0,1000000);
+        var exact=new RefinementContext(java.util.Map.of("B",20),List.of(),List.of(),weights,null,java.util.Map.of("T",2));
+        var result=SolverMain.solve(new SolverMain.Input("tps.timefold.v1",List.of(task),1,exact,42L));
+        assertEquals(0,result.hardScore());assertEquals("yes",result.choices().getFirst().candidateId());
+        var impossible=new RefinementContext(java.util.Map.of("B",20),List.of(),List.of(),weights,null,java.util.Map.of("T",3));
+        result=SolverMain.solve(new SolverMain.Input("tps.timefold.v1",List.of(task),1,impossible,42L));
+        assertTrue(result.hardScore()<0);
+    }
+    @Test void actualTimefoldCannotAddThirdCampusDayButMayUseRemoteThirdDay() {
+        var monday=new SessionSlot("fixed1","G1","G","THEORY","ONSITE","MON",8,10,null,"","BLOCK");
+        var wednesday=new SessionSlot("fixed2","G2","G","PRACTICAL","ONSITE","WED",8,10,null,"","BLOCK");
+        var onsite=new SessionSlot("onsite","SEC","X","THEORY","ONSITE","SUN",8,10,"R","T","BLOCK");
+        var remote=new SessionSlot("remote","SEC","X","THEORY","REMOTE","SUN",8,10,null,"T","BLOCK");
+        var task=new PlanningTask();task.setId("SEC");task.setCourseCode("X");task.setContactHours(2);
+        task.setChoices(List.of(new Placement("none","SEC","X",null,0,0,true,List.of()),
+            new Placement("onsite","SEC","X","T",2000,24000,false,List.of(onsite)),
+            new Placement("remote","SEC","X","T",2000,24000,false,List.of(remote))));
+        var context=new RefinementContext(java.util.Map.of("BLOCK",40),List.of(monday,wednesday),List.of(),new RefinementContext.Weights(0,0,0,0,0,0,1000000),2);
+        var result=SolverMain.solve(new SolverMain.Input("tps.timefold.v1",List.of(task),1,context,42L));
+        assertEquals(0,result.hardScore());assertEquals("remote",result.choices().getFirst().candidateId());
+    }
+    @Test void refinementMeasuresWeightedLearnerGapsAndDoesNotChargeNormalBreaks() {
+        var first=new SessionSlot("a","A","X","THEORY","ONSITE","SUN",8,9+40.0/60,"R","T","A");
+        var far=new SessionSlot("b","B","Y","THEORY","ONSITE","SUN",12,13+40.0/60,"R","T","A");
+        var close=new SessionSlot("c","B","Y","THEORY","ONSITE","SUN",10,11+40.0/60,"R","T","A");
+        var a=new PlanningTask();a.setId("A");a.setContactHours(2);a.setSelected(new Placement("a","A","X","T",2000,24000,false,List.of(first)));
+        var b=new PlanningTask();b.setId("B");b.setContactHours(2);b.setSelected(new Placement("far","B","Y","T",2000,24000,false,List.of(far)));
+        var context=new RefinementContext(java.util.Map.of("A",10,"UNSCHEDULED_STUDENT",30),List.of(),List.of(),
+                new RefinementContext.Weights(1,0,0,0,0,0,1000000));
+        assertEquals(30,context.penalty(List.of(a,b)));
+        b.setSelected(new Placement("close","B","Y","T",2000,24000,false,List.of(close)));
+        assertEquals(0,context.penalty(List.of(a,b)));
+    }
+    @Test void actualTimefoldRefinementPrefersCompactLearnerDayWithoutSacrificingCoverage() {
+        var first=new SessionSlot("a","A","X","THEORY","ONSITE","SUN",8,9+40.0/60,"R","T","BLOCK");
+        var far=new SessionSlot("b","B","Y","THEORY","ONSITE","SUN",12,13+40.0/60,"R","T","BLOCK");
+        var close=new SessionSlot("c","B","Y","THEORY","ONSITE","SUN",10,11+40.0/60,"R","T","BLOCK");
+        var pa=new Placement("A:yes","A","X","T",2000,24000,false,List.of(first));
+        var pf=new Placement("B:far","B","Y","T",2000,24000,false,List.of(far));
+        var pc=new Placement("B:close","B","Y","T",2000,24000,false,List.of(close));
+        var a=new PlanningTask();a.setId("A");a.setCourseCode("X");a.setContactHours(2);a.setChoices(List.of(new Placement("A:no","A","X",null,0,0,true,List.of()),pa));a.setInitialCandidateId("A:yes");
+        var b=new PlanningTask();b.setId("B");b.setCourseCode("Y");b.setContactHours(2);b.setChoices(List.of(new Placement("B:no","B","Y",null,0,0,true,List.of()),pf,pc));b.setInitialCandidateId("B:far");
+        var context=new RefinementContext(java.util.Map.of("BLOCK",20),List.of(),List.of(first,far),new RefinementContext.Weights(10,0,0,0,0,0,1000000));
+        var solved=SolverMain.solve(new SolverMain.Input("tps.timefold.v1",List.of(a,b),1,context,42L));
+        assertEquals(0,solved.hardScore());
+        assertTrue(solved.choices().stream().anyMatch(c->c.candidateId().equals("B:close")));
+        assertTrue(solved.choices().stream().noneMatch(c->c.candidateId().endsWith(":no")));
+    }
     @Test void priorityCoverageDoesNotBypassHardTrainerLoad() {
         var tasks=new java.util.ArrayList<PlanningTask>();
         for(int index=0;index<2;index++) {

@@ -9,7 +9,9 @@ import ai.timefold.solver.core.config.solver.SolverConfig;
 /** One JSON request via stdin; one JSON response via stdout. Never publishes to Rayat. */
 public final class SolverMain {
     private SolverMain() {}
-    public record Input(String schemaVersion, List<PlanningTask> tasks, int seconds) {}
+    public record Input(String schemaVersion, List<PlanningTask> tasks, int seconds,RefinementContext refinement,Long seed) {
+        public Input(String schemaVersion,List<PlanningTask> tasks,int seconds){this(schemaVersion,tasks,seconds,null,null);}
+    }
     public record Selected(String taskId, String candidateId) {}
     public record Output(String schemaVersion, List<Selected> choices, long hardScore, long softScore) {}
     public static Output solve(Input input) {
@@ -29,13 +31,17 @@ public final class SolverMain {
                 .withEntityClasses(PlanningTask.class)
                 .withConstraintProviderClass(TpsConstraintProvider.class)
                 .withTerminationSpentLimit(Duration.ofSeconds(Math.min(Math.max(input.seconds(), 1), 30)));
+        if(input.seed()!=null){
+            if(input.seed()<0||input.seed()>2147483647L)throw new IllegalArgumentException("Invalid random seed");
+            config.withRandomSeed(input.seed());
+        }
         var solver = SolverFactory.<PlanningProblem>create(config).buildSolver();
         // Entity-specific candidate ranges cannot exchange placements with a simple swap.
         // Construct priority coverage first so a feasible priority allocation is not trapped
         // behind an already allocated ordinary course and a temporary hard overload.
         var ordered=new java.util.ArrayList<>(input.tasks());
         ordered.sort(java.util.Comparator.comparing(PlanningTask::isPriorityCoverage).reversed());
-        var result = solver.solve(new PlanningProblem(ordered));
+        var result = solver.solve(new PlanningProblem(ordered,input.refinement()));
         return new Output(input.schemaVersion(), result.getTasks().stream()
                 .map(t -> new Selected(t.getId(), t.getSelected().id())).toList(),
                 result.getScore().hardScore(), result.getScore().softScore());

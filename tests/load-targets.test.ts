@@ -2,12 +2,15 @@ import test from 'node:test';import assert from 'node:assert/strict';
 import {defaultPolicy} from '../src/policy.js';import {createCapacityProjection,projectionProfiles} from '../src/capacity-projections.js';
 import {splitTeachingSections} from '../src/load-targets.js';import {buildDraftPlan} from '../src/planner.js';import type {PlanRequest} from '../src/types.js';
 import {optimizeWithTimefold} from '../src/optimizer.js';
+import {withRequestedLecturePeriods} from '../src/lecture-periods.js';
 test('24-hour targets pack complete three/four-hour sections for two trainers without increasing staffing limits',async()=>{
  const input:PlanRequest={scenarioName:'Exact load packing',termId:'TEST',policy:defaultPolicy(),
   courses:[...Array(6).fill(4),...Array(8).fill(3)].map((hours,index)=>({code:'C'+index,title:'Theory '+index,level:1,demand:20,theoryHours:hours,practicalHours:0,mode:'ONSITE',eligibleModes:['ONSITE'],blocks:['G'+index]})),
   instructors:['5','6'].map(id=>({id,name:id,maxLoad:24,allowedModes:['ONSITE'],teachingRules:{preferredCreditedLoad:24,allowedCourseTypes:['THEORY','MIXED']}})),
   rooms:[{id:'R1',name:'R1',type:'CLASSROOM',capacity:30},{id:'R2',name:'R2',type:'CLASSROOM',capacity:30}]};
+ input.policy=withRequestedLecturePeriods(input.policy,'TRIM_END');
  const before=structuredClone(input),preview=buildDraftPlan(input);assert.deepEqual(preview.instructorLoads.map(load=>load.credited),[24,24]);
+ assert.ok(input.instructors.every(instructor=>preview.sessions.filter(session=>session.instructorId===instructor.id).length<=15));
  const result=await optimizeWithTimefold(input,{seconds:1,candidatesPerInstructor:3});
  assert.equal(result.gaps.length,0);assert.deepEqual(result.instructorLoads.map(load=>load.credited),[24,24]);assert.deepEqual(input,before);
 });

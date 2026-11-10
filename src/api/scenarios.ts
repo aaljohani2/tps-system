@@ -5,6 +5,7 @@ import {pool} from './database.js';
 import {audit,allowedDepartment,canApprove,requireEditor} from './security.js';
 import {defaultPolicy} from '../policy.js';
 import {buildDraftPlan} from '../planner.js';
+import {fixedGeneralStageResult} from '../fixed-general-stage.js';
 import {packTheoryBlocks} from '../cohort-grouping.js';
 import {optimizeWithTimefold} from '../optimizer.js';
 import {validateRequest} from '../validation.js';
@@ -43,6 +44,7 @@ export function projectedSectionCount(input:PlanRequest):number{
 }
 function boundedDraft(input:PlanRequest):PlanResult{
   validateRequest(input);
+  if(input.fixedGeneralStage)return fixedGeneralStageResult(input);
   if(projectedSectionCount(input)>250)throw Object.assign(
     new Error('Scenario exceeds the 250-section limit of the experimental Timefold candidate solver'),
     {statusCode:400});
@@ -215,11 +217,19 @@ export async function registerScenarios(app:FastifyInstance):Promise<void>{
   app.get('/api/v1/scenarios/:id',async(req)=>find(req,params(req)));
   app.get('/api/v1/scenarios/:id/external.csv',async(req,reply)=>{
     const scenario=await find(req,params(req));
-    const rows=[['المقرر','اسم المقرر','المستوى','الشعبة الخارجية','المتدربون','السعة','ساعات الاتصال',
+    if(scenario.input_snapshot.fixedGeneralStage){
+      const stage=scenario.input_snapshot.fixedGeneralStage;
+      const rows=[['المعرف','المستوى','الشعبة','المقرر','اليوم','الفترة','البداية','النهاية','النمط','الحالة'],
+        ...stage.rows.map(r=>[r.id,r.level,r.section,r.title,r.day,r.period,formatClock(r.startMinute/60),formatClock(r.endMinute/60),
+          r.mode==='UNSPECIFIED'?'غير مذكور':r.mode==='ONSITE'?'حضوري':'ذاتي','وقت مثبت من الملف'])];
+      return reply.header('content-type','text/csv; charset=utf-8').header('content-disposition','attachment; filename="tps-fixed-general-times.csv"')
+        .send('\uFEFF'+rows.map(row=>row.map(csvCell).join(',')).join('\r\n'));
+    }
+    const rows=[['المقرر','اسم المقرر','المستوى',scenario.input_snapshot.stableBlockPlan?'مرجع احتياج البلوك؛ ليس شعبة مصدر':'الشعبة الخارجية','المتدربون','السعة','ساعات الاتصال',
       'القسم المسؤول','الحالة','اسم المدرب الخارجي','اليوم','البداية','النهاية','القاعة'],
       ...(scenario.result_snapshot.externalSections??[]).map(section=>[section.courseCode,section.title,section.level,
         section.id,section.students,section.capacity,section.contactHours,section.responsibleDepartment??'',
-        'بانتظار إسناد القسم الآخر','','','','',''])];
+        section.demandOnly?'احتياج بلوك؛ لا ينشئ شعبة عامة جديدة':'بانتظار إسناد القسم الآخر','','','','',''])];
     reply.header('content-type','text/csv; charset=utf-8');
     reply.header('content-disposition','attachment; filename="tps-external-course-request.csv"');
     return reply.send('\uFEFF'+rows.map(row=>row.map(csvCell).join(',')).join('\r\n'));
@@ -307,6 +317,7 @@ export async function registerScenarios(app:FastifyInstance):Promise<void>{
     requireEditor(req);
     const id=params(req),sc=await find(req,id);
     if(sc.state!=='DRAFT')throw invalid('Only a DRAFT may be solved',409);
+    if(sc.input_snapshot.fixedGeneralStage)throw invalid('المرحلة الأولى لتثبيت أوقات العامة فقط. بناء جدول القسم ينتظر تفاصيل المرحلة الثانية.',409);
     const options=solveSettings.parse(req.body??{});
     if(activeSolverControllers.has(id))throw invalid('Previous local solver is still terminating',409);
     if(activeSolverControllers.size+pendingSolverClaims>=2)

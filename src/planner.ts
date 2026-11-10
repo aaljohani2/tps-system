@@ -7,6 +7,7 @@ import {courseType,typePreference,instructorTotals,exceedsTeachingLimits} from '
 import {courseClockHours} from './lecture-periods.js';
 import {makePeriodSessions} from './period-scheduler.js';
 import {reserveLoadTargets} from './load-targets.js';
+import {conflictsWithGeneral} from './general-courses.js';
 
 const round = (n: number) => Math.round((n + Number.EPSILON) * 1000) / 1000;
 const days: Day[] = ['SUN', 'MON', 'TUE', 'WED', 'THU'];
@@ -64,6 +65,7 @@ function findSchedule(
             if (placed) break;
             for (let start = w.from; start + duration <= w.to; start += 0.5) {
               const end = start + duration;
+              if(conflictsWithGeneral(input,[...all(),{day,start,end,mode:job.mode,instructorId:instructor.id,roomId:null,blockId:s.blockId,blockIds:s.blockIds} as Session]))continue;
               if (day === 'THU' && end > 10) continue;
               if (c.mode === 'HYBRID' && job.mode === 'ONSITE' && end > 12) continue;
               if (c.mode === 'HYBRID' && job.mode === 'REMOTE' && (start < 16 || end > 22)) continue;
@@ -119,7 +121,7 @@ export function buildDraftPlan(input: PlanRequest): PlanResult {
       for(let n=0;n<count;n++)externalSections.push({id:`${c.code}-EXT-${String(n+1).padStart(3,'0')}`,
         courseCode:c.code,title:c.title,level:c.level,students:c.blockSizes?.[n]??Math.min(cap!,c.demand-n*cap!),
         capacity:cap!,contactHours:c.theoryHours+c.practicalHours,responsibleDepartment:c.responsibleDepartment??null,
-        blockIds:c.blockGroups?.[n]??(c.blocks?.[n]?[c.blocks[n]!]:[]),status:'PENDING_EXTERNAL_ASSIGNMENT'});
+        blockIds:c.blockGroups?.[n]??(c.blocks?.[n]?[c.blocks[n]!]:[]),status:'PENDING_EXTERNAL_ASSIGNMENT',...(input.stableBlockPlan?{demandOnly:true}:{})});
       continue;
     }
     for (let n = 0; n < count; n++) {

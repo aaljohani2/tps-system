@@ -252,21 +252,23 @@ function ScenarioPage({ctx,notify,user}:{ctx:Context;notify:Message;user:Auth}){
   const canEdit=['SYSTEM_ADMIN','COLLEGE_ADMIN','DEPARTMENT_HEAD','SCHEDULER'].includes(user.role);
   const canApprove=['SYSTEM_ADMIN','COLLEGE_ADMIN','APPROVER'].includes(user.role);
   const rows=list.data??[],current=one.data,p=current?.result_snapshot;
+  const generalStageOnly=!!(current?.input_snapshot as {fixedGeneralStage?:unknown}|undefined)?.fixedGeneralStage;
   const originalCourses=((current?.input_snapshot as {courses?:Array<{code:string;title:string;demand:number;blocks?:string[];blockSizes?:number[]}>}|undefined)?.courses??[]);
-  return <section className="panel"><h2>٥. إنشاء الشعب وتشغيل Timefold</h2>
-    <p className="hint">إنشاء السيناريو يحسب مسودة Greedy مع إظهار العجز. زر Timefold وحده ينفذ التحسين؛ لا يُخفى تعطل Java.</p>
+  return <section className="panel"><h2>{generalStageOnly?'٥. تثبيت أوقات المواد العامة':'٥. إنشاء الشعب وتشغيل Timefold'}</h2>
+    <p className="hint">{generalStageOnly?'المرحلة الأولى محفوظة؛ بناء جدول القسم ينتظر تفاصيل المرحلة الثانية.':'إنشاء السيناريو يحسب مسودة Greedy مع إظهار العجز. زر Timefold وحده ينفذ التحسين؛ لا يُخفى تعطل Java.'}</p>
     <div className="actions"><input placeholder="اسم السيناريو" value={name} onChange={e=>setName(e.target.value)}/>
-      <button className="primary" disabled={working||!ctx.termId||!canEdit} onClick={()=>run(async()=>{
+      <button className="primary" disabled={generalStageOnly||working||!ctx.termId||!canEdit} onClick={()=>run(async()=>{
         const s=await post<{id:string}>('/scenarios',{departmentId:ctx.departmentId,termId:ctx.termId,name});setSelected(s.id);
       })}>إنشاء السيناريو والشعب</button></div>
     <div className="actions"><Select label="السيناريو الحالي" items={rows.map(s=>({id:s.id,name:s.name+' — '+s.state+' / '+s.solver_status}))}
       value={selected} onChange={setSelected}/></div>
-    {current&&p&&<><div className="actions"><span className="status">الحالة: {current.state} — المحرك: {current.solver_status}</span>
+    {current&&p&&generalStageOnly&&<><ExternalAssignmentsPanel scenario={current}/><button disabled>تشغيل Timefold</button></>}
+    {current&&p&&!generalStageOnly&&<><div className="actions"><span className="status">الحالة: {current.state} — المحرك: {current.solver_status}</span>
       <label>مدة تحسين Timefold (ثوانٍ 1–30)<input type="number" min="1" max="30" step="1"
          value={solverSeconds} onChange={e=>setSolverSeconds(Number(e.target.value))}/></label>
        <label>البدائل لكل مدرب (1–24)<input type="number" min="1" max="24" step="1"
          value={candidateBreadth} onChange={e=>setCandidateBreadth(Number(e.target.value))}/></label>
-       <button disabled={working||!canEdit||current.state!=='DRAFT'||!['NOT_RUN','FAILED'].includes(current.solver_status)||
+       <button disabled={generalStageOnly||working||!canEdit||current.state!=='DRAFT'||!['NOT_RUN','FAILED'].includes(current.solver_status)||
          !Number.isInteger(solverSeconds)||solverSeconds<1||solverSeconds>30||
          !Number.isInteger(candidateBreadth)||candidateBreadth<1||candidateBreadth>24}
          onClick={()=>run(()=>post('/scenarios/'+selected+'/solve/async',{seconds:solverSeconds,candidatesPerInstructor:candidateBreadth}))}>تشغيل Timefold</button>

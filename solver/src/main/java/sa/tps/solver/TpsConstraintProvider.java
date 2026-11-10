@@ -12,8 +12,25 @@ public class TpsConstraintProvider implements ConstraintProvider {
         return new Constraint[]{
                 overlappingSessions(f), instructorOverload(f), exclusiveCourse(f),
                 timetableContactLimit(f), sectionCountLimit(f), preferredSectionCount(f), preferredCourseType(f),
-                preferredCreditedLoad(f), minimizeUncovered(f), preferSundayToWednesday(f), cohortOverlapWarnings(f)
+                preferredCreditedLoad(f), minimizeUncovered(f), preferSundayToWednesday(f), cohortOverlapWarnings(f),refineSchedule(f),campusDayLimit(f),requiredLoads(f)
         };
+    }
+    private Constraint requiredLoads(ConstraintFactory f) {
+        return f.forEach(PlanningTask.class).groupBy(ConstraintCollectors.toList()).join(RefinementContext.class)
+                .filter((tasks,context)->context.requiredLoadViolations(tasks)>0)
+                .penalize(HardSoftScore.ONE_HARD,(tasks,context)->context.requiredLoadViolations(tasks))
+                .asConstraint("Explicit required credited instructor loads");
+    }
+    private Constraint campusDayLimit(ConstraintFactory f) {
+        return f.forEach(PlanningTask.class).groupBy(ConstraintCollectors.toList()).join(RefinementContext.class)
+                .filter((tasks,context)->context.campusViolations(tasks)>0)
+                .penalize(HardSoftScore.ONE_HARD,(tasks,context)->context.campusViolations(tasks))
+                .asConstraint("Maximum actual learner campus days including fixed general meetings");
+    }
+    private Constraint refineSchedule(ConstraintFactory f) {
+        return f.forEach(PlanningTask.class).groupBy(ConstraintCollectors.toList()).join(RefinementContext.class)
+                .penalize(HardSoftScore.ONE_SOFT,(tasks,context)->context.penalty(tasks))
+                .asConstraint("Explicit scenario refinement objectives");
     }
     private Constraint overlappingSessions(ConstraintFactory f) {
         return f.forEachUniquePair(PlanningTask.class)

@@ -36,12 +36,12 @@ test('requested capacities generate exact course populations including the econo
  const result=(index:number)=>buildDraftPlan(createCapacityProjection(base(),projectionProfiles[index]!,counts));
  const first=result(0),second=result(1),third=result(2);
  const sizes=(r:typeof second,code:string)=>r.sections.filter(section=>section.courseCode===code).map(section=>section.students);
- assert.deepEqual(sizes(second,'THE-1'),[100,57]);assert.deepEqual(sizes(second,'MIX-1'),[50,50,50,7]);
+ assert.deepEqual(sizes(second,'THE-1'),[80,77]);assert.deepEqual(sizes(second,'MIX-1'),[40,40,40,37]);
  assert.deepEqual(sizes(second,'PR-1'),[40,40,40,37]);
  assert.deepEqual(sizes(third,'THE-1'),[120,37]);assert.deepEqual(sizes(third,'MIX-1'),[120,37]);
  assert.deepEqual(sizes(third,'PR-1'),[40,40,40,37]);assert.deepEqual(sizes(third,'ECO-1'),[50,50,50,7]);
  for(const scenario of [first,second,third]){
-  assert.deepEqual(sizes(scenario,'ECO-1'),[50,50,50,7]);
+  assert.deepEqual(sizes(scenario,'ECO-1'),scenario===second?[40,40,40,37]:[50,50,50,7]);
   assert.ok(scenario.sections.filter(section=>section.courseCode==='ECO-1').every(section=>section.capacity===50));
  }
  assert.ok(third.sections.filter(section=>section.courseCode==='ECO-1').every(section=>section.capacity===50));
@@ -51,7 +51,8 @@ test('different practical and mixed class sizes share exact anonymous membership
  const mixed=result.sections.find(section=>section.courseCode==='MIX-1'&&section.index===1)!;
  const practical=result.sections.filter(section=>section.courseCode==='PR-1');
  assert.equal(hasSharedBlock(mixed,practical[0]!),true);
- assert.equal(hasSharedBlock(mixed,practical[1]!),true,'40–50 trainees overlap despite different display groups');
+ assert.equal(hasSharedBlock(mixed,practical[1]!),false,'Balanced mixed section ends at 40, where the next practical section starts');
+ assert.equal(hasSharedBlock(result.sections.find(section=>section.courseCode==='MIX-1'&&section.index===2)!,practical[1]!),true);
  assert.equal(hasSharedBlock(mixed,practical[2]!),false);
  const broken=structuredClone(input);broken.courses[0]!.blockSizes![0]!--;
  assert.throws(()=>validateRequest(broken),/exact demand|membership/);

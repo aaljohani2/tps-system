@@ -100,6 +100,11 @@ export interface Policy {
   sessionMaxHours: number;
 }
 export interface PlanRequest {
+  fixedGeneralStage?: import('./fixed-general-stage.js').FixedGeneralStage;
+  stableBlockPlan?: import('./stable-blocks.js').StableBlockPlan;
+  /** Scenario-only provisional source constraints; never an approved external staff roster. */
+  generalCourseSchedule?: import('./general-courses.js').GeneralCourseSchedule;
+  scheduleRefinement?: import('./schedule-refinement.js').ScheduleRefinement;
   scenarioName: string;
   termId: string;
   courses: Course[];
@@ -164,7 +169,7 @@ export interface Gap {
 export interface PlanResult {
   /** Pending support-department demand, excluded from this department's solver/load/gaps. */
   externalSections?: Array<{id:string;courseCode:string;title:string;level:number;students:number;capacity:number;
-    contactHours:number;responsibleDepartment:string|null;blockIds:string[];status:'PENDING_EXTERNAL_ASSIGNMENT'}>;
+    contactHours:number;responsibleDepartment:string|null;blockIds:string[];status:'PENDING_EXTERNAL_ASSIGNMENT';demandOnly?:boolean}>;
   status: 'DRAFT';
   scenarioName: string;
   termId: string;

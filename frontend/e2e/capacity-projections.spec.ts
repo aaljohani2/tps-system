@@ -16,10 +16,14 @@ test('saved next-term scenarios show their own capacities, distribution and econ
   const spec=specs.find(item=>path==='/api/v1/scenarios/'+item.id);
   if(spec){
    const capacity=spec.economics??spec.theory;
-   const sections=Array.from({length:Math.ceil(157/capacity)},(_,index)=>({id:'SEC'+index,
-    courseCode:'ECO',students:Math.min(capacity,157-index*capacity),capacity,level:1,mode:'ONSITE',state:'UNASSIGNED',blockId:'B'+index,instructorId:null}));
+   const sizes=spec.id==='S2'?[40,40,40,37]:[50,50,50,7];
+   const sections=sizes.map((students,index)=>({id:'SEC'+index,
+    courseCode:'ECO',students,capacity,level:1,mode:'ONSITE',state:'UNASSIGNED',blockId:'B'+index,instructorId:null}));
    return json({id:spec.id,name:spec.name,state:'DRAFT',solver_status:'COMPLETED',revision:1,
     input_snapshot:{policy:{ignoreRoomCapacity:true},rooms:[{type:'CLASSROOM'},{type:null}],
+     generalCourseSchedule:spec.id==='S3'?{source:{receivedAt:'2026-11-09'},planningAssumption:'Synthetic explicit planning assumption',
+      issues:[{code:'GENERAL_HOURS_PENDING',message:'Incomplete source'}],locks:[{id:'GEN',courseCode:'GENERAL',externalSectionId:'EXT0',day:'SUN',
+       startMinute:480,endMinute:580,responsibleLabel:'قسم الدراسات العامة',sourceItemId:'الإدارة!B4'}]}:undefined,
      courses:[{code:'ECO',title:'مقدمة في الاقتصاد',level:1,demand:157,theoryHours:3,practicalHours:0,sectionCapacity:capacity},
       {code:'GENERAL',title:'مقدمة تطبيقات الحاسب',level:1,demand:157,theoryHours:1,practicalHours:2,assignmentScope:'EXTERNAL',externalSectionCapacity:40}],
      projection:{label:'تقدير الفصل القادم',newIntake:157,levelStudents:{1:157,2:187,3:110,4:93,5:38},
@@ -38,16 +42,21 @@ test('saved next-term scenarios show their own capacities, distribution and econ
  await expect(summary).toContainText('المشروع الإنتاجي موقوف');
  await expect(summary).toContainText('سعة القاعات غير مقيّدة');
  const external=page.getByRole('region',{name:'المقررات العامة بإسناد خارجي'});
+ const generalTimes=page.getByRole('region',{name:'الأوقات المبدئية للمقررات العامة'});
+ await expect(generalTimes).toContainText('ليس مدربًا واحدًا');
+ await expect(generalTimes).toContainText('المسودة غير جاهزة للاعتماد');
+ await expect(generalTimes.getByRole('row').filter({hasText:'الإدارة!B4'})).toContainText('09:40');
  await expect(external).toContainText('لا تدخل في نصاب مدربي القسم أو عجزه');
- await expect(external.getByRole('row').filter({hasText:'مقدمة تطبيقات الحاسب'})).toContainText('40، 40، 40، 37');
+ await expect(external.getByRole('table',{name:'احتياج المقررات العامة'}).getByRole('row').filter({hasText:'مقدمة تطبيقات الحاسب'})).toContainText('40، 40، 40، 37');
  await expect(external.getByRole('link',{name:'تنزيل كشف الإسناد الخارجي CSV'})).toHaveAttribute('href','/api/v1/scenarios/S3/external.csv');
  await expect(summary.getByRole('row').filter({hasText:'مقدمة تطبيقات الحاسب'})).toHaveCount(0);
  await page.getByRole('combobox',{name:'السيناريو الحالي',exact:true}).selectOption('S2');
- await expect(summary.getByRole('row').filter({hasText:'مقدمة في الاقتصاد'})).toContainText('50، 50، 50، 7');
+ await expect(generalTimes).toHaveCount(0);
+ await expect(summary.getByRole('row').filter({hasText:'مقدمة في الاقتصاد'})).toContainText('40، 40، 40، 37');
  await expect(summary).toContainText('المقرر النظري ذو الشق العملي: 50');
  await page.getByRole('combobox',{name:'السيناريو الحالي',exact:true}).selectOption('S1');
  await expect(summary).toContainText('سعة النظري البحت: 45');
  await expect(summary.getByRole('row').filter({hasText:'مقدمة في الاقتصاد'})).toContainText('50، 50، 50، 7');
- await expect(external.getByRole('row').filter({hasText:'مقدمة تطبيقات الحاسب'})).toContainText('40، 40، 40، 37');
+ await expect(external.getByRole('table',{name:'احتياج المقررات العامة'}).getByRole('row').filter({hasText:'مقدمة تطبيقات الحاسب'})).toContainText('40، 40، 40، 37');
  await expect(external.getByRole('link',{name:'تنزيل كشف الإسناد الخارجي CSV'})).toHaveAttribute('href','/api/v1/scenarios/S1/external.csv');
 });

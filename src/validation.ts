@@ -1,6 +1,10 @@
 import {DAYS, MODES} from './policy.js';
 import type {Course, PlanRequest, Policy, TimeWindow} from './types.js';
 import {sectionCapacity} from './section-capacity.js';
+import {validateGeneralSchedule} from './general-courses.js';
+import {validateRefinement} from './schedule-refinement.js';
+import {validateStableBlocks} from './stable-blocks.js';
+import {validateFixedGeneralStage} from './fixed-general-stage.js';
 
 const positiveInt = (v: number) => Number.isInteger(v) && v > 0;
 const hours = (v: number) => Number.isInteger(v) && v >= 0;
@@ -108,6 +112,7 @@ export function validateRequest(input: PlanRequest): void {
   if (!input.scenarioName?.trim() || !input.termId?.trim()) errors.push('Scenario name and term are required.');
   if (!Array.isArray(input.courses) || !Array.isArray(input.instructors) || !Array.isArray(input.rooms) || !input.policy) throw new Error('courses, instructors, rooms and policy are required.');
   validatePolicy(input.policy, errors);
+  try{validateStableBlocks(input);}catch(e){errors.push(e instanceof Error?e.message:String(e));}
   if(input.cohortBlocks&&(!Array.isArray(input.cohortBlocks)||input.cohortBlocks.some(block=>
     !block.ref||!positiveInt(block.level)||!positiveInt(block.size))||
     new Set(input.cohortBlocks.map(block=>block.ref)).size!==input.cohortBlocks.length))
@@ -116,7 +121,8 @@ export function validateRequest(input: PlanRequest): void {
   for (const c of input.courses) {
     if (codes.has(c.code)) errors.push(`Duplicate course code: ${c.code}`);
     codes.add(c.code);
-    validateCourse(c, input.policy, errors,input.cohortBlocks);
+    validateCourse(c, input.policy, errors,c.assignmentScope==='EXTERNAL'&&input.stableBlockPlan?.smallBlockClosure?
+      input.stableBlockPlan.smallBlockClosure.previousBlocks:input.cohortBlocks);
   }
   const ids = new Set<string>();
   for (const i of input.instructors) {
@@ -149,4 +155,11 @@ export function validateRequest(input: PlanRequest): void {
     if (r.available?.some(w => !validWindow(w,!!input.policy.lecturePeriods))) errors.push(`Invalid room availability: ${r.id}`);
   }
   if (errors.length) throw new Error(errors.join('\n'));
+  validateGeneralSchedule(input);
+  if(input.fixedGeneralStage){
+    validateFixedGeneralStage(input.fixedGeneralStage);
+    if(input.courses.length||input.instructors.length||input.rooms.length||input.cohortBlocks?.length||input.stableBlockPlan||input.generalCourseSchedule||input.scheduleRefinement)
+      throw Error('General-times-only stage cannot contain department scheduling assignments');
+  }
+  validateRefinement(input);
 }

@@ -13,6 +13,9 @@ import {hasSharedBlock} from './cohort-grouping.js';
 import {typePreference,instructorTotals,exceedsTeachingLimits} from './instructor-rules.js';
 import {trainingHours,hardSessionConflict,validPeriodSession} from './lecture-periods.js';
 import {makePeriodSessions} from './period-scheduler.js';
+import {conflictsWithGeneral} from './general-courses.js';
+import type {RefinementWeights} from './schedule-refinement.js';
+import {stableGeneralLocks} from './stable-blocks.js';
 
 const DAYS: Day[] = ['SUN', 'MON', 'TUE', 'WED', 'THU'];
 const round = (n: number) => Math.round((n + Number.EPSILON) * 1000) / 1000;
@@ -43,7 +46,8 @@ export interface AtomicTask {
   choices: AtomicCandidate[];
   initialCandidateId?: string;
 }
-export interface SolverPayload {schemaVersion: 'tps.timefold.v1'; tasks: AtomicTask[]; seconds: number}
+export interface SolverPayload {schemaVersion: 'tps.timefold.v1'; tasks: AtomicTask[]; seconds: number;
+ refinement?:{blockSizes:Record<string,number>;fixedSessions:Session[];referenceSessions:Session[];weights:RefinementWeights;maxCampusDays?:number;requiredCreditedLoads?:Record<string,number>};seed?:number}
 export interface SolverChoice {taskId: string; candidateId: string}
 export interface SolverResponse {schemaVersion: 'tps.timefold.v1'; choices: SolverChoice[]; hardScore: number; softScore: number}
 
@@ -124,7 +128,7 @@ function makeSessions(c: Course, sec: Section, inst: Instructor, input: PlanRequ
 }
 
 export function prepareSolverPayload(input: PlanRequest, maxChoicesPerInstructor = 6): SolverPayload {
-  if (!Number.isInteger(maxChoicesPerInstructor) || maxChoicesPerInstructor < 1 || maxChoicesPerInstructor > 24) throw new Error('Invalid candidate limit');
+  if (!Number.isInteger(maxChoicesPerInstructor) || maxChoicesPerInstructor < 1 || maxChoicesPerInstructor > (input.stableBlockPlan?48:24)) throw new Error('Invalid candidate limit');
   const draft = buildDraftPlan(input); // validates course/policy/instructor/room schema.
   if (draft.sections.length > 250) throw new Error('Experimental optimizer supports at most 250 sections per scenario.');
   const courses = new Map(input.courses.map(c => [c.code, c]));
@@ -144,21 +148,45 @@ export function prepareSolverPayload(input: PlanRequest, maxChoicesPerInstructor
       uncovered: true, sessions: []
     }];
     let initialCandidateId=choices[0]!.id;
-    for (const inst of input.instructors.filter(i => eligible(i, course))) {
+    const referenceInstructor=input.scheduleRefinement?.referenceInstructors[sec.id];
+    for (const inst of input.instructors.filter(i => eligible(i, course)&&
+      (!input.scheduleRefinement?.keepInstructors||!referenceInstructor||i.id===referenceInstructor))) {
       const count = course.mode === 'SELF_PACED' ? 1 : maxChoicesPerInstructor;
       const signatures = new Set<string>();
-      const initial=seedFromPreview&&sec.instructorId===inst.id&&sec.state!=='UNASSIGNED';
+      const sourceReference=input.scheduleRefinement?.referenceSessions.filter(s=>s.sectionId===sec.id&&s.instructorId===inst.id)
+        .map(s=>({...s,blockId:sec.blockId,blockIds:sec.blockIds}));
+      const warmReference=(input.scheduleRefinement?.initialSessions??input.scheduleRefinement?.referenceSessions)?.filter(s=>s.sectionId===sec.id&&s.instructorId===inst.id)
+        .map(s=>({...s,blockId:sec.blockId,blockIds:sec.blockIds}));
+      const validReference=(reference:Session[]|undefined)=>reference?.length&&reference.every(s=>s.courseCode===course.code&&
+        available(input.policy.slots,s.day,s.start,s.end)&&available(inst.available,s.day,s.start,s.end)&&
+        (!input.policy.lecturePeriods||validPeriodSession(s,input.policy))&&
+        (s.mode==='REMOTE'?s.roomId===null:input.rooms.some(r=>r.id===s.roomId&&compatible(r,course,s.component,sec.students,input.policy.ignoreRoomCapacity===true)&&available(r.available,s.day,s.start,s.end))))&&
+        (['THEORY','PRACTICAL'] as const).every(component=>Math.abs(reference.filter(s=>s.component===component).reduce((n,s)=>n+trainingHours(s,input.policy),0)-
+          (component==='THEORY'?course.theoryHours:course.practicalHours))<1e-8)&&!conflictsWithGeneral(input,reference)&&
+        !reference.some((a,i)=>reference.slice(i+1).some(b=>hardSessionConflict(a,b,input.policy)));
+      const reference=validReference(warmReference)?warmReference:sourceReference;
+      const referenceValid=validReference(reference);
+      const initial=!!referenceValid||seedFromPreview&&sec.instructorId===inst.id&&sec.state!=='UNASSIGNED'&&!conflictsWithGeneral(input,draft.sessions.filter(s=>s.sectionId===sec.id));
       if(initial){
-        const sessions=draft.sessions.filter(session=>session.sectionId===sec.id);
+        const sessions=referenceValid?reference!:draft.sessions.filter(session=>session.sectionId===sec.id);
         initialCandidateId=`${sec.id}:${inst.id}:INITIAL`;
         signatures.add(sessions.map(s=>[s.day,s.start,s.end,s.roomId].join('/')).join('|'));
         choices.push({id:initialCandidateId,sectionId:sec.id,courseCode:course.code,instructorId:inst.id,
           creditedMilli:Math.round(sec.creditedLoad*1000),effectiveLimitMilli:Math.round((inst.maxLoad+(inst.overload?.additionalHours??0))*1000),
           uncovered:false,sessions,...limits(inst,course)});
       }
-      for (let seed = 0; seed < count-(initial?1:0); seed++) {
+      if(validReference(sourceReference)){
+        const sig=sourceReference!.map(s=>[s.day,s.start,s.end,s.roomId].join('/')).join('|');
+        if(!signatures.has(sig)){
+          signatures.add(sig);choices.push({id:`${sec.id}:${inst.id}:REFERENCE`,sectionId:sec.id,courseCode:course.code,instructorId:inst.id,
+            creditedMilli:Math.round(sec.creditedLoad*1000),effectiveLimitMilli:Math.round((inst.maxLoad+(inst.overload?.additionalHours??0))*1000),
+            uncovered:false,sessions:sourceReference!,...limits(inst,course)});
+        }
+      }
+      const reservedChoices=choices.filter(choice=>choice.instructorId===inst.id).length;
+      for (let seed = 0; seed < Math.max(0,count-reservedChoices); seed++) {
         const sessions = makeSessions(course, sec, inst, input, seed);
-        if (sessions === null) continue;
+        if (sessions === null||conflictsWithGeneral(input,sessions)) continue;
         const sig = sessions.map(s => [s.day, s.start, s.end, s.roomId].join('/')).join('|');
         if (signatures.has(sig)) continue;
         signatures.add(sig);
@@ -172,11 +200,21 @@ export function prepareSolverPayload(input: PlanRequest, maxChoicesPerInstructor
         });
       }
     }
+    const requiredCoverage=input.scheduleRefinement?.requiredCourseCodes?.includes(course.code);
+    if(requiredCoverage){
+      choices.splice(0,1);if(!choices.length)throw Error('No candidate for required course section: '+sec.id);
+      if(!choices.some(c=>c.id===initialCandidateId))initialCandidateId=choices[0]!.id;
+    }
     return {id: sec.id, courseCode: course.code, level: course.level, contactHours: sec.contactHours,
       ...(input.policy.priorityCourseCodes?.includes(course.code)?{priorityCoverage:true}:{}),
       exclusiveInstructor: course.exclusiveInstructor ?? false, choices,...(seedFromPreview?{initialCandidateId}:{})};
   });
-  return {schemaVersion: 'tps.timefold.v1', tasks, seconds: 5};
+  const refinement=input.scheduleRefinement??(input.stableBlockPlan?{seed:20261109,referenceSessions:[],weights:{studentGaps:10,studentDays:100,trainerGaps:1,trainerDays:1,changes:2,roomCount:1,coveragePenalty:1000000}}:undefined);
+  return {schemaVersion: 'tps.timefold.v1', tasks, seconds: 5,...(refinement?{seed:refinement.seed,refinement:{
+    blockSizes:Object.fromEntries((input.cohortBlocks??[]).map(b=>[b.ref,b.size])),referenceSessions:refinement.referenceSessions,
+    weights:refinement.weights,...(input.scheduleRefinement?.requiredCreditedLoads?{requiredCreditedLoads:input.scheduleRefinement.requiredCreditedLoads}:{}),...(input.stableBlockPlan?{maxCampusDays:2}:{}),fixedSessions:[...(input.generalCourseSchedule?.locks??[]),...stableGeneralLocks(input)].map(l=>({
+      id:l.id,sectionId:l.externalSectionId,courseCode:l.courseCode,component:'THEORY' as const,mode:l.mode,day:l.day,
+      start:l.startMinute/60,end:l.endMinute/60,roomId:l.roomId,instructorId:l.instructorId??'',blockId:null,blockIds:l.blockIds,trainingHours:l.trainingHours}))}}:{})};
 }
 
 export function applySolverChoice(input: PlanRequest, payload: SolverPayload, response: SolverResponse): PlanResult {
@@ -199,6 +237,7 @@ export function applySolverChoice(input: PlanRequest, payload: SolverPayload, re
     if (!chosen) throw new Error(`Missing solver choice: ${section.id}`);
     section.instructorId = chosen.instructorId;
     if (chosen.uncovered) {
+      if(input.scheduleRefinement?.requiredCourseCodes?.includes(section.courseCode))throw Error('Solver left a required course uncovered');
       section.state = 'UNASSIGNED';
       gaps.push({sectionId: section.id, courseCode: section.courseCode, level: section.level,
         students: section.students, contactHours: section.contactHours, equivalentLoad: section.creditedLoad,
@@ -208,6 +247,8 @@ export function applySolverChoice(input: PlanRequest, payload: SolverPayload, re
     const instructor = input.instructors.find(i => i.id === chosen.instructorId);
     const course = input.courses.find(c => c.code === section.courseCode)!;
     if (!instructor || !eligible(instructor, course)) throw new Error('Solver returned ineligible instructor');
+    if(input.scheduleRefinement?.keepInstructors&&input.scheduleRefinement.referenceInstructors[section.id]&&
+      input.scheduleRefinement.referenceInstructors[section.id]!==instructor.id)throw new Error('Solver changed retained instructor');
     const owner = courseOwner.get(course.code);
     if (course.exclusiveInstructor && owner && owner !== instructor.id) throw new Error('Solver broke course exclusivity');
     courseOwner.set(course.code, instructor.id);
@@ -223,6 +264,8 @@ export function applySolverChoice(input: PlanRequest, payload: SolverPayload, re
     usedLoad.set(instructor.id, credited);
     sessions.push(...chosen.sessions);
   }
+  if(conflictsWithGeneral(input,sessions))throw new Error('Solver overlaps a fixed provisional general-course meeting');
+  for(const [id,hours] of Object.entries(input.scheduleRefinement?.requiredCreditedLoads??{}))if(Math.abs((usedLoad.get(id)??0)/1000-hours)>1e-8)throw Error('Solver did not satisfy required instructor load: '+id);
   for (const a of sessions) {
     const instructor = input.instructors.find(i => i.id === a.instructorId)!;
     if ((!input.policy.lecturePeriods&&a.day === 'THU' && a.end > 10) || !available(instructor.available, a.day, a.start, a.end)) throw new Error('Invalid day/availability');
@@ -274,8 +317,8 @@ export async function optimizeWithTimefold(input: PlanRequest, opts: {jar?: stri
   if (!Number.isInteger(seconds)||seconds<1||seconds>30)
     throw new Error('Solver seconds must be an integer between 1 and 30');
   const candidateCount=opts.candidatesPerInstructor??6;
-  if (!Number.isInteger(candidateCount)||candidateCount<1||candidateCount>24)
-    throw new Error('Solver candidates per instructor must be between 1 and 24');
+  if (!Number.isInteger(candidateCount)||candidateCount<1||candidateCount>(input.stableBlockPlan?48:24))
+    throw new Error(`Solver candidates per instructor must be between 1 and ${input.stableBlockPlan?48:24}`);
   const jar = resolve(opts.jar ?? process.env.TIMEFOLD_JAR ?? 'solver/target/tps-timefold-0.2.0-jar-with-dependencies.jar');
   await access(jar); // throws ENOENT when not installed
   await opts.onStage?.('PREPARING');

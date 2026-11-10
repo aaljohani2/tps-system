@@ -3,6 +3,7 @@ import {packTheoryBlocks} from './cohort-grouping.js';
 import {validateRequest} from './validation.js';
 import {applyCourseCapacityException} from './course-capacity-exception.js';
 import {applyExternalAssignments} from './external-assignment.js';
+import {rebalanceSecondScenario} from './section-balancing.js';
 import type {PlanRequest,Course} from './types.js';
 
 export const projectionProfiles=[
@@ -62,5 +63,5 @@ export function createCapacityProjection(base:PlanRequest,profile:ProjectionProf
       'التعاوني خارج شعب المحاضرات؛ مجموعات الإشراف غير معتمدة بعد.',
       'المشروع الإنتاجي موقوف؛ سعات هذا السيناريو افتراضات تخطيطية وليست إثباتًا لسعة القاعات.'],
     rules:{theory:profile.theory,mixed:profile.mixed,practical:profile.practical,economics:profile.economics}};
-  validateRequest(input);return applyExternalAssignments(applyCourseCapacityException(input,economics[0]!.code,profile.economics));
+  validateRequest(input);return rebalanceSecondScenario(applyExternalAssignments(applyCourseCapacityException(input,economics[0]!.code,profile.economics)));
 }

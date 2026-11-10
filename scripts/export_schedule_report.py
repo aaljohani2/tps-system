@@ -26,6 +26,8 @@ def safe(value):
     return value
 
 def status(report):
+    if report.get('externalDemandOnly'):
+        return 'مسودة غير مكتملة؛ انتهى تشغيل Timefold مع نواقص تغطية'
     state = {'DRAFT': 'مسودة تخطيطية', 'APPROVED': 'معتمد داخليًا', 'UNDER_REVIEW': 'تحت المراجعة'}.get(report['metadata']['state'], report['metadata']['state'])
     solver = 'حل Timefold مكتمل' if report['metadata']['solverStatus'] == 'COMPLETED' else 'معاينة لم يكتمل تحسينها'
     return f'{state}، {solver}'
@@ -38,14 +40,19 @@ def cell_lines(meetings, kind):
     for meeting in meetings:
         if lines:
             lines.append('')
-        lines += [meeting['title'], f"{meeting['courseCode']}، {meeting['component']}، شعبة {meeting['sectionNumber']}",
+        section_label = meeting.get('sectionLabel') or f"شعبة {meeting['sectionNumber']}"
+        lines += [meeting['title'], f"{meeting['courseCode']}، {meeting['component']}، {section_label}",
                   f"{clock(meeting['startMinute'])} - {clock(meeting['endMinute'])}"]
+        if meeting.get('mode'):
+            lines.append('النمط: ' + ('حضوري' if meeting['mode'] == 'ONSITE' else 'عن بُعد'))
         if kind != 'instructors':
             lines.append('المدرب: ' + meeting['instructor'])
         if kind != 'rooms':
             lines.append('القاعة: ' + meeting['roomCode'])
         if meeting['warning']:
             lines.append('تنبيه تداخل اقتصاد مسموح')
+        if meeting.get('sourceRef'):
+            lines.append('مبدئي: ' + meeting['sourceRef'])
     return lines
 
 def export_xlsx(report):
@@ -105,7 +112,8 @@ def export_xlsx(report):
     heading(overview, report['title'], report['metadata']['scenarioName'])
     summary = report['summary']
     write(overview, 6, ['شعب القسم', summary['departmentSections'], 'المجدول', summary['scheduledSections'], 'غير المغطى', summary['gaps']])
-    write(overview, 7, ['شعب عامة خارجية', summary['externalSections'], 'خارج نصاب القسم', None, 'المتدربون', summary['studentCount']])
+    external_label = 'احتياجات بلوكات عامة' if report.get('externalDemandOnly') else 'شعب عامة خارجية'
+    write(overview, 7, [external_label, summary['externalSections'], 'خارج نصاب القسم', None, 'المتدربون', summary['studentCount']])
     write(overview, 9, ['الرمز', 'المدرب أو المجموعة أو القاعة', 'الشعب المجدولة', 'ساعات تدريبية', 'الوقت الفعلي', 'عدد المتدربين'], NAVY, True, 28)
     overview.freeze_panes = 'C10'
     overview.print_title_rows = '1:9'
@@ -127,6 +135,13 @@ def export_xlsx(report):
         sheet['F5'].number_format = '[h]:mm'
         if entity.get('students') is not None:
             write(sheet, 6, ['عدد المتدربين', entity['students']])
+        campus_notes = [n for n in entity['notes'] if n.startswith('أيام القدوم للكلية:')]
+        if campus_notes:
+            sheet.merge_cells('A7:F7')
+            sheet['A7'] = safe(campus_notes[0])
+            sheet['A7'].alignment = Alignment(horizontal='right', vertical='center', wrap_text=True)
+            sheet['A7'].font = Font(name='Arial', size=10, bold=True, color=NAVY)
+            sheet.row_dimensions[7].height = 32
         write(sheet, 8, ['بداية اللقاء'] + [label for _, label in DAYS], NAVY, True, 24)
         row = 9
         for start in starts(entity):
@@ -136,7 +151,8 @@ def export_xlsx(report):
                 meetings = [m for m in entity['meetings'] if m['day'] == day and m['startMinute'] == start]
                 cells.append(meetings)
                 values.append('\n'.join(cell_lines(meetings, report['kind'])))
-            write(sheet, row, values, height=76)
+            line_count = max((sum(max(1, (len(line)+26)//27) for line in cell.split('\n')) for cell in values[1:]), default=1)
+            write(sheet, row, values, height=max(76, line_count*11+12))
             sheet.cell(row, 1).number_format = 'hh:mm'
             for col, meetings in enumerate(cells, 2):
                 if meetings:
@@ -145,7 +161,7 @@ def export_xlsx(report):
                 sheet.cell(row, col).alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
                 sheet.cell(row, col).border = Border(bottom=Side(style='hair', color='D8E0E7'))
             row += 1
-        notes = list(entity['notes'])
+        notes = [n for n in entity['notes'] if not n.startswith('أيام القدوم للكلية:')]
         if not entity['meetings']:
             notes.append('لا توجد محاضرات أسبوعية مسندة لهذه الجهة في اللقطة الحالية.')
         for note in notes:
@@ -163,7 +179,11 @@ def export_xlsx(report):
                       AMBER if item['status'].startswith('بانتظار') else RED, height=30)
         sheet.freeze_panes = 'B9'
         sheet.print_area = f'A1:F{row}'
-        sheet.page_setup.fitToHeight = 1
+        if any(m.get('sourceRef') for m in entity['meetings']):
+            sheet.page_setup.fitToHeight = 0
+            sheet.print_title_rows = '1:8'
+        else:
+            sheet.page_setup.fitToHeight = 1
         write(overview, index, [entity['id'], entity['title'], entity['sectionCount'], entity['trainingHours'], entity['clockMinutes'] / 1440, entity.get('students')],
               'F2F5F8' if index % 2 == 0 else None)
         overview.cell(index, 5).number_format = '[h]:mm'
@@ -178,14 +198,18 @@ def export_xlsx(report):
         row += 1
     overview.print_area = f'A1:F{row}'
     detail = book.create_sheet('المحاضرات')
-    setup(detail, [10, 20, 10, 9, 9, 14, 25, 10, 18, 18, 22, 12, 12])
-    write(detail, 1, ['الجهة', 'الاسم', 'اليوم', 'من', 'إلى', 'المقرر', 'اسم المقرر', 'المكون', 'الشعبة التخطيطية', 'المدرب', 'القاعة', 'ساعات تدريبية', 'دقائق فعلية'], NAVY, True, 34)
+    has_general = any(m.get('sourceRef') for entity in report['entities'] for m in entity['meetings'])
+    setup(detail, [10, 20, 10, 9, 9, 14, 25, 10, 18, 18, 22, 12, 12] + ([22, 30] if has_general else []))
+    if has_general:
+        detail.page_setup.paperSize = detail.PAPERSIZE_A3
+    write(detail, 1, ['الجهة', 'الاسم', 'اليوم', 'من', 'إلى', 'المقرر', 'اسم المقرر', 'المكون', 'الشعبة التخطيطية', 'المدرب', 'القاعة', 'ساعات تدريبية', 'دقائق فعلية'] + (['مرجع المصدر', 'حالة الربط والوقت'] if has_general else []), NAVY, True, 34)
     row = 2
     for entity in report['entities']:
         for meeting in entity['meetings']:
             write(detail, row, [entity['id'], entity['title'], dict(DAYS).get(meeting['day'], meeting['day']), meeting['startMinute']/1440,
                   meeting['endMinute']/1440, meeting['courseCode'], meeting['title'], meeting['component'], meeting['sectionId'],
-                  meeting['instructor'], meeting['room'], meeting['trainingHours'], meeting['clockMinutes']], height=42)
+                  meeting['instructor'], meeting['room'], meeting['trainingHours'], meeting['clockMinutes']] +
+                  ([meeting.get('sourceRef', 'TPS'), meeting.get('timingStatus', 'Timefold')] if has_general else []), height=42)
             detail.cell(row, 4).number_format = detail.cell(row, 5).number_format = 'hh:mm'
             row += 1
     detail.auto_filter.ref = detail.dimensions
@@ -196,7 +220,7 @@ def export_xlsx(report):
     write(pending, 1, ['المقرر', 'اسم المقرر', 'الشعبة التخطيطية', 'المستوى', 'طلاب الشعبة', 'ساعات تدريبية', 'الحالة'], NAVY, True, 28)
     for row, item in enumerate(report['pending'], 2):
         write(pending, row, [item['courseCode'], item['title'], item['sectionId'], item['level'], item['students'], item['trainingHours'], item['status']],
-              AMBER if item['status'].startswith('بانتظار') else RED, height=27)
+              AMBER if item['status'].startswith('بانتظار') else RED, height=42 if has_general else 27)
     pending.auto_filter.ref = pending.dimensions
     pending.freeze_panes = 'C2'
     pending.print_title_rows = '1:1'
@@ -305,7 +329,8 @@ def export_pdf(report):
         return y
     summary=report['summary']
     y=new_page('ملخص التقرير')
-    y=text(f"شعب القسم {summary['departmentSections']}، المجدول {summary['scheduledSections']}، غير المغطى {summary['gaps']}، الشعب العامة الخارجية {summary['externalSections']}.",width-margin,y,usable,10)
+    external_label = 'احتياجات بلوكات عامة' if report.get('externalDemandOnly') else 'الشعب العامة الخارجية'
+    y=text(f"شعب القسم {summary['departmentSections']}، المجدول {summary['scheduledSections']}، غير المغطى {summary['gaps']}، {external_label} {summary['externalSections']}.",width-margin,y,usable,10)
     if summary['studentCount'] is not None:
         y=text('إجمالي المتدربين، شامل التعاوني: '+str(summary['studentCount']),width-margin,y-3,usable,10)
     y=table(y-10,['الرمز','المدرب أو المجموعة أو القاعة','الشعب','تدريبية','الوقت الفعلي','المتدربون'],
@@ -323,6 +348,9 @@ def export_pdf(report):
         if entity.get('students') is not None:
             stats+=' عدد المتدربين '+str(entity['students'])+'.'
         y=text(stats,width-margin,y,usable,9)
+        for note in entity['notes']:
+            if note.startswith('أيام القدوم للكلية:'):
+                y=text(note,width-margin,y-4,usable,10,True)
         rows=[];fills=[]
         for start in starts(entity):
             row=[clock(start)];colors=[None]
@@ -332,7 +360,7 @@ def export_pdf(report):
                 colors.append(AMBER if any(m['warning'] for m in meetings) else GREEN if meetings and all(m['component']=='عملي' for m in meetings) else BLUE if meetings else None)
             rows.append(row);fills.append(colors)
         y=table(y-9,['البداية']+[name for _,name in DAYS],rows,[54]+[(usable-54)/5]*5,entity['title'],fills,size=8.5)
-        for note in entity['notes']+([] if entity['meetings'] else ['لا توجد محاضرات أسبوعية مسندة في هذه اللقطة.']):
+        for note in [n for n in entity['notes'] if not n.startswith('أيام القدوم للكلية:')]+([] if entity['meetings'] else ['لا توجد محاضرات أسبوعية مسندة في هذه اللقطة.']):
             y=text(note,width-margin,y-15,usable,9)
         if entity['pending']:
             if y<85:
@@ -346,7 +374,7 @@ def export_pdf(report):
         table(y,['المقرر','اسم المقرر','الشعبة التخطيطية','المستوى','طلاب الشعبة','الحالة'],
             [[p['courseCode'],p['title'],p['sectionId'],str(p['level']),str(p['students']),p['status']] for p in report['pending']],
             [90,usable-450,145,50,55,110],'الشعب غير المغطاة والإسناد الخارجي',size=8)
-    significant=[i for i in report['issues'] if i['code'] in ('ECONOMICS_COHORT_OVERLAP','TIMETABLE_COLLISION','ROOM_OCCUPIED','TRAINER_COLLISION','INVALID_TIME')]
+    significant=[i for i in report['issues'] if (report.get('externalDemandOnly') and i['severity']=='BLOCKER') or i['code'] in ('ECONOMICS_COHORT_OVERLAP','TIMETABLE_COLLISION','ROOM_OCCUPIED','TRAINER_COLLISION','INVALID_TIME','GENERAL_INTEGRATION_INCOMPLETE','GENERAL_MAPPING_ASSUMED')]
     if significant:
         y=new_page('تنبيهات الجدولة')
         table(y,['الخطورة','التفاصيل'],[[i['severity'],i['message']] for i in significant],[90,usable-90],'تنبيهات الجدولة')
