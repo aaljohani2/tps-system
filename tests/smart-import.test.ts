@@ -21,9 +21,9 @@ test('Unicode Excel and legacy Arabic CSV decode locally and binary/corrupt quot
   assert.throws(()=>readSmartCsv(Buffer.from([0,1,2])),/encoding/);
 });
 test('college prefixes match the same location only; generic and different colleges never merge',()=>{
-  assert.equal(sameCollege('كلية رجال ألمع','الكلية التقنية برجال ألمع'),true);
-  assert.equal(sameCollege('كلية رجال ألمع','الكلية التقنية بأبها'),false);
-  assert.equal(sameCollege('الكلية التقنية','كلية رجال ألمع'),false);
+  assert.equal(sameCollege('كلية مدينة المثال','الكلية التقنية بمدينة المثال'),true);
+  assert.equal(sameCollege('كلية مدينة المثال','الكلية التقنية بمدينة أخرى'),false);
+  assert.equal(sameCollege('الكلية التقنية','كلية مدينة المثال'),false);
   assert.equal(isGenericCollege('الكلية التقنية'),true);
 });
 test('curriculum finds shifted headers, repeated export headings and invisible RTL marks',()=>{
@@ -40,10 +40,10 @@ test('completed-only reports never become current registrations when no register
 });
 test('conflicting timetable capacities are reviewable and cannot be chosen by row order',()=>{
   const rows=[['الوحدة التدريبية','رمز القاعة','وصف القاعة','السعة','المسجلين','ساعات الاتصال'],
-    ['كلية رجال ألمع','0001','قاعة تدريب','40','35','3'],
-    ['كلية رجال ألمع','0001','قاعة تدريب','50','35','3'],
-    ['كلية رجال ألمع','0001','قاعة تدريب','40','35','3']];
-  const target={college:'الكلية التقنية برجال ألمع',department:'قسم تجريبي'};
+    ['كلية مدينة المثال','0001','قاعة تدريب','40','35','3'],
+    ['كلية مدينة المثال','0001','قاعة تدريب','50','35','3'],
+    ['كلية مدينة المثال','0001','قاعة تدريب','40','35','3']];
+  const target={college:'الكلية التقنية بمدينة المثال',department:'قسم تجريبي'};
   const result=discoverRayatResources([{name:'any-name',rows}],target,{reviewConflicts:true});
   assert.equal(result.rooms.length,1);assert.equal(result.rooms[0]?.capacity,null);
   assert.deepEqual(result.rooms[0]?.capacityCandidates,[40,50]);
@@ -55,8 +55,8 @@ test('conflicting timetable capacities are reviewable and cannot be chosen by ro
 test('trainee timetable room aliases discover facilities without inventing trainer identifiers or capacities',()=>{
   const result=discoverRayatResources([{name:'renamed',rows:[
     ['الوحدة التدريبية','القسم','الرقم التدريبي','الغرفة','اسم الغرفة','المدربـ/ـه','المسجلين'],
-    ['كلية رجال ألمع','قسم تجريبي','0001','0010','معمل حاسب','اسم تجريبي','40']
-  ]}],{college:'الكلية التقنية برجال ألمع',department:'قسم تجريبي'},{reviewConflicts:true});
+    ['كلية مدينة المثال','قسم تجريبي','0001','0010','معمل حاسب','اسم تجريبي','40']
+  ]}],{college:'الكلية التقنية بمدينة المثال',department:'قسم تجريبي'},{reviewConflicts:true});
   assert.equal(result.rooms[0]?.code,'0010');assert.equal(result.rooms[0]?.capacity,null);
   assert.equal(result.instructors.length,0);
 });

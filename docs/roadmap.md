@@ -16,7 +16,7 @@
 - `Scheduling`: Use fractional-hour resolution where institutional schedules require it, and verify real cohort membership.
 - `Operations`: Persistent scenario store, authenticated RTL admin, RBAC and audit log.
 
-**Definition of done:** deterministic regression fixtures, zero hard violations in approved outputs, explicit uncovered demand and documented authorization. Test with sanitized term 144720 data, **not** personal student data.
+**Definition of done:** deterministic regression fixtures, zero hard violations in approved outputs, explicit uncovered demand and documented authorization. Test with synthetic term data, **not** personal student data.
 
 ### Current blockers (v0.2)
 - Java Maven unavailable in local execution environment; cannot claim Timefold binary works until Java CI is green.

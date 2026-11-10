@@ -7,12 +7,12 @@ test('automatic planning journey asks for source files and renders calculated gr
     const path=new URL(route.request().url()).pathname;
     const json=(value:unknown)=>route.fulfill({status:200,contentType:'application/json',body:JSON.stringify(value)});
     if(path==='/api/v1/auth/me')return json({id:'admin',username:'synthetic',role:'SYSTEM_ADMIN',collegeId:null,departmentId:null,csrfToken:'token'});
-    if(path==='/api/v1/programs')return json([{id:'program',code:'BUS',name:'تقنية الأعمال'}]);
-    if(path.endsWith('/plan/preview'))return json({sheet:'CSV',curriculum:{metadata:{department:'تقنية الأعمال'},sourceRows:26,warnings:[],
-      levels:[1,2,3,4,5].map((level,index)=>({level,courses:Array.from({length:index===4?2:6},(_,i)=>({code:`C${level}-${i}`,normalizedCode:`C${level}-${i}`,title:`مقرر ${level}-${i}`,level,theoryHours:index===4?0:3,practicalHours:0,tutorialHours:0,responsibleDepartment:'تقنية الأعمال',alternativeGroup:index===4?'PATH-5':null,specialKind:index===4?'COOPERATIVE_TRAINING':'REGULAR'}))})),
-      courses:[...Array.from({length:24},(_,i)=>({code:`C${Math.floor(i/6)+1}-${i%6}`,normalizedCode:`C${Math.floor(i/6)+1}-${i%6}`,title:`مقرر ${i}`,level:Math.floor(i/6)+1,theoryHours:3,practicalHours:0,tutorialHours:0,responsibleDepartment:'تقنية الأعمال',alternativeGroup:null,specialKind:'REGULAR'})),
-        {code:'COOP-5',normalizedCode:'COOP-5',title:'التدريب التعاوني',level:5,theoryHours:0,practicalHours:0,tutorialHours:0,responsibleDepartment:'تقنية الأعمال',alternativeGroup:'PATH-5',specialKind:'COOPERATIVE_TRAINING'},
-        {code:'PROJ-5',normalizedCode:'PROJ-5',title:'المشروع الإنتاجي',level:5,theoryHours:0,practicalHours:0,tutorialHours:0,responsibleDepartment:'تقنية الأعمال',alternativeGroup:'PATH-5',specialKind:'PRODUCTION_PROJECT'}]}});
+    if(path==='/api/v1/programs')return json([{id:'program',code:'BUS',name:'التخصص التجريبي'}]);
+    if(path.endsWith('/plan/preview'))return json({sheet:'CSV',curriculum:{metadata:{department:'التخصص التجريبي'},sourceRows:26,warnings:[],
+      levels:[1,2,3,4,5].map((level,index)=>({level,courses:Array.from({length:index===4?2:6},(_,i)=>({code:`C${level}-${i}`,normalizedCode:`C${level}-${i}`,title:`مقرر ${level}-${i}`,level,theoryHours:index===4?0:3,practicalHours:0,tutorialHours:0,responsibleDepartment:'التخصص التجريبي',alternativeGroup:index===4?'PATH-5':null,specialKind:index===4?'COOPERATIVE_TRAINING':'REGULAR'}))})),
+      courses:[...Array.from({length:24},(_,i)=>({code:`C${Math.floor(i/6)+1}-${i%6}`,normalizedCode:`C${Math.floor(i/6)+1}-${i%6}`,title:`مقرر ${i}`,level:Math.floor(i/6)+1,theoryHours:3,practicalHours:0,tutorialHours:0,responsibleDepartment:'التخصص التجريبي',alternativeGroup:null,specialKind:'REGULAR'})),
+        {code:'COOP-5',normalizedCode:'COOP-5',title:'التدريب التعاوني',level:5,theoryHours:0,practicalHours:0,tutorialHours:0,responsibleDepartment:'التخصص التجريبي',alternativeGroup:'PATH-5',specialKind:'COOPERATIVE_TRAINING'},
+        {code:'PROJ-5',normalizedCode:'PROJ-5',title:'المشروع الإنتاجي',level:5,theoryHours:0,practicalHours:0,tutorialHours:0,responsibleDepartment:'التخصص التجريبي',alternativeGroup:'PATH-5',specialKind:'PRODUCTION_PROJECT'}]}});
     if(path.endsWith('/plan/commit'))return json({planId:'plan-version',records:26,previousPlanId:null});
     if(path.endsWith('/history/preview'))return json({sheet:'CSV',counts:{1:187,2:110,3:93,4:38,5:76},warnings:[],settings:[],courseCount:25,
       detection:{kind:'COURSE_REGISTRATIONS',strategy:'ALL_TRAINEE_ROWS',uniqueTrainees:504,matchedTrainees:504,matchedRows:4483,ignoredRows:0,
@@ -20,7 +20,7 @@ test('automatic planning journey asks for source files and renders calculated gr
     if(path.endsWith('/calculate'))return json({missingInputs:[],totals:{academicGroups:2,trainingComponents:2,contactHours:6},courses:[{
       code:'C1-0',title:'مبادئ إدارة الأعمال',level:1,demand:165,demandSource:'مصنف سابق — المقررات',confidence:'MEDIUM',historical:true,
       mode:'REMOTE_THEORY',capacity:100,academicGroups:2,groupSizes:[100,65],components:{theory:2,practical:0},contactHours:6,
-      complete:true,resourceOwner:'تقنية الأعمال',discrepancy:null,note:null}]});
+      complete:true,resourceOwner:'التخصص التجريبي',discrepancy:null,note:null}]});
     if(path.endsWith('/materialize'))return json({programId:'program',demandRecords:25,cohorts:5,blocks:14,assignments:72,
       blockCapacityByLevel:{1:40,2:40,3:40,4:40,5:40},scenarioId:'scenario-auto',
       scenario:{state:'DRAFT',solverStatus:'NOT_RUN',metrics:{sectionCount:72,uncoveredSectionCount:3},gaps:3},scenarioError:null,
@@ -66,13 +66,13 @@ test('smart /imports refuses to silently select contradictory trainee counts',as
     const input=route.request().postData()??'';
     if(endpoint==='/api/v1/auth/me')return route.fulfill(json({
       id:'admin',username:'synthetic',role:'SYSTEM_ADMIN',collegeId:null,departmentId:null,csrfToken:'token'}));
-    if(endpoint==='/api/v1/programs')return route.fulfill(json([{id:'program',code:'BUS',name:'تقنية الأعمال'}]));
+    if(endpoint==='/api/v1/programs')return route.fulfill(json([{id:'program',code:'BUS',name:'التخصص التجريبي'}]));
     if(endpoint.endsWith('/plan/preview')){
       if(input!=='PLAN')return route.fulfill({status:400,contentType:'application/json',body:'{"error":"Not a curriculum"}'});
       const c={code:'C1',normalizedCode:'C1',title:'مقرر واحد',level:1,
         theoryHours:2,practicalHours:0,tutorialHours:0,alternativeGroup:null,
-        responsibleDepartment:'تقنية الأعمال',specialKind:'REGULAR'};
-      return route.fulfill(json({sheet:'CSV',curriculum:{metadata:{department:'تقنية الأعمال'},
+        responsibleDepartment:'التخصص التجريبي',specialKind:'REGULAR'};
+      return route.fulfill(json({sheet:'CSV',curriculum:{metadata:{department:'التخصص التجريبي'},
         sourceRows:1,warnings:[],levels:[{level:1,courses:[c]}],courses:[c]}}));
     }
     if(endpoint.endsWith('/history/preview')){
@@ -110,13 +110,13 @@ test('one smart multi-file upload at /imports connects plan, counts, instructors
     const uploaded=route.request().postData()??'';
     if(endpoint==='/api/v1/auth/me')return route.fulfill(json({
       id:'admin',username:'synthetic',role:'SYSTEM_ADMIN',collegeId:null,departmentId:null,csrfToken:'token'}));
-    if(endpoint==='/api/v1/programs')return route.fulfill(json([{id:'program',name:'تقنية الأعمال',code:'BUS'}]));
+    if(endpoint==='/api/v1/programs')return route.fulfill(json([{id:'program',name:'التخصص التجريبي',code:'BUS'}]));
     if(endpoint.endsWith('/plan/preview')){
       if(uploaded!=='PLAN')return route.fulfill({status:400,contentType:'application/json',body:'{"error":"Not a plan"}'});
       const c={code:'BUS-101',normalizedCode:'BUS-101',title:'مقرر نظري',level:1,
         theoryHours:2,practicalHours:0,tutorialHours:0,alternativeGroup:null,
-        responsibleDepartment:'تقنية الأعمال',specialKind:'REGULAR'};
-      return route.fulfill(json({sheet:'CSV',curriculum:{metadata:{department:'تقنية الأعمال',program:'تقنية الأعمال',college:'الكلية التقنية'},
+        responsibleDepartment:'التخصص التجريبي',specialKind:'REGULAR'};
+      return route.fulfill(json({sheet:'CSV',curriculum:{metadata:{department:'التخصص التجريبي',program:'التخصص التجريبي',college:'الكلية التقنية'},
         sourceRows:1,warnings:[],levels:[{level:1,courses:[c]}],courses:[c]}}));
     }
     if(endpoint.endsWith('/history/preview')){
@@ -127,7 +127,7 @@ test('one smart multi-file upload at /imports connects plan, counts, instructors
     }
     if(endpoint.endsWith('/resources/preview')){
       if(uploaded!=='TRAINER')return route.fulfill({status:400,contentType:'application/json',body:'{"error":"Not trainer data"}'});
-      return route.fulfill(json({sheet:'CSV',metadata:{department:'تقنية الأعمال'},instructors:1,
+      return route.fulfill(json({sheet:'CSV',metadata:{department:'التخصص التجريبي'},instructors:1,
         courseLinkedInstructors:1,sourceRows:3,warnings:[],ready:true,sha256:'a'.repeat(64)}));
     }
     if(endpoint.endsWith('/calculate')){called.push('calculate');return route.fulfill(json({
@@ -135,7 +135,7 @@ test('one smart multi-file upload at /imports connects plan, counts, instructors
       courses:[{code:'BUS-101',title:'مقرر نظري',level:1,demand:37,
         demandSource:'ملف تسجيلات',confidence:'HIGH',historical:false,mode:'ONSITE_THEORY',
         capacity:50,academicGroups:1,groupSizes:[37],components:{theory:1,practical:0},
-        contactHours:2,complete:true,resourceOwner:'تقنية الأعمال',discrepancy:null,note:null}] }));}
+        contactHours:2,complete:true,resourceOwner:'التخصص التجريبي',discrepancy:null,note:null}] }));}
     if(endpoint.endsWith('/full-import')){
       called.push('atomic-full-import');
       const payload=JSON.parse(uploaded) as {confirmGenericCollege:boolean;plan:{name:string;sha256:string;base64:string};
