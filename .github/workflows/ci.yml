@@ -106,6 +106,8 @@ jobs:
       - run: mvn -B -ntp -f solver/pom.xml clean package
       - run: node --test dist/tests/api-postgres.test.js
       - run: node --test dist/tests/lecture-periods-api.test.js
+      - name: Verify provisional general courses and stable blocks against PostgreSQL
+        run: node --test dist/tests/general-courses-api.test.js dist/tests/stable-blocks-api.test.js
       - run: node --test dist/tests/solver-cancel.test.js
       - run: node --test dist/tests/scenario-scale.test.js
 
@@ -131,6 +133,8 @@ jobs:
       - run: TPS_E2E_MOCK=1 npm run e2e --prefix frontend -- phase10-11.spec.ts
       - name: Verify unified automatic planning and conflicting-file selection in Chromium
         run: TPS_E2E_MOCK=1 npm run e2e --prefix frontend -- automatic-planning.spec.ts
+      - name: Verify projections, stable blocks and source-only general times in Chromium
+        run: TPS_E2E_MOCK=1 npm run e2e --prefix frontend -- capacity-projections.spec.ts stable-blocks.spec.ts fixed-general-stage.spec.ts
 
   web-e2e-real:
     runs-on: ubuntu-latest
