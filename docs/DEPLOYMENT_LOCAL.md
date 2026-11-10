@@ -2,7 +2,7 @@
 
 ## Prerequisites and safety
 
-- Work only inside the existing checkout `H:\\tps_system`; record `git status`, preserve uncommitted work before switching branches.
+- Work only inside the existing checkout `<LOCAL_TPS_DIR>`; record `git status`, preserve uncommitted work before switching branches.
 - Node 22+, Java 21, Maven, Python 3, Docker Desktop and PowerShell 5.1+.
 - Do not publish local port 8787 or PostgreSQL 54329 to another host. Do not add cloud DNS, public reverse proxies, containers on remote servers or Rayat integration.
 - Do not remove PostgreSQL named volumes or databases.

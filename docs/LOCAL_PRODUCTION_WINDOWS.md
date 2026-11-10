@@ -18,7 +18,7 @@
 4. Create or reuse the empty operational database. This command will never wipe existing records:
 
 ```powershell
-Set-Location H:\tps_system
+Set-Location <LOCAL_TPS_DIR>
 npm.cmd ci
 npm.cmd run web:install
 npm.cmd run build
