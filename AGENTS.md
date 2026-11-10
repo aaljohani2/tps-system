@@ -1,7 +1,7 @@
 # TPS System — instructions for Codex and contributors
 
 ## Boundaries
-- Work from existing `H:\\tps_system`. Never delete or re-clone it, overwrite local edits, or run `git reset --hard`, `git clean -fd`, force push, volume deletion or destructive SQL.
+- Work from existing `<LOCAL_TPS_DIR>`. Never delete or re-clone it, overwrite local edits, or run `git reset --hard`, `git clean -fd`, force push, volume deletion or destructive SQL.
 - GitHub development branch: `feat/full-stack-tps-v1`. Do not merge to `main`.
 - **Codex scope at final handoff is LOCAL INSTALLATION AND LOCAL TESTS ONLY** unless the user explicitly extends it. Do not modify remote GitHub, deploy, provision cloud infrastructure, or send any data externally.
 - Preserve the existing `src/planner.ts`, `src/optimizer.ts`, `solver/`, CSV/XLSX importer and regression tests. Timefold is mandatory for optimized timetables; greedy is an explicitly labelled preview only.

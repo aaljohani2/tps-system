@@ -50,10 +50,10 @@ test('invalid UTF8, incorrect headers and excessive rows fail closed',()=>{
 
 test('course template enforces department contact hours and separate proposed eligibility',()=>{
   const ok=previewBulk('courses',[columns.courses,
-    ['C-2','Accounting basics','2','تقنية الأعمال','2','1','25','REMOTE','ONSITE|REMOTE']]);
+    ['C-2','Accounting basics','2','التخصص التجريبي','2','1','25','REMOTE','ONSITE|REMOTE']]);
   assert.equal(ok.ready,true);
   assert.equal(ok.rows[0] && 'proposedMode' in ok.rows[0]?ok.rows[0].proposedMode:null,'REMOTE');
   const rejected=previewBulk('courses',[columns.courses,
-    ['C-3','Invalid modes','2','تقنية الأعمال','2','0','25','REMOTE','REMOTE']]);
+    ['C-3','Invalid modes','2','التخصص التجريبي','2','0','25','REMOTE','REMOTE']]);
   assert.equal(rejected.ready,false);
 });
