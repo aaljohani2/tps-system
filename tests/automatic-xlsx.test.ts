@@ -33,7 +33,7 @@ test('automatic workbook bridge preserves Arabic and exposes historical counts a
 
 test('historical workbook discovery tolerates title rows and reads capacity settings',()=>{
   const courseRows=[
-    ['خطة قسم تقنية الأعمال'],
+    ['خطة قسم التخصص التجريبي'],
     ['الفصل المرجعي 144720'],
     ['رمز المقرر','المستوى','الطلب المتوقع','نظري + تمارين','عملي','طريقة التدريب'],
     ['ادار-101','المستوى الأول','165','4','0','عن بُعد'],

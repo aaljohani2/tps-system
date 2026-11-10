@@ -99,7 +99,7 @@ worktree and **never forces checkout, reset, deletes a DB, or publishes files**.
 ### 1. Get the updater without touching the operational database
 
 ```powershell
-Set-Location H:\tps_system
+Set-Location <LOCAL_TPS_DIR>
 git status --short
 git pull --ff-only origin feat/unified-smart-import-from-local-20261107
 ```
@@ -213,7 +213,7 @@ college/department evidence, and flags unknown room capacity/type and
 placeholder instructor names. Raw source files are never stored in the database.
 One educational planning workbook, for instance, has an instructors sheet
 with placeholders such as *رئيس القسم — اكتب الاسم* and a timetable with
-room codes such as 1390110001 but no room capacity: the importer deliberately
+room codes such as EXAMPLE_ROOM_001 but no room capacity: the importer deliberately
 does not invent real instructor names or room capacities from those rows.
 
 The user reviews the preview. A college administrator (or system administrator)

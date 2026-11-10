@@ -72,7 +72,7 @@ export function buildScenarioReport(input:PlanRequest,result:PlanResult,metadata
  if(kind==='instructors')entities=input.instructors.map(instructor=>finish({id:instructor.id,title:trainers.get(instructor.id)!,
   notes:[],meetings:allMeetings.filter(m=>result.sessions.find(s=>s.id===m.id)?.instructorId===instructor.id),pending:[]}));
  if(kind==='instructors'&&generalMeetings.length)entities.push(finish({id:'GENERAL_STUDIES',title:'قسم الدراسات العامة - إسناد افتراضي',
-  notes:['كشف مجمع لمحاضرات القسم المساند، وليس جدول مدرب واحد. قد تتزامن شعب مختلفة ويحتاج تحديد مدربيها الحقيقيين. خارج نصاب مدربي تقنية الأعمال.'],meetings:generalMeetings,pending:[]}));
+  notes:['كشف مجمع لمحاضرات القسم المساند، وليس جدول مدرب واحد. قد تتزامن شعب مختلفة ويحتاج تحديد مدربيها الحقيقيين. خارج نصاب مدربي القسم الأكاديمي المعني.'],meetings:generalMeetings,pending:[]}));
  if(kind==='rooms')entities=input.rooms.map(room=>finish({id:room.id,title:rooms.get(room.id)!,
   notes:room.type===null?['نوع المرفق غير مصنف؛ لا يستخدم في الجدولة.']:[],
   meetings:allMeetings.filter(m=>m.roomCode===room.id),pending:[]}));
