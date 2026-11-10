@@ -1,5 +1,6 @@
 import {useEffect,useMemo,useState} from 'react';
 import type {Plan,Scenario} from './api';
+import {clock} from './time';
 
 type Session=Plan['sessions'][number];
 export type GridProposal={sessionId:string;day:string;start:number;nonce:number};
@@ -7,7 +8,6 @@ type Issue={code:string;severity:string;message:string;sectionId?:string;courseC
 type Input={courses:Array<{code:string;title:string;level:number}>};
 const weekdays=[['SUN','الأحد'],['MON','الاثنين'],['TUE','الثلاثاء'],['WED','الأربعاء'],['THU','الخميس']] as const;
 const modeLabel:Record<string,string>={ONSITE:'حضوري',REMOTE:'متزامن عن بُعد',HYBRID:'مدمج',SELF_PACED:'ذاتي'};
-const clock=(v:number)=>String(Math.floor(v)).padStart(2,'0')+':'+(v%1===0.5?'30':'00');
 const half=(value:number)=>Math.round(value*2)/2;
 const dayOrder=(day:string)=>weekdays.findIndex(([v])=>v===day);
 export default function WeeklyGrid({scenario,issues,onPropose,focusSection,canEdit:authorized}:{
@@ -37,7 +37,7 @@ export default function WeeklyGrid({scenario,issues,onPropose,focusSection,canEd
     const min=Math.min(8,...all),max=Math.max(13,...all);
     const arr:number[]=[];
     for(let h=Math.max(0,half(Math.floor(min*2)/2));h<Math.min(24,half(Math.ceil(max*2)/2));h+=.5)arr.push(h);
-    return arr;
+    return [...new Set([...arr,...all].map(hour=>Math.round(hour*60)))].sort((a,b)=>a-b).map(minute=>minute/60);
   },[shown]);
   useEffect(()=>{
     if(!focusSection)return;
@@ -72,11 +72,11 @@ export default function WeeklyGrid({scenario,issues,onPropose,focusSection,canEd
     </div>
     {shown.length===0?<div className="alert">لا توجد جلسات مجدولة لهذا العرض. راجع الشعب غير المغطاة.</div>:
     <div className="table-wrap weekly-scroll"><table className="weekly-grid">
-      <caption>الجدول الأسبوعي — الأوقات نصف ساعة، ويُظهر كل مربع الجلسات المتداخلة كاملة</caption>
+      <caption>الجدول الأسبوعي — الأوقات بالساعة والدقيقة، ويُظهر كل مربع الجلسات المتداخلة كاملة</caption>
       <thead><tr><th scope="col">الوقت</th>{weekdays.map(([day,label])=><th scope="col" key={day}>{label}</th>)}</tr></thead>
       <tbody>{times.map(t=><tr key={t}><th scope="row" dir="ltr">{clock(t)}</th>
         {weekdays.map(([day])=>{
-          const starting=shown.filter(s=>s.day===day&&s.start===t).sort((a,b)=>
+          const starting=shown.filter(s=>s.day===day&&Math.round(s.start*60)===Math.round(t*60)).sort((a,b)=>
             dayOrder(a.day)-dayOrder(b.day)||a.start-b.start||a.courseCode.localeCompare(b.courseCode));
           const continuing=shown.filter(s=>s.day===day&&s.start<t&&s.end>t).length;
           return <td key={day} className="week-slot"
@@ -87,6 +87,7 @@ export default function WeeklyGrid({scenario,issues,onPropose,focusSection,canEd
             {starting.map(s=>{
               const section=sections.get(s.sectionId),course=courses.get(s.courseCode);
               const problem=issues.some(i=>i.severity==='BLOCKER'&&i.sectionId===s.sectionId);
+              const warning=issues.some(i=>i.code==='ECONOMICS_COHORT_OVERLAP'&&i.sectionId===s.sectionId);
               const css=s.mode==='REMOTE'?'remote':course?.code&&
                 data?.courses.find(c=>c.code===course.code)&&
                 plan.sessions.some(other=>other.sectionId===s.sectionId&&other.mode!==s.mode)?'hybrid':'onsite';
@@ -100,6 +101,7 @@ export default function WeeklyGrid({scenario,issues,onPropose,focusSection,canEd
                 <span>{clock(s.start)}–{clock(s.end)} · {modeLabel[s.mode]??s.mode}</span>
                 <span>{s.instructorId} · {s.roomId??'بدون قاعة'} · مستوى {section?.level??'؟'}</span>
                 <span>البلوك: {s.blockId??'غير محدد'}</span>{problem&&<span>تحذير: قيد إلزامي</span>}
+                {warning&&<span>تنبيه: تداخل اقتصاد مسموح، يحتاج مراجعة</span>}
               </button>;
             })}
             {continuing>0&&<span className="week-continuation" title="جلسات بدأت سابقًا وتستمر خلال هذا الوقت">
@@ -115,7 +117,7 @@ export default function WeeklyGrid({scenario,issues,onPropose,focusSection,canEd
       <p>المدرب: {selected.instructorId} | القاعة: {selected.roomId??'عن بُعد'} |
         النمط: {modeLabel[selected.mode]??selected.mode} |
         {weekdays.find(([d])=>d===selected.day)?.[1]} {clock(selected.start)}–{clock(selected.end)}</p>
-      {selectedIssues.length?<div className="alert error" role="alert">
+      {selectedIssues.length?<div className={'alert'+(selectedIssues.some(issue=>issue.severity==='BLOCKER')?' error':'')} role="alert">
         {selectedIssues.map((i,index)=><p key={index}>{i.code}: {i.message}</p>)}
       </div>:<p className="success">لا توجد موانع مرتبطة مباشرة بهذه الشعبة في آخر فحص.</p>}
       {canEdit&&<button onClick={()=>stage(selected.id,selected.day,selected.start)}>

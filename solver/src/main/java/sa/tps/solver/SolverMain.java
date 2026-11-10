@@ -20,6 +20,9 @@ public final class SolverMain {
                 throw new IllegalArgumentException("Empty choices");
             if (t.getChoices().stream().anyMatch(c -> !t.getId().equals(c.sectionId())))
                 throw new IllegalArgumentException("Candidate section mismatch");
+            if(t.getInitialCandidateId()!=null)
+                t.setSelected(t.getChoices().stream().filter(c -> c.id().equals(t.getInitialCandidateId())).findFirst()
+                        .orElseThrow(() -> new IllegalArgumentException("Unknown initial candidate")));
         }
         var config = new SolverConfig()
                 .withSolutionClass(PlanningProblem.class)
@@ -27,7 +30,12 @@ public final class SolverMain {
                 .withConstraintProviderClass(TpsConstraintProvider.class)
                 .withTerminationSpentLimit(Duration.ofSeconds(Math.min(Math.max(input.seconds(), 1), 30)));
         var solver = SolverFactory.<PlanningProblem>create(config).buildSolver();
-        var result = solver.solve(new PlanningProblem(input.tasks()));
+        // Entity-specific candidate ranges cannot exchange placements with a simple swap.
+        // Construct priority coverage first so a feasible priority allocation is not trapped
+        // behind an already allocated ordinary course and a temporary hard overload.
+        var ordered=new java.util.ArrayList<>(input.tasks());
+        ordered.sort(java.util.Comparator.comparing(PlanningTask::isPriorityCoverage).reversed());
+        var result = solver.solve(new PlanningProblem(ordered));
         return new Output(input.schemaVersion(), result.getTasks().stream()
                 .map(t -> new Selected(t.getId(), t.getSelected().id())).toList(),
                 result.getScore().hardScore(), result.getScore().softScore());

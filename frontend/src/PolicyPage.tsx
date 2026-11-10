@@ -1,10 +1,15 @@
 import {useEffect,useState} from 'react';
 import {useQuery,useQueryClient} from '@tanstack/react-query';
 import {api,post,type Auth,type Context} from './api';
+import LecturePeriodsPanel,{type LecturePeriods} from './LecturePeriodsPanel';
 
 type Mode='ONSITE'|'REMOTE'|'SELF_PACED'|'HYBRID';
 type Day='SUN'|'MON'|'TUE'|'WED'|'THU';
 type Policy={enabledModes:Mode[];capacities:Record<Mode,{theory:number|null;practical:number|null}>;
+  priorityCourseCodes?:string[];
+  lecturePeriods?:LecturePeriods;
+  ignoreRoomCapacity?:boolean;
+  courseSectionCapacities?:Record<string,number>;
   remotePracticalLoadFactor:number;onsitePracticalLoadFactor:number;selfPacedLoadPerOffering:number|null;
   slots:{day:Day;from:number;to:number}[];sessionMaxHours:number};
 type RecordPolicy={effectivePolicy:Policy;approvedRevision:number;draftPolicy:Policy;draftRevision:number;pending:boolean;updatedAt:string|null;approvedAt:string|null};
@@ -19,7 +24,9 @@ export default function PolicyPage({ctx,user,notify}:{ctx:Context;user:Auth;noti
     enabled:!!ctx.departmentId&&!!ctx.termId});
   const [draft,setDraft]=useState<Policy|null>(null),[rationale,setRationale]=useState(''),
     [busy,setBusy]=useState(false);
-  useEffect(()=>{if(query.data)setDraft(structuredClone(query.data.draftPolicy));},[query.data,ctx.departmentId,ctx.termId]);
+  const [priorityText,setPriorityText]=useState('');
+  useEffect(()=>{if(query.data){setDraft(structuredClone(query.data.draftPolicy));
+    setPriorityText((query.data.draftPolicy.priorityCourseCodes??[]).join(', '));}},[query.data,ctx.departmentId,ctx.termId]);
   const editor=['SYSTEM_ADMIN','COLLEGE_ADMIN','DEPARTMENT_HEAD','SCHEDULER'].includes(user.role);
   const approver=['SYSTEM_ADMIN','COLLEGE_ADMIN','APPROVER'].includes(user.role);
   async function run(action:()=>Promise<unknown>){
@@ -44,6 +51,19 @@ export default function PolicyPage({ctx,user,notify}:{ctx:Context;user:Auth;noti
           onChange={e=>patch({enabledModes:e.target.checked?[...draft.enabledModes,mode]:draft.enabledModes.filter(m=>m!==mode)})}/>
         {names[mode]}</label>)}</div>
       <h3>سعات الشعب</h3>
+      <label>رموز مقررات القسم ذات أولوية التغطية (مفصولة بفواصل)
+        <input value={priorityText}
+          onChange={e=>{setPriorityText(e.target.value);patch({priorityCourseCodes:e.target.value.split(/[,،]/).map(code=>code.trim()).filter(Boolean)});}}/>
+      </label>
+      <p className="hint">تُقدّم هذه المقررات عند توزيع النصاب والجدولة، مع الالتزام بحدود المدربين ومنع تعارض الموارد.</p>
+      {Object.entries(draft.courseSectionCapacities??{}).map(([code,capacity])=><label key={code}>
+        استثناء سعة المقرر — {code}<input type="number" min="1" max="5000" value={capacity}
+          onChange={e=>patch({courseSectionCapacities:{...draft.courseSectionCapacities,[code]:Number(e.target.value)}})}/>
+      </label>)}
+      <label style={{display:'flex',flexDirection:'row',alignItems:'center'}}>
+        <input type="checkbox" checked={draft.ignoreRoomCapacity===true} onChange={e=>patch({ignoreRoomCapacity:e.target.checked})}/>
+        تجاهل سعة القاعة في التخطيط، مع الالتزام بنوعها وتجهيزاتها ومنع تعارض استخدامها
+      </label>
       <div className="table-wrap"><table><thead><tr><th>النمط</th><th>سعة النظري</th><th>سعة العملي</th></tr></thead><tbody>
         {modes.filter(m=>m!=='SELF_PACED').map(mode=><tr key={mode}><td>{names[mode]}</td>{(['theory','practical'] as const).map(key=>
           <td key={key}><input aria-label={names[mode]+' '+key} type="number" min="1" max="500"
@@ -61,7 +81,8 @@ export default function PolicyPage({ctx,user,notify}:{ctx:Context;user:Auth;noti
       <label>الحد الأقصى لساعات اللقاء<input type="number" min="1" max="8"
         value={draft.sessionMaxHours} onChange={e=>patch({sessionMaxHours:Number(e.target.value)})}/></label></div>
       <h3>نوافذ التدريب الأسبوعية</h3>
-      <p className="hint">الخميس لا يتجاوز 10:00. أما النمط المدمج فيلتزم أيضًا بالقيود الزمنية للمحرك.</p>
+      <LecturePeriodsPanel input={{policy:draft}}/>
+      <p className="hint">{draft.lecturePeriods?'الفترات الثابتة أعلاه تطبق داخل نوافذ الأيام المحفوظة أدناه.':'الخميس لا يتجاوز 10:00. أما النمط المدمج فيلتزم أيضًا بالقيود الزمنية للمحرك.'}</p>
       <div className="table-wrap"><table><thead><tr><th>اليوم</th><th>البداية</th><th>النهاية</th><th>الإجراء</th></tr></thead><tbody>
         {draft.slots.map((slot,index)=><tr key={index}><td><select value={slot.day} onChange={e=>patch({slots:draft.slots.map((x,i)=>i===index?{...x,day:e.target.value as Day}:x)})}>
           {days.map(d=><option key={d} value={d}>{dayNames[d]}</option>)}</select></td>

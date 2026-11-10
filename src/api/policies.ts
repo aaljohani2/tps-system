@@ -12,6 +12,15 @@ const scope=z.object({departmentId:id,termId:id});
 const mode=z.enum(['ONSITE','REMOTE','SELF_PACED','HYBRID']);
 const day=z.enum(['SUN','MON','TUE','WED','THU']);
 const policySchema=z.object({
+  priorityCourseCodes:z.array(z.string().trim().min(1).max(60)).max(30)
+    .refine(codes=>new Set(codes).size===codes.length,'Duplicate priority course').optional(),
+  lecturePeriods:z.object({academicHourMinutes:z.number().int().min(1).max(60),partialPeriod:z.enum(['TRIM_END','FULL_PERIOD']),
+    regular:z.array(z.object({startMinute:z.number().int().min(0).max(1439),endMinute:z.number().int().min(1).max(1440),trainingHours:z.number().int().positive()})).min(1).max(12),
+    courseOverrides:z.record(z.string().trim().min(1).max(60),z.object({
+      periods:z.array(z.object({startMinute:z.number().int().min(0).max(1439),endMinute:z.number().int().min(1).max(1440),trainingHours:z.number().int().positive()})).min(1).max(12),
+      allowCohortOverlap:z.boolean()}))}).strict().optional(),
+  ignoreRoomCapacity:z.boolean().optional(),
+  courseSectionCapacities:z.record(z.string().trim().min(1).max(60),z.number().int().positive().max(5000)).optional(),
   enabledModes:z.array(mode).min(1).max(4).refine(v=>new Set(v).size===v.length,'Duplicate mode'),
   capacities:z.object({
     ONSITE:z.object({theory:z.number().int().positive(),practical:z.number().int().positive()}),

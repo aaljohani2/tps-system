@@ -127,6 +127,80 @@ test('authenticated end-to-end workflow persists a synthetic TPS scenario in Pos
     assert.equal(imported.json().schemaVersion,'tps.catalog.v1');
     const trainer=await write('/instructors',{departmentId:department.id,code:'INS-1',name:'مدرب اصطناعي',maxLoad:18});
     const room=await write('/rooms',{collegeId:college.id,code:'R-1',name:'قاعة اختبار',type:'CLASSROOM',capacity:30});
+
+    // Non-templated Rayat instructor/room sheet: preview, strict scope,
+    // rollback on unresolved room, explicit skip and idempotent replay.
+    const {createHash:createSourceHash}=await import('node:crypto');
+    const resourceRows=[
+      ['الكلية','القسم','رقم المدرب','اسم المدرب','المقرر','رقم القاعة',
+        'اسم القاعة','سعة القاعة','نوع القاعة','النصاب'].join(','),
+      [college.name,department.name,'IR-'+uniq,'مدرب تلقائي موثق','TEST-101',
+        'RR-'+uniq,'معمل اختبار','30','معمل','20'].join(','),
+      [college.name,department.name,'IR-'+uniq,'مدرب تلقائي موثق','TEST-101',
+        'RR-'+uniq,'معمل اختبار','30','معمل','20'].join(','),
+      [college.name,department.name,'IR-'+uniq,'مدرب تلقائي موثق','TEST-101',
+        'RB-'+uniq,'قاعة ناقصة','','نظري','20'].join(','),
+      [college.name,sibling.name,'IR-OUT-'+uniq,'مدرب خارج القسم','OTHER-101',
+        'SH-'+uniq,'معمل مشترك','28','معمل','20'].join(','),
+      ['كلية مختلفة',department.name,'IR-OUT-C-'+uniq,'مدرب خارج الكلية','TEST-101',
+        'OX-'+uniq,'قاعة أخرى','55','نظرية','20'].join(',')
+    ].join('\n');
+    const resourceBytes=Buffer.from(resourceRows,'utf8');
+    const resourceSha=createSourceHash('sha256').update(resourceBytes).digest('hex');
+    const previewResources=await app.inject({
+      method:'POST',url:'/api/v1/raiyat-resources/preview?departmentId='+department.id+
+        '&collegeId='+college.id,
+      headers:{cookie:session,'x-csrf-token':csrf,'content-type':'text/csv'},
+      payload:resourceBytes});
+    assert.equal(previewResources.statusCode,200,previewResources.body);
+    assert.equal(previewResources.json().instructors.length,1);
+    assert.equal(previewResources.json().rooms.length,3,'Shared college room from sibling department is visible');
+    assert.equal(previewResources.json().instructors[0].sourceRows,3);
+    assert.equal(previewResources.json().sha256,resourceSha);
+    assert.equal(previewResources.json().unscoped,false);
+
+    const rayatUrl='/api/v1/raiyat-resources/commit';
+    const rayatPayload={departmentId:department.id,collegeId:college.id,
+      name:'rayat.csv',base64:resourceBytes.toString('base64'),sha256:resourceSha,
+      acceptUnscoped:false,importRooms:true,skipIncompleteRooms:false,roomDecisions:{}};
+    const invalidRoom=await app.inject({method:'POST',url:rayatUrl,
+      headers:{cookie:session,'x-csrf-token':csrf},payload:rayatPayload});
+    assert.equal(invalidRoom.statusCode,409,invalidRoom.body);
+    const noEarlyTrainer=await pool.query('SELECT count(*)::int AS total FROM instructors WHERE code=$1 AND department_id=$2',
+      ['IR-'+uniq,department.id]);
+    assert.equal(noEarlyTrainer.rows[0].total,0,'Missing room capacity rolls back any new trainers');
+
+    const noRoomForHead=await app.inject({method:'POST',url:rayatUrl,
+      headers:{cookie:limitedCookie,'x-csrf-token':limitedCsrf},
+      payload:{...rayatPayload,skipIncompleteRooms:true}});
+    assert.equal(noRoomForHead.statusCode,403,'Department head cannot create college-wide rooms');
+
+    const acceptedRayat=await app.inject({method:'POST',url:rayatUrl,
+      headers:{cookie:session,'x-csrf-token':csrf},
+      payload:{...rayatPayload,skipIncompleteRooms:true}});
+    assert.equal(acceptedRayat.statusCode,200,acceptedRayat.body);
+    assert.equal(acceptedRayat.json().importedInstructors,1);
+    assert.equal(acceptedRayat.json().importedRooms,2);
+    assert.equal(acceptedRayat.json().unresolvedRooms,1);
+    const createdFromExcel=await pool.query<{
+      max_load:string;eligible_course_codes:string[];allowed_modes:string[];available:unknown
+    }>('SELECT max_load,eligible_course_codes,allowed_modes,available FROM instructors WHERE code=$1 AND department_id=$2',
+      ['IR-'+uniq,department.id]);
+    assert.equal(Number(createdFromExcel.rows[0]!.max_load),20);
+    assert.deepEqual(createdFromExcel.rows[0]!.eligible_course_codes,[],
+      'Old teaching timetable cannot grant future eligibility or unrestricted courses');
+    assert.deepEqual(createdFromExcel.rows[0]!.allowed_modes,['ONSITE']);
+    assert.equal(createdFromExcel.rows[0]!.available,null);
+    const preservedRooms=await pool.query<{capacity:number}>(
+      'SELECT capacity FROM rooms WHERE college_id=$1 AND code=$2',[college.id,'RR-'+uniq]);
+    assert.equal(preservedRooms.rows[0]!.capacity,30);
+    const repeatedRayat=await app.inject({method:'POST',url:rayatUrl,
+      headers:{cookie:session,'x-csrf-token':csrf},
+      payload:{...rayatPayload,skipIncompleteRooms:true}});
+    assert.equal(repeatedRayat.statusCode,200,repeatedRayat.body);
+    assert.equal(repeatedRayat.json().importedInstructors,0);
+    assert.equal(repeatedRayat.json().importedRooms,0);
+
     const patch=async(url:string,payload:unknown)=>{
       const response=await app.inject({method:'PATCH',url:'/api/v1'+url,
         headers:{cookie:session,'x-csrf-token':csrf},payload:payload as Record<string,unknown>});
@@ -503,6 +577,143 @@ test('authenticated end-to-end workflow persists a synthetic TPS scenario in Pos
     assert.equal(forkRecord.rows[0]?.solver_status,'NOT_RUN');
     // Structural records: program → versioned curriculum → cohort → normalized block → term-linked course.
     const program=await write('/programs',{departmentId:department.id,code:'PRG-'+uniq,name:'برنامج اصطناعي'});
+    const automaticCsv=Buffer.from([
+      'code,title,level,theory hours,practical hours,tutorial hours,credits,alternative group,responsible department',
+      'AUTO-'+uniq+',Automatic regular course,المستوى الأول,3,0,1,4,,Business',
+      'COOP-'+uniq+',التدريب التعاوني,المستوى الخامس,0,0,0,6,LEVEL-5-PATH,Business',
+      'PROJ-'+uniq+',المشروع الإنتاجي,المستوى الخامس,0,0,0,6,LEVEL-5-PATH,Business'
+    ].join('\n'),'utf8');
+    const mismatchedAutomaticCsv=Buffer.from([
+      'code,title,level,theory hours,practical hours,tutorial hours,credits,department',
+      'WRONG-'+uniq+',Wrong department course,1,2,0,0,2,Another Department'
+    ].join('\n'),'utf8');
+    const mismatchedAutomaticSave=await app.inject({method:'POST',
+      url:'/api/v1/automatic-planning/plan/commit?departmentId='+department.id+'&programId='+program.id+
+        '&planCode=WRONG-'+uniq+'&versionLabel=Wrong%20department',
+      headers:{cookie:session,'x-csrf-token':csrf,'content-type':'text/csv'},payload:mismatchedAutomaticCsv});
+    assert.equal(mismatchedAutomaticSave.statusCode,409,'Detected department must match the selected department');
+    const automaticSave=await app.inject({method:'POST',
+      url:'/api/v1/automatic-planning/plan/commit?departmentId='+department.id+'&programId='+program.id+
+        '&planCode=AUTO-'+uniq+'&versionLabel=Automatic%20test%20version',
+      headers:{cookie:session,'x-csrf-token':csrf,'content-type':'text/csv'},payload:automaticCsv});
+    assert.equal(automaticSave.statusCode,200,automaticSave.body);
+    assert.equal(automaticSave.json().records,3);
+    assert.equal(automaticSave.json().state,'DRAFT');
+    const traineeCsv=Buffer.from([
+      'student id,course code,day',
+      '1001,AUTO-'+uniq+',Sunday',
+      '1001,AUTO-'+uniq+',Tuesday',
+      '1002,AUTO-'+uniq+',Monday'
+    ].join('\n'),'utf8');
+    const traineePreview=await app.inject({method:'POST',url:'/api/v1/automatic-planning/history/preview?departmentId='+
+      department.id+'&courseLevels='+encodeURIComponent(JSON.stringify({['AUTO-'+uniq]:1})),
+      headers:{cookie:session,'x-csrf-token':csrf,'content-type':'text/csv'},payload:traineeCsv});
+    assert.equal(traineePreview.statusCode,200,traineePreview.body);
+    assert.deepEqual(traineePreview.json().counts,{1:2});
+    assert.equal(traineePreview.json().detection.uniqueTrainees,2);
+    assert.equal(traineePreview.json().detection.matchedRows,3);
+    assert.equal(traineePreview.json().courseCount,1);
+    const materialized=await app.inject({method:'POST',url:'/api/v1/automatic-planning/materialize?departmentId='+department.id,
+      headers:{cookie:session,'x-csrf-token':csrf},payload:{planId:automaticSave.json().planId,termId:term.id,
+        scenarioName:'Automatic integrated scenario',sources:[{kind:'COURSE_REGISTRATIONS',counts:{1:2,5:1},
+          label:'Synthetic trainee registrations',confidence:'HIGH',isConfirmedForTarget:true}],
+        capacities:{remoteTheory:100,onsiteTheory:50,practical:40,mixed:40},settings:[],
+        alternativeSelections:{'LEVEL-5-PATH':'COOP-'+uniq}}});
+    assert.equal(materialized.statusCode,200,materialized.body);
+    assert.equal(materialized.json().demandRecords,2);
+    assert.equal(materialized.json().cohorts,2);
+    assert.equal(materialized.json().blocks,2);
+    assert.equal(materialized.json().assignments,1);
+    assert.ok(materialized.json().scenarioId,materialized.body);
+    const integratedRows=await pool.query(`SELECT
+      (SELECT count(*)::int FROM demand_estimates WHERE source=$1) AS demand,
+      (SELECT count(*)::int FROM cohorts WHERE department_id=$2 AND code LIKE $3) AS cohorts,
+      (SELECT count(*)::int FROM student_blocks b JOIN cohorts c ON c.id=b.cohort_id
+        WHERE c.department_id=$2 AND c.code LIKE $3) AS blocks`,[
+      'TPS_AUTO:'+automaticSave.json().planId,department.id,
+      'AUTO-'+automaticSave.json().planId.slice(0,8)+'-'+term.id.slice(0,8)+'-%']);
+    assert.deepEqual(integratedRows.rows[0],{demand:2,cohorts:2,blocks:2});
+    // Simulate review of the generated scenario: even though immutable snapshots
+    // survive, live cohort/block IDs must not be replaced by a repeat import.
+    await pool.query("UPDATE scenarios SET state='UNDER_REVIEW' WHERE id=$1",[materialized.json().scenarioId]);
+    const reimportProtected=await app.inject({method:'POST',
+      url:'/api/v1/automatic-planning/materialize?departmentId='+department.id,
+      headers:{cookie:session,'x-csrf-token':csrf},payload:{planId:automaticSave.json().planId,termId:term.id,
+        scenarioName:'Unsafe reimport while under review',sources:[{kind:'COURSE_REGISTRATIONS',counts:{1:2,5:1},
+          label:'Synthetic trainee registrations',confidence:'HIGH',isConfirmedForTarget:true}],
+        capacities:{remoteTheory:100,onsiteTheory:50,practical:40,mixed:40},settings:[],
+        alternativeSelections:{'LEVEL-5-PATH':'COOP-'+uniq}}});
+    assert.equal(reimportProtected.statusCode,409,'A scenario under review must preserve its existing generated blocks');
+    const protectedRows=await pool.query(`SELECT
+      (SELECT count(*)::int FROM cohorts WHERE department_id=$1 AND code LIKE $2) AS cohorts,
+      (SELECT count(*)::int FROM student_blocks b JOIN cohorts c ON c.id=b.cohort_id
+        WHERE c.department_id=$1 AND c.code LIKE $2) AS blocks`,[
+      department.id,'AUTO-'+automaticSave.json().planId.slice(0,8)+'-'+term.id.slice(0,8)+'-%']);
+    assert.deepEqual(protectedRows.rows[0],{cohorts:2,blocks:2},
+      'Protected re-import must not delete or alter existing cohort blocks');
+    await pool.query("UPDATE scenarios SET state='DRAFT' WHERE id=$1",[materialized.json().scenarioId]);
+    const smartTrainerCsv=Buffer.from([
+      'الفصل التدريبي,الوحدة التدريبية,القسم,رقم المدرب,اسم المدرب,المقرر,وصف المحاضرة',
+      `1448,كلية اختبار,${department.name},AUTO-I-${uniq},مدرب استيراد ذكي,AUTO-${uniq},نظري صباحي`,
+      `1448,كلية اختبار,قسم آخر,OTHER-I-${uniq},مدرب قسم آخر,AUTO-${uniq},عملي`
+    ].join('\n'),'utf8');
+    const smartTrainerPreview=await app.inject({method:'POST',
+      url:'/api/v1/automatic-planning/resources/preview?departmentId='+department.id,
+      headers:{cookie:session,'x-csrf-token':csrf,'content-type':'text/csv'},payload:smartTrainerCsv});
+    assert.equal(smartTrainerPreview.statusCode,200,smartTrainerPreview.body);
+    assert.equal(smartTrainerPreview.json().instructors,1);
+    assert.equal(smartTrainerPreview.json().courseLinkedInstructors,1);
+    assert.equal(smartTrainerPreview.json().ready,true);
+    const smartTrainerCommit=await app.inject({method:'POST',
+      url:'/api/v1/automatic-planning/resources/commit?departmentId='+department.id+
+        '&expectedSha256='+smartTrainerPreview.json().sha256+'&defaultMaxLoad=18',
+      headers:{cookie:session,'x-csrf-token':csrf,'content-type':'text/csv'},payload:smartTrainerCsv});
+    assert.equal(smartTrainerCommit.statusCode,200,smartTrainerCommit.body);
+    assert.deepEqual({imported:smartTrainerCommit.json().imported,skipped:smartTrainerCommit.json().skipped},{imported:1,skipped:0});
+    const smartTrainer=await pool.query('SELECT max_load,eligible_course_codes,available FROM instructors WHERE department_id=$1 AND code=$2',
+      [department.id,'AUTO-I-'+uniq]);
+    assert.equal(Number(smartTrainer.rows[0]?.max_load),18);
+    assert.deepEqual(smartTrainer.rows[0]?.eligible_course_codes,['AUTO-'+uniq.toUpperCase()]);
+    assert.equal(smartTrainer.rows[0]?.available,null);
+    const duplicateTrainerImport=await app.inject({method:'POST',
+      url:'/api/v1/automatic-planning/resources/commit?departmentId='+department.id+
+        '&expectedSha256='+smartTrainerPreview.json().sha256+'&defaultMaxLoad=18',
+      headers:{cookie:session,'x-csrf-token':csrf,'content-type':'text/csv'},payload:smartTrainerCsv});
+    assert.equal(duplicateTrainerImport.statusCode,409,
+      'Repeated timetable import must not overwrite an existing instructor or grant new modes');
+    const trainerStillOnsite=await pool.query('SELECT allowed_modes,eligible_course_codes FROM instructors WHERE department_id=$1 AND code=$2',[
+      department.id,'AUTO-I-'+uniq]);
+    assert.deepEqual(trainerStillOnsite.rows[0]?.allowed_modes,['ONSITE'],
+      'Historical online timetable is not proof of ongoing REMOTE authorization');
+    assert.deepEqual(trainerStillOnsite.rows[0]?.eligible_course_codes,['AUTO-'+uniq.toUpperCase()]);
+    await pool.query('DELETE FROM instructors WHERE department_id=$1 AND code=$2',[department.id,'AUTO-I-'+uniq]);
+    // Keep the materialization verification isolated from the structural workflow below. The
+    // imported plan remains available for its lifecycle assertions, while its generated term
+    // demand/blocks and legacy demand projection must not become implicit input to later scenarios.
+    await pool.query('DELETE FROM scenarios WHERE id=$1',[materialized.json().scenarioId]);
+    await pool.query(`DELETE FROM block_course_assignments WHERE block_id IN (
+      SELECT b.id FROM student_blocks b JOIN cohorts c ON c.id=b.cohort_id
+      WHERE c.department_id=$1 AND c.code LIKE $2)`,[department.id,
+      'AUTO-'+automaticSave.json().planId.slice(0,8)+'-'+term.id.slice(0,8)+'-%']);
+    await pool.query(`DELETE FROM student_blocks WHERE cohort_id IN (
+      SELECT id FROM cohorts WHERE department_id=$1 AND code LIKE $2)`,[department.id,
+      'AUTO-'+automaticSave.json().planId.slice(0,8)+'-'+term.id.slice(0,8)+'-%']);
+    await pool.query('DELETE FROM cohorts WHERE department_id=$1 AND code LIKE $2',[department.id,
+      'AUTO-'+automaticSave.json().planId.slice(0,8)+'-'+term.id.slice(0,8)+'-%']);
+    await pool.query('DELETE FROM demand_estimates WHERE source=$1',['TPS_AUTO:'+automaticSave.json().planId]);
+    await pool.query('DELETE FROM level_demand_sources WHERE program_id=$1 AND term_id=$2',[program.id,term.id]);
+    await pool.query(`UPDATE courses SET demand=0 WHERE id IN (
+      SELECT course_id FROM curriculum_items WHERE plan_id=$1)`,[automaticSave.json().planId]);
+    const automaticRows=await pool.query(`SELECT cp.state,count(ci.id)::int AS items,
+      count(*) FILTER(WHERE c.is_non_timetabled)::int AS non_timed
+      FROM curriculum_plans cp JOIN curriculum_items ci ON ci.plan_id=cp.id
+      JOIN courses c ON c.id=ci.course_id WHERE cp.id=$1 GROUP BY cp.state`,[automaticSave.json().planId]);
+    assert.deepEqual(automaticRows.rows[0],{state:'DRAFT',items:3,non_timed:2});
+    const duplicateAutomatic=await app.inject({method:'POST',
+      url:'/api/v1/automatic-planning/plan/commit?departmentId='+department.id+'&programId='+program.id+
+        '&planCode=AUTO-'+uniq+'&versionLabel=Duplicate',
+      headers:{cookie:session,'x-csrf-token':csrf,'content-type':'text/csv'},payload:automaticCsv});
+    assert.equal(duplicateAutomatic.statusCode,409,'A version import must never overwrite an existing plan code');
     const plan=await write('/plans',{programId:program.id,code:'PLAN-'+uniq,versionLabel:'نسخة اختبار 1'});
     const planItem=await write('/plans/'+plan.id+'/items',{courseId:course.id,level:1,isRequired:true});
     assert.equal(planItem.level,1);
@@ -539,6 +750,20 @@ test('authenticated end-to-end workflow persists a synthetic TPS scenario in Pos
 
     const activation=await write('/plans/'+plan.id+'/activate',{reason:'Synthetic internally approved curriculum version'});
     assert.equal(activation.state,'ACTIVE');
+    const oldApprovedCourse=await pool.query('SELECT level,theory_hours,practical_hours FROM courses WHERE id=$1',[course.id]);
+    const conflictingNewPlan=Buffer.from([
+      'code,title,level,theory hours,practical hours,tutorial hours,credits',
+      'TEST-101,تغيير غير معتمد في مقرر نشط,المستوى الأول,9,0,0,1'
+    ].join('\n'),'utf8');
+    const rejectedActiveRewrite=await app.inject({method:'POST',
+      url:'/api/v1/automatic-planning/plan/commit?departmentId='+department.id+'&programId='+program.id+
+        '&planCode=UNSAFE-'+uniq+'&versionLabel=Unsafe%20active%20course%20rewrite',
+      headers:{cookie:session,'x-csrf-token':csrf,'content-type':'text/csv'},payload:conflictingNewPlan});
+    assert.equal(rejectedActiveRewrite.statusCode,409,
+      'Smart plan import must not rewrite contact hours of a course in an active plan');
+    const unchangedApprovedCourse=await pool.query('SELECT level,theory_hours,practical_hours FROM courses WHERE id=$1',[course.id]);
+    assert.deepEqual(unchangedApprovedCourse.rows,oldApprovedCourse.rows,
+      'Rejected conflicting plan must leave approved catalog unchanged');
     const archiveActivePlanCourse=await app.inject({method:'PATCH',
       url:'/api/v1/courses/'+course.id+'/lifecycle',
       headers:{cookie:session,'x-csrf-token':csrf},
@@ -768,5 +993,179 @@ test('authenticated end-to-end workflow persists a synthetic TPS scenario in Pos
     assert.equal(compare.statusCode,200,compare.body);
     assert.equal(compare.json().first.sections,1);
     assert.equal(compare.json().second.sections,1);
+
+    // Atomic flexible import: all course/trainee/trainer rows and the draft
+    // must commit together, with a durable receipt for exact replay.
+    const {createHash}=await import('node:crypto');
+    const proof=(name:string,bytes:Buffer)=>({name,base64:bytes.toString('base64'),
+      sha256:createHash('sha256').update(bytes).digest('hex')});
+    const atomicCode='ATOMIC-'+uniq;
+    const atomicPlan=Buffer.from([
+      'code,title,level,theory hours,practical hours,tutorial hours,credits',
+      atomicCode+',مقرر تلقائي آمن,المستوى الأول,2,0,0,2'
+    ].join('\n'),'utf8');
+    const atomicTrainees=Buffer.from([
+      'department,college,student id,course code,day',
+      department.name+','+college.name+',1001,'+atomicCode+',Sunday',
+      department.name+','+college.name+',1001,'+atomicCode+',Monday',
+      department.name+','+college.name+',1002,'+atomicCode+',Tuesday',
+      'Other department,'+college.name+',9999,'+atomicCode+',Tuesday'
+    ].join('\n'),'utf8');
+    const atomicTrainers=Buffer.from([
+      'القسم,رقم المدرب,اسم المدرب,المقرر',
+      department.name+',AT-I-'+uniq+',مدرب تخطيط ذري,'+atomicCode
+    ].join('\n'),'utf8');
+    const atomicPayload={
+      departmentId:department.id,termId:term.id,programId:program.id,
+      planCode:'ATOMIC-P-'+uniq,versionLabel:'Atomic synthetic test',
+      scenarioName:'Atomic synthetic planning',
+      plan:proof('plan.csv',atomicPlan),
+      trainees:proof('trainees.csv',atomicTrainees),
+      resources:proof('instructors.csv',atomicTrainers),
+      sourceKind:'COURSE_REGISTRATIONS',capacities:{
+        remoteTheory:100,onsiteTheory:50,practical:40,mixed:40},
+      alternativeSelections:{},defaultMaxLoad:18
+    };
+    const atomicUrl='/api/v1/automatic-planning/full-import?departmentId='+department.id;
+    const atomicImport=await app.inject({method:'POST',url:atomicUrl,
+      headers:{cookie:session,'x-csrf-token':csrf},payload:atomicPayload});
+    assert.equal(atomicImport.statusCode,200,atomicImport.body);
+    const atomicResult=atomicImport.json();
+    assert.equal(atomicResult.replayed,false);
+    assert.equal(atomicResult.demandRecords,1);
+    assert.equal(atomicResult.cohorts,1);
+    const scopedDemand=await pool.query<{projected_students:number}>(`
+      SELECT de.projected_students FROM demand_estimates de JOIN courses c ON c.id=de.course_id
+      WHERE c.department_id=$1 AND c.code=$2 AND de.term_id=$3`,[
+      department.id,atomicCode.toUpperCase(),term.id]);
+    assert.equal(Number(scopedDemand.rows[0]?.projected_students),2,
+      'A mixed-college trainee timetable must not include other-department learners');
+    assert.equal(atomicResult.blocks,1);
+    assert.equal(atomicResult.instructorsImported,1);
+    assert.ok(atomicResult.scenarioId);
+    const atomicReceipts=await pool.query(`SELECT summary,plan_file_sha256 FROM smart_import_receipts
+      WHERE plan_id=$1`,[atomicResult.planId]);
+    assert.equal(atomicReceipts.rowCount,1);
+    assert.equal(atomicReceipts.rows[0]?.plan_file_sha256,atomicPayload.plan.sha256);
+    const atomicReplayed=await app.inject({method:'POST',url:atomicUrl,
+      headers:{cookie:session,'x-csrf-token':csrf},payload:atomicPayload});
+    assert.equal(atomicReplayed.statusCode,200,atomicReplayed.body);
+    assert.equal(atomicReplayed.json().replayed,true);
+    assert.equal(atomicReplayed.json().scenarioId,atomicResult.scenarioId);
+    const recoveredAfterPlanSaved=await app.inject({method:'POST',url:atomicUrl,
+      headers:{cookie:session,'x-csrf-token':csrf},payload:{
+        ...atomicPayload,existingPlanId:atomicResult.planId
+      }});
+    assert.equal(recoveredAfterPlanSaved.statusCode,200,recoveredAfterPlanSaved.body);
+    assert.equal(recoveredAfterPlanSaved.json().replayed,true,
+      'A UI retry after the first response saves planId must not duplicate the upload');
+    assert.equal(recoveredAfterPlanSaved.json().scenarioId,atomicResult.scenarioId);
+    const sameReceipt=await pool.query('SELECT count(*)::int AS n FROM smart_import_receipts WHERE plan_id=$1',
+      [atomicResult.planId]);
+    assert.equal(sameReceipt.rows[0].n,1,'A retried upload cannot duplicate its plan or scenario');
+
+    // A real database snapshot must preserve the ORIGINAL practical blocks
+    // while combining only theory meetings into larger capacity-feasible groups.
+    const theoryCode='MERGE-TH-'+uniq,mixedCode='MERGE-MIX-'+uniq;
+    const groupedPlan=Buffer.from([
+      'code,title,level,theory hours,practical hours,tutorial hours,credits',
+      theoryCode+',نظري مدمج,المستوى الأول,2,0,0,2',
+      mixedCode+',نظري وعملي,المستوى الأول,2,1,0,3'
+    ].join('\n'),'utf8');
+    const groupedImport=await app.inject({method:'POST',url:atomicUrl,
+      headers:{cookie:session,'x-csrf-token':csrf},payload:{
+        departmentId:department.id,termId:term.id,programId:program.id,
+        planCode:'GROUPED-'+uniq,versionLabel:'Grouped synthetic',
+        scenarioName:'Theory group membership',
+        plan:proof('grouped.csv',groupedPlan),
+        trainees:proof('numbers.csv',Buffer.from('level,students\n1,105\n','utf8')),
+        sourceKind:'ACTUAL_LEVEL_COUNTS',
+        capacities:{remoteTheory:100,onsiteTheory:50,practical:30,mixed:30},
+        alternativeSelections:{}
+      }});
+    assert.equal(groupedImport.statusCode,200,groupedImport.body);
+    assert.equal(groupedImport.json().theorySectionsCombined,1,
+      'Only one section is saved: four practical blocks vs three theory groups');
+    assert.equal(groupedImport.json().scheduledSections,7);
+    const groupSnapshot=await pool.query('SELECT input_snapshot,result_snapshot FROM scenarios WHERE id=$1',
+      [groupedImport.json().scenarioId]);
+    const groupedCourses=groupSnapshot.rows[0].input_snapshot.courses as Array<{
+      code:string;blocks:string[];blockSizes:number[];blockGroups?:string[][]}>;
+    const theory=groupedCourses.find(c=>c.code===theoryCode.toUpperCase());
+    const practical=groupedCourses.find(c=>c.code===mixedCode.toUpperCase());
+    assert.ok(theory?.blockGroups&&practical,'Both imported plan courses must exist');
+    assert.equal(practical.blockSizes.length,4,'Mixed theory/practical retains four <=30 learner base blocks');
+    assert.equal(theory.blockSizes.length,3,'Pure theory groups reduce four base blocks to three <=45');
+    assert.equal(theory.blockSizes.reduce((sum,n)=>sum+n,0),105);
+    assert.ok(theory.blockSizes.every(n=>n<=45));
+    const groupedMembers=theory.blockGroups.flat();
+    assert.equal(new Set(groupedMembers).size,4,'Every one of the four original blocks appears only once');
+    assert.deepEqual(groupedMembers.slice().sort(),practical.blocks.slice().sort());
+    const sectionRows=groupSnapshot.rows[0].result_snapshot.sections as Array<{
+      courseCode:string;blockIds?:string[];students:number}>;
+    assert.equal(sectionRows.filter(s=>s.courseCode===theoryCode.toUpperCase()).length,3);
+    assert.equal(sectionRows.filter(s=>s.courseCode===mixedCode.toUpperCase()).length,4);
+    assert.ok(sectionRows.some(s=>s.courseCode===theoryCode.toUpperCase()&&s.blockIds?.length===2),
+      'The stored draft must carry both constituent block IDs for future Timefold collisions');
+
+    // A curriculum with two selectable timed alternatives must schedule ONLY
+    // the chosen path. It must not assign cohort blocks to the excluded path.
+    const baseCourse='BR-'+uniq,choiceA='ALT-A-'+uniq,choiceB='ALT-B-'+uniq;
+    const altCsv=Buffer.from([
+      'code,title,level,theory hours,practical hours,tutorial hours,credits,alternative group',
+      baseCourse+',مقرر أساسي,المستوى الأول,2,0,0,2,',
+      choiceA+',اختياري ألف,المستوى الأول,2,0,0,2,CHOICES-'+uniq,
+      choiceB+',اختياري باء,المستوى الأول,2,0,0,2,CHOICES-'+uniq
+    ].join('\n'),'utf8');
+    const altResult=await app.inject({method:'POST',url:atomicUrl,
+      headers:{cookie:session,'x-csrf-token':csrf},payload:{
+        departmentId:department.id,termId:term.id,programId:program.id,
+        planCode:'ALT-V-'+uniq,versionLabel:'Alternative synthetic version',
+        scenarioName:'Only selected alternative',
+        plan:proof('alternate.csv',altCsv),
+        trainees:proof('alternative-count.csv',Buffer.from('level,students\n1,15\n','utf8')),
+        sourceKind:'ACTUAL_LEVEL_COUNTS',capacities:atomicPayload.capacities,
+        alternativeSelections:{['CHOICES-'+uniq]:choiceA}
+      }});
+    assert.equal(altResult.statusCode,200,altResult.body);
+    assert.equal(altResult.json().demandRecords,2);
+    const altScenario=await pool.query('SELECT input_snapshot FROM scenarios WHERE id=$1',
+      [altResult.json().scenarioId]);
+    assert.deepEqual((altScenario.rows[0].input_snapshot.courses as Array<{code:string}>)
+      .map(x=>x.code).sort(),[baseCourse,choiceA].map(x=>x.toUpperCase()).sort(),
+      'Unselected alternative cannot leak into a scheduled scenario');
+    const excludedBlocks=await pool.query(`SELECT count(*)::int AS n FROM block_course_assignments a
+      JOIN courses c ON c.id=a.course_id WHERE c.department_id=$1 AND c.code=$2 AND a.term_id=$3`,[
+      department.id,choiceB.toUpperCase(),term.id]);
+    assert.equal(excludedBlocks.rows[0].n,0);
+
+    // Force failure AFTER the new program and plan have been inserted. A
+    // pre-existing manual estimate is the blocking dependency; PostgreSQL
+    // must roll back the new program, draft and course metadata together.
+    const oldCourseTitle=await pool.query('SELECT title FROM courses WHERE id=$1',[advanced.id]);
+    const rollbackProgramCode='ROLL-'+uniq;
+    const rollbackPlan=Buffer.from([
+      'code,title,level,theory hours,practical hours,tutorial hours,credits',
+      'ADV-102,عنوان تعديل يجب التراجع عنه,المستوى الثاني,2,0,0,2'
+    ].join('\n'),'utf8');
+    const rollbackCounts=Buffer.from('level,students\n2,5\n','utf8');
+    const rolledBack=await app.inject({method:'POST',url:atomicUrl,
+      headers:{cookie:session,'x-csrf-token':csrf},payload:{
+        departmentId:department.id,termId:term.id,
+        newProgramCode:rollbackProgramCode,newProgramName:'برنامج فشل ذري',
+        planCode:'ROLL-PLAN-'+uniq,versionLabel:'Should be rolled back',
+        scenarioName:'Must never appear',plan:proof('rollback.csv',rollbackPlan),
+        trainees:proof('counts.csv',rollbackCounts),sourceKind:'ACTUAL_LEVEL_COUNTS',
+        capacities:atomicPayload.capacities,alternativeSelections:{}}
+    });
+    assert.equal(rolledBack.statusCode,409,rolledBack.body);
+    const rollbackCheck=await pool.query(`SELECT
+      (SELECT count(*)::int FROM training_programs WHERE department_id=$1 AND code=$2) AS programs,
+      (SELECT count(*)::int FROM curriculum_plans WHERE code=$3) AS plans`,[
+        department.id,rollbackProgramCode,'ROLL-PLAN-'+uniq]);
+    assert.deepEqual(rollbackCheck.rows[0],{programs:0,plans:0});
+    const rollbackCourse=await pool.query('SELECT title FROM courses WHERE id=$1',[advanced.id]);
+    assert.equal(rollbackCourse.rows[0].title,oldCourseTitle.rows[0].title,
+      'Rollback must restore the previous active-plan catalog record');
   }finally{await app.close();await pool.end();}
 });

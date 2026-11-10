@@ -1,15 +1,23 @@
 import type {FastifyInstance,FastifyRequest} from 'fastify';
 import {z} from 'zod';
+import type {PoolClient} from 'pg';
 import {pool} from './database.js';
 import {audit,allowedDepartment,canApprove,requireEditor} from './security.js';
 import {defaultPolicy} from '../policy.js';
 import {buildDraftPlan} from '../planner.js';
+import {packTheoryBlocks} from '../cohort-grouping.js';
 import {optimizeWithTimefold} from '../optimizer.js';
 import {validateRequest} from '../validation.js';
 import {exportScenarioXlsx} from './excel.js';
 import {renderPrintableScenario} from '../print-report.js';
 import {getEffectivePolicy} from './policies.js';
+import {sectionCapacity} from '../section-capacity.js';
+import {applyCourseCapacityException} from '../course-capacity-exception.js';
+import {applyExternalAssignments} from '../external-assignment.js';
+import {formatClock} from '../lecture-periods.js';
 import {assessReadiness} from './readiness.js';
+import {buildScenarioReport} from '../scenario-reports.js';
+import {exportScheduleReport} from './reports.js';
 import type {Course,Instructor,PlanRequest,PlanResult,Policy,Room} from '../types.js';
 
 const uuid=z.string().uuid();
@@ -24,12 +32,11 @@ const solveSettings=z.object({
 /** Bound work before invoking either the greedy baseline or the candidate-limited Java optimizer. */
 export function projectedSectionCount(input:PlanRequest):number{
   return input.courses.reduce((total,c)=>{
+    if(c.assignmentScope==='EXTERNAL')return total;
     if(c.demand===0)return total;
     if(c.blockSizes)return total+c.blockSizes.length;
     if(c.mode==='SELF_PACED')return total+1;
-    const cap=input.policy.capacities[c.mode];
-    const limit=c.theoryHours>0&&c.practicalHours>0?Math.min(cap.theory!,cap.practical!):
-      c.theoryHours>0?cap.theory!:cap.practical!;
+    const limit=sectionCapacity(c,input.policy)!;
     if(!Number.isFinite(limit)||limit<=0)throw new Error('Invalid course capacity in policy');
     return total+Math.ceil(c.demand/limit);
   },0);
@@ -57,25 +64,33 @@ async function find(req:FastifyRequest,id:string):Promise<Stored>{
   await scope(req,row.department_id);
   return row;
 }
-async function fromDatabase(departmentId:string,termId:string,name:string,policy:Policy):Promise<PlanRequest>{
-  const d=await pool.query<{college_id:string}>('SELECT college_id FROM departments WHERE id=$1',[departmentId]);
+export async function fromDatabase(departmentId:string,termId:string,name:string,policy:Policy,
+  db:Pick<PoolClient,'query'>=pool,planId?:string,selectedCourseCodes?:string[]):Promise<PlanRequest>{
+  const d=await db.query<{college_id:string}>('SELECT college_id FROM departments WHERE id=$1',[departmentId]);
   const collegeId=d.rows[0]?.college_id;
   if(!collegeId)throw invalid('Department not found',404);
-  const term=await pool.query('SELECT id FROM academic_terms WHERE id=$1 AND college_id=$2',[termId,collegeId]);
+  const term=await db.query('SELECT id FROM academic_terms WHERE id=$1 AND college_id=$2',[termId,collegeId]);
   if(!term.rowCount)throw invalid('Term does not belong to selected college');
   const [coursesRaw,instructorsRaw,roomsRaw,demandRaw,blocksRaw,exceptionsRaw]=await Promise.all([
-    pool.query('SELECT * FROM courses WHERE department_id=$1 AND is_active=true ORDER BY code',[departmentId]),
-    pool.query('SELECT * FROM instructors WHERE department_id=$1 AND is_active=true ORDER BY code',[departmentId]),
-    pool.query('SELECT * FROM rooms WHERE college_id=$1 AND is_active=true ORDER BY code',[collegeId]),
-    pool.query('SELECT de.course_id,de.projected_students FROM demand_estimates de JOIN courses c ON c.id=de.course_id WHERE c.department_id=$1 AND de.term_id=$2',[departmentId,termId]),
-    pool.query(`SELECT a.course_id,b.size,(co.code || '::' || b.code) AS block_ref
+    db.query(`SELECT * FROM courses c WHERE c.department_id=$1 AND c.is_active=true AND c.is_non_timetabled=false
+      AND ($2::uuid IS NULL OR EXISTS(SELECT 1 FROM curriculum_items ci
+        WHERE ci.course_id=c.id AND ci.plan_id=$2))
+      AND ($3::text[] IS NULL OR c.code=ANY($3::text[]))
+      ORDER BY c.code`,[departmentId,planId??null,selectedCourseCodes??null]),
+    db.query('SELECT * FROM instructors WHERE department_id=$1 AND is_active=true ORDER BY code',[departmentId]),
+    db.query('SELECT * FROM rooms WHERE college_id=$1 AND is_active=true ORDER BY code',[collegeId]),
+    db.query('SELECT de.course_id,de.projected_students FROM demand_estimates de JOIN courses c ON c.id=de.course_id WHERE c.department_id=$1 AND de.term_id=$2',[departmentId,termId]),
+    db.query(`SELECT a.course_id,b.size,co.level AS block_level,(co.code || '::' || b.code) AS block_ref
       FROM block_course_assignments a JOIN courses c ON c.id=a.course_id
       JOIN student_blocks b ON b.id=a.block_id JOIN cohorts co ON co.id=b.cohort_id
       WHERE c.department_id=$1 AND a.term_id=$2 ORDER BY co.code,b.code`,[departmentId,termId]),
-    pool.query(`SELECT i.code,e.additional_hours,e.reason FROM instructor_load_exceptions e
+    db.query(`SELECT i.code,e.additional_hours,e.reason FROM instructor_load_exceptions e
       JOIN instructors i ON i.id=e.instructor_id
       WHERE i.department_id=$1 AND e.term_id=$2 AND e.state='APPROVED'`,[departmentId,termId])
   ]);
+  const effectivePolicy=structuredClone(policy);
+  for(const course of coursesRaw.rows.filter(course=>course.assignment_scope==='EXTERNAL'))
+    effectivePolicy.courseSectionCapacities={...effectivePolicy.courseSectionCapacities,[course.code]:course.external_section_capacity??40};
   const estimateByCourse=new Map<string,number>(demandRaw.rows.map(v=>[v.course_id,Number(v.projected_students)]));
   const assignedByCourse=new Map<string,Array<{ref:string;size:number}>>();
   for(const row of blocksRaw.rows){
@@ -90,12 +105,23 @@ async function fromDatabase(departmentId:string,termId:string,name:string,policy
     const demand=projected??(c.demand>0?c.demand:blockTotal);
     if(links.length && blockTotal!==demand)
       throw invalid(`Block sizes for ${c.code} total ${blockTotal} while approved planning demand is ${demand}; reconcile before scheduling`,409);
+    const cap=c.mode==='SELF_PACED'?null:effectivePolicy.courseSectionCapacities?.[c.code]??
+      effectivePolicy.capacities[c.mode as keyof Policy['capacities']]?.theory;
+    const sectionCap=typeof cap==='number'&&Number.isInteger(cap)&&cap>0?cap:null;
+    const shouldPack=links.length>1&&Number(c.theory_hours)>0&&Number(c.practical_hours)===0&&
+      sectionCap!==null;
+    const packed=shouldPack?packTheoryBlocks(links.map(b=>({ref:b.ref,size:b.size})),sectionCap!):null;
+    const merged=packed?.some(group=>group.members.length>1)??false;
+    const combinedRefs=merged?packed!.map(group=>group.members.join(' + ')):links.map(link=>link.ref);
+    const combinedSizes=merged?packed!.map(group=>group.size):links.map(link=>link.size);
     return {
       code:c.code,title:c.title,level:c.level,demand,theoryHours:c.theory_hours,
+      assignmentScope:'DEPARTMENT',externalSectionCapacity:c.external_section_capacity??40,responsibleDepartment:c.responsible_department??null,
       practicalHours:c.practical_hours,mode:c.mode,eligibleModes:c.eligible_modes,
        requiredSpecialties:c.required_specialties??[],requiredEquipment:c.required_equipment??[],
-      blocks:links.length?links.map(b=>b.ref):(c.blocks.length?c.blocks:undefined),
-      blockSizes:links.length?links.map(b=>b.size):undefined,
+      blocks:links.length?combinedRefs:(c.blocks.length?c.blocks:undefined),
+      blockSizes:links.length?combinedSizes:undefined,
+      ...(merged?{blockGroups:packed!.map(group=>group.members)}:{}),
       hybridSplit:c.hybrid_split??undefined,
       assignedInstructorId:c.assigned_instructor_id??undefined,
       exclusiveInstructor:c.exclusive_instructor
@@ -106,17 +132,50 @@ async function fromDatabase(departmentId:string,termId:string,name:string,policy
   );
   const instructors:Instructor[]=instructorsRaw.rows.map(i=>({
     id:i.code,name:i.name,maxLoad:Number(i.max_load),allowedModes:i.allowed_modes,
+    teachingRules:i.teaching_rules??{},
     eligibleCourseCodes:i.eligible_course_codes??undefined,specialties:i.specialties??[],available:i.available??undefined,
     overload:approvedExtra.get(i.code)
   }));
+  const externalDefinitions=coursesRaw.rows.filter(course=>course.assignment_scope==='EXTERNAL').map(course=>({
+    code:course.code,capacity:course.external_section_capacity??40,responsibleDepartment:course.responsible_department??null}));
   for(const course of courses){
-    if(course.assignedInstructorId&&!instructors.some(i=>i.id===course.assignedInstructorId))
+    if(!externalDefinitions.some(item=>item.code===course.code)&&course.assignedInstructorId&&!instructors.some(i=>i.id===course.assignedInstructorId))
       throw invalid(`Locked instructor ${course.assignedInstructorId} for ${course.code} is inactive or missing; restore the trainer or explicitly revise the course assignment before scheduling`,409);
   }
   const rooms:Room[]=roomsRaw.rows.map(r=>({
     id:r.code,name:r.name,type:r.type,capacity:r.capacity,equipmentCodes:r.equipment_codes??[],available:r.available??undefined
   }));
-  return {scenarioName:name,termId,courses,instructors,rooms,policy};
+  let input:PlanRequest={scenarioName:name,termId,courses,instructors,rooms,policy:effectivePolicy};
+  if((externalDefinitions.length||Object.keys(policy.courseSectionCapacities??{}).length)&&
+    courses.every(course=>course.demand===0||(course.blocks?.length&&course.blockSizes?.length))){
+    const selectedIds=new Set(coursesRaw.rows.map(course=>course.id));
+    const evidence=new Map<string,{ref:string;level:number;size:number}>();
+    for(const block of blocksRaw.rows.filter(block=>selectedIds.has(block.course_id))){
+      const next={ref:block.block_ref,level:Number(block.block_level),size:Number(block.size)},prior=evidence.get(next.ref);
+      if(prior&&(prior.size!==next.size||prior.level!==next.level))throw invalid('Conflicting cohort block evidence',409);
+      evidence.set(next.ref,next);
+    }
+    input.cohortBlocks=[...evidence.values()];
+  }
+  for(const [code,capacity] of Object.entries(policy.courseSectionCapacities??{}))
+    if(courses.some(course=>course.code===code)&&!externalDefinitions.some(course=>course.code===code))
+      input=applyCourseCapacityException(input,code,capacity);
+  return applyExternalAssignments(input,externalDefinitions);
+}
+export async function createScenarioDraft(departmentId:string,termId:string,name:string,userId:string,
+  db:Pick<PoolClient,'query'>=pool,effective?:{policy:Policy;revision:number},planId?:string,
+  selectedCourseCodes?:string[]){
+  const {policy,revision}=effective??await getEffectivePolicy(departmentId,termId);
+  const input=await fromDatabase(departmentId,termId,name,policy,db,planId,selectedCourseCodes);
+  validateRequest(input);
+  if(!input.courses.length)throw invalid('Import or enter courses first');
+  const result=boundedDraft(input);
+  const r=await db.query<{id:string}>(`INSERT INTO scenarios
+    (department_id,term_id,name,state,solver_status,input_snapshot,result_snapshot,created_by,policy_revision)
+    VALUES($1,$2,$3,'DRAFT','NOT_RUN',$4,$5,$6,$7) RETURNING id`,[
+    departmentId,termId,name,JSON.stringify(input),JSON.stringify(result),userId,revision
+  ]);
+  return {id:r.rows[0]!.id,state:'DRAFT' as const,solverStatus:'NOT_RUN' as const,result};
 }
 const selectInput=z.object({departmentId:uuid,termId:uuid,name:z.string().trim().min(1).max(160),
 }).strict();
@@ -149,20 +208,22 @@ export async function registerScenarios(app:FastifyInstance):Promise<void>{
     if(!parsed.success)throw invalid('Invalid scenario context');
     const v=parsed.data;
     await scope(req,v.departmentId);
-    const {policy,revision}=await getEffectivePolicy(v.departmentId,v.termId);
-    const input=await fromDatabase(v.departmentId,v.termId,v.name,policy);
-    validateRequest(input);
-    if(!input.courses.length)throw invalid('Import or enter courses first');
-    const result=boundedDraft(input);
-    const r=await pool.query<{id:string}>(`INSERT INTO scenarios
-      (department_id,term_id,name,state,solver_status,input_snapshot,result_snapshot,created_by,policy_revision)
-      VALUES($1,$2,$3,'DRAFT','NOT_RUN',$4,$5,$6,$7) RETURNING id`,[
-      v.departmentId,v.termId,v.name,JSON.stringify(input),JSON.stringify(result),req.principal!.id,revision
-    ]);
-    await audit(req.principal!.id,'CREATE','SCENARIO',r.rows[0]!.id);
-    return {id:r.rows[0]!.id,state:'DRAFT',solverStatus:'NOT_RUN',result};
+    const created=await createScenarioDraft(v.departmentId,v.termId,v.name,req.principal!.id);
+    await audit(req.principal!.id,'CREATE','SCENARIO',created.id);
+    return created;
   });
   app.get('/api/v1/scenarios/:id',async(req)=>find(req,params(req)));
+  app.get('/api/v1/scenarios/:id/external.csv',async(req,reply)=>{
+    const scenario=await find(req,params(req));
+    const rows=[['المقرر','اسم المقرر','المستوى','الشعبة الخارجية','المتدربون','السعة','ساعات الاتصال',
+      'القسم المسؤول','الحالة','اسم المدرب الخارجي','اليوم','البداية','النهاية','القاعة'],
+      ...(scenario.result_snapshot.externalSections??[]).map(section=>[section.courseCode,section.title,section.level,
+        section.id,section.students,section.capacity,section.contactHours,section.responsibleDepartment??'',
+        'بانتظار إسناد القسم الآخر','','','','',''])];
+    reply.header('content-type','text/csv; charset=utf-8');
+    reply.header('content-disposition','attachment; filename="tps-external-course-request.csv"');
+    return reply.send('\uFEFF'+rows.map(row=>row.map(csvCell).join(',')).join('\r\n'));
+  });
   app.get('/api/v1/scenarios/:id/readiness',async(req)=>{
     const sc=await find(req,params(req));
     return assessReadiness(sc.input_snapshot,sc.result_snapshot,sc.solver_status);
@@ -421,6 +482,8 @@ export async function registerScenarios(app:FastifyInstance):Promise<void>{
     source.courses=source.courses.map(c=>{
       const override=overrideMap.get(c.code);
       if(!override)return c;
+      if(c.blockGroups?.some(group=>group.length>1))
+        throw invalid('Merged lecture block memberships cannot be changed by a flat block override; regenerate from verified cohort assignments.',409);
       const changed=override.demand!==c.demand||
         JSON.stringify(override.blocks)!==JSON.stringify(c.blocks??[]);
       if(c.blockSizes && changed && !override.blockSizes)
@@ -446,7 +509,8 @@ export async function registerScenarios(app:FastifyInstance):Promise<void>{
     const header=['حالة الاعتماد','المقرر','الشعبة','المدرب','القاعة','النمط','اليوم','البداية','النهاية','البلوك'];
     const lines=[header.map(csvCell).join(',')];
     for(const s of sc.result_snapshot.sessions){
-      lines.push([state,s.courseCode,s.sectionId,s.instructorId,s.roomId,s.mode,s.day,s.start,s.end,s.blockId].map(csvCell).join(','));
+      lines.push([state,s.courseCode,s.sectionId,s.instructorId,s.roomId,s.mode,s.day,
+        ...(sc.input_snapshot.policy.lecturePeriods?[formatClock(s.start),formatClock(s.end)]:[s.start,s.end]),s.blockId].map(csvCell).join(','));
     }
     reply.header('content-type','text/csv; charset=utf-8');
     reply.header('content-disposition','attachment; filename="tps-schedule-'+state+'.csv"');
@@ -461,6 +525,25 @@ export async function registerScenarios(app:FastifyInstance):Promise<void>{
     reply.header('Content-Security-Policy',"default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; base-uri 'none'; form-action 'none'");
     reply.header('Cache-Control','private, no-store');
     return reply.send(html);
+  });
+  app.get('/api/v1/scenarios/:id/reports/:kind/:format',async(req,reply)=>{
+    const selected=z.object({id:uuid,kind:z.enum(['instructors','trainees','rooms']),format:z.enum(['xlsx','pdf'])}).parse(req.params);
+    const scenario=await find(req,selected.id);
+    const context=(await pool.query(`SELECT c.name AS college_name,d.name AS department_name,t.code AS term_code,t.label AS term_label
+      FROM departments d JOIN colleges c ON c.id=d.college_id JOIN academic_terms t ON t.college_id=c.id
+      WHERE d.id=$1 AND t.id=$2`,[scenario.department_id,scenario.term_id])).rows[0];
+    if(!context)throw invalid('Scenario reporting context unavailable',409);
+    const readiness=assessReadiness(scenario.input_snapshot,scenario.result_snapshot,scenario.solver_status);
+    const report=buildScenarioReport(scenario.input_snapshot,scenario.result_snapshot,{
+      scenarioId:scenario.id,scenarioName:scenario.name,state:scenario.state,solverStatus:scenario.solver_status,
+      revision:scenario.revision,policyRevision:scenario.policy_revision,collegeName:context.college_name,
+      departmentName:context.department_name,termCode:context.term_code,termLabel:context.term_label,
+      generatedAt:new Date().toLocaleString('sv-SE',{timeZone:'Asia/Riyadh'})},selected.kind,readiness.issues);
+    const bytes=await exportScheduleReport(report,selected.format);
+    reply.header('content-type',selected.format==='pdf'?'application/pdf':'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    reply.header('content-disposition',`attachment; filename="tps-${selected.kind}-${scenario.id.slice(0,8)}.${selected.format}"; filename*=UTF-8''${encodeURIComponent(scenario.name.slice(0,90)+' - '+report.title+'.'+selected.format)}`);
+    reply.header('cache-control','private, no-store');
+    return reply.send(bytes);
   });
   app.get('/api/v1/scenarios/:id/export.xlsx',async(req,reply)=>{
     const scenario=await find(req,params(req));

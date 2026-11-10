@@ -1,11 +1,12 @@
 import {useEffect,useState} from 'react';
 import {useQuery,useQueryClient} from '@tanstack/react-query';
 import {api,type Plan,type Scenario} from './api';
+import {clock} from './time';
 
-type Input={instructors:Array<{id:string;name:string}>;rooms:Array<{id:string;name:string;type:string;capacity:number}>};
+type Input={instructors:Array<{id:string;name:string}>;rooms:Array<{id:string;name:string;type:string;capacity:number}>;
+ policy?:{lecturePeriods?:{regular:Array<{startMinute:number}>;courseOverrides:Record<string,{periods:Array<{startMinute:number}>}>}}};
 type MoveEdit={id:number;edit_version:number;session_id:string;reason:string;edited_at:string};
 const names:Record<string,string>={SUN:'الأحد',MON:'الإثنين',TUE:'الثلاثاء',WED:'الأربعاء',THU:'الخميس'};
-const clock=(hour:number)=>String(Math.floor(hour)).padStart(2,'0')+':'+(hour%1===0.5?'30':'00');
 export default function ManualScheduleEditor({scenario,notify,proposal,canEdit:authorized}:{
   scenario:Scenario;notify:(message:string)=>void;
   proposal?:{sessionId:string;day:string;start:number;nonce:number}|null;canEdit:boolean;
@@ -38,6 +39,7 @@ export default function ManualScheduleEditor({scenario,notify,proposal,canEdit:a
     setRoom(s.roomId??'');setInstructor(s.instructorId);
   },[proposal?.nonce,proposal?.sessionId,proposal?.day,proposal?.start]);
   const current=sessions.find(x=>x.id===chosen);
+  const periods=current?(input?.policy?.lecturePeriods?.courseOverrides[current.courseCode]?.periods??input?.policy?.lecturePeriods?.regular):undefined;
   const editable=authorized&&scenario.state==='DRAFT'&&scenario.solver_status==='COMPLETED';
   async function save(){
     if(!current||!editable)return;
@@ -66,8 +68,10 @@ export default function ManualScheduleEditor({scenario,notify,proposal,canEdit:a
       <label>اليوم<select value={day} onChange={e=>setDay(e.target.value)}>
         {Object.entries(names).map(([value,label])=><option key={value} value={value}>{label}</option>)}
       </select></label>
-      <label>وقت البداية (أنصاف ساعات)<input type="number" min="0" max="23.5" step=".5" value={start}
-        onChange={e=>setStart(Number(e.target.value))}/></label>
+      {periods?<label>بداية فترة المحاضرة<select value={start} onChange={event=>setStart(Number(event.target.value))}>
+        {periods.map(period=><option key={period.startMinute} value={period.startMinute/60}>{clock(period.startMinute/60)}</option>)}
+      </select></label>:<label>وقت البداية (أنصاف ساعات)<input type="number" min="0" max="23.5" step=".5" value={start}
+        onChange={e=>setStart(Number(e.target.value))}/></label>}
       <label>المدرب<select value={instructor} onChange={e=>setInstructor(e.target.value)}>
         {(input?.instructors??[]).map(i=><option key={i.id} value={i.id}>{i.name} — {i.id}</option>)}
       </select></label>

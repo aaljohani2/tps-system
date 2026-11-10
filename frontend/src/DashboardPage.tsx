@@ -16,6 +16,7 @@ export default function DashboardPage({ctx}:{ctx:Context}){
   const {counts,demand,recentScenarios}=q.data;
   const metrics:[string,string|number][]=[
     ['المقررات',counts.courses??0],['البرامج',counts.programs??0],['الأفواج',counts.cohorts??0],
+    ['مقررات القسم المجدولة',counts.department_courses??0],['مقررات بإسناد خارجي',counts.external_courses??0],
     ['البلوكات',counts.blocks??0],['المدربون',counts.trainers??0],['القاعات',counts.rooms??0],
     ['السيناريوهات',counts.scenarios??0],['المعتمدة',counts.approved??0],
     ['الطلب المتوقع',demand.projected],['المتدربون في البلوكات',demand.assignedBlocks],

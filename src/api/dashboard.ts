@@ -16,6 +16,8 @@ export async function registerDashboard(app:FastifyInstance){
       trainers:string;rooms:string;scenarios:string;approved:string;
     }>(`SELECT
       (SELECT count(*) FROM courses WHERE department_id=$1)::text AS courses,
+      (SELECT count(*) FROM courses WHERE department_id=$1 AND assignment_scope='EXTERNAL' AND is_active)::text AS external_courses,
+      (SELECT count(*) FROM courses WHERE department_id=$1 AND assignment_scope='DEPARTMENT' AND is_active AND NOT is_non_timetabled)::text AS department_courses,
       (SELECT count(*) FROM training_programs WHERE department_id=$1)::text AS programs,
       (SELECT count(*) FROM cohorts WHERE department_id=$1)::text AS cohorts,
       (SELECT count(*) FROM student_blocks b JOIN cohorts co ON co.id=b.cohort_id WHERE co.department_id=$1)::text AS blocks,

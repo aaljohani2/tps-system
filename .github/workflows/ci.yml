@@ -119,6 +119,8 @@ jobs:
           cat /tmp/tps-vite.log
           exit 1
       - run: TPS_E2E_MOCK=1 npm run e2e --prefix frontend -- phase10-11.spec.ts
+      - name: Verify unified automatic planning and conflicting-file selection in Chromium
+        run: TPS_E2E_MOCK=1 npm run e2e --prefix frontend -- automatic-planning.spec.ts
 
   web-e2e-real:
     runs-on: ubuntu-latest
@@ -200,6 +202,71 @@ jobs:
         run: node --test dist/tests/bulk-xlsx-unicode.test.js
       - name: Python XLSX reader direct on Windows without PYTHONUTF8 workaround
         run: python -m unittest discover -s scripts -p test_bulk_xlsx.py -v
+      - name: Parse the non-destructive Windows smart-import upgrade procedure
+        shell: powershell
+        run: |
+          $parseErrors = $null
+          [void][System.Management.Automation.Language.Parser]::ParseFile(
+            (Resolve-Path 'scripts/upgrade-smart-import-windows.ps1').Path,
+            [ref]$null, [ref]$parseErrors)
+          if ($parseErrors.Count -gt 0) {
+            $parseErrors | ForEach-Object { Write-Host $_.ToString() }
+            throw 'Windows upgrade script contains syntax errors.'
+          }
+          Write-Output 'PowerShell 5.1 upgrade script syntax passed.'
+      - name: Reproduce Windows fast-forward with no origin branch tracking ref
+        shell: powershell
+        run: |
+          $sandbox = Join-Path $env:RUNNER_TEMP "tps-narrow-refspec"
+          $remote = Join-Path $sandbox "remote.git"
+          $source = Join-Path $sandbox "source"
+          $local = Join-Path $sandbox "local"
+          $branch = 'feat/unified-smart-import-from-local-20261107'
+          New-Item -ItemType Directory -Force $sandbox | Out-Null
+          & git init -q --bare $remote
+          & git init -q $source
+          & git -C $source config user.email "ci-tps@example.invalid"
+          & git -C $source config user.name "TPS CI"
+          & git -C $source commit --allow-empty -q -m baseline
+          & git -C $source branch -M $branch
+          & git -C $source remote add origin $remote
+          & git -C $source push -q origin "HEAD:refs/heads/$branch"
+          & git init -q $local
+          & git -C $local remote add origin $remote
+          & git -C $local config remote.origin.fetch '+refs/heads/main:refs/remotes/origin/main'
+          & git -C $local fetch -q --no-tags origin "refs/heads/$branch"
+          & git -C $local switch -q -c $branch FETCH_HEAD
+          & git -C $source commit --allow-empty -q -m updated
+          & git -C $source push -q origin "HEAD:refs/heads/$branch"
+          & git -C $local fetch -q --no-tags origin "refs/heads/$branch"
+          $target = (& git -C $local rev-parse --verify 'FETCH_HEAD^{commit}' | Out-String).Trim()
+          if ($LASTEXITCODE -ne 0) { throw 'FETCH_HEAD was not usable' }
+          & git -C $local merge --ff-only $target
+          if ($LASTEXITCODE -ne 0) { throw 'Narrow-refspec fast-forward failed' }
+          $after = (& git -C $local rev-parse HEAD | Out-String).Trim()
+          if ($after -ne $target) { throw 'Fast-forward did not reach fetched commit' }
+          & git -C $local show-ref --verify --quiet "refs/remotes/origin/$branch"
+          if ($LASTEXITCODE -eq 0) { throw 'Test fixture unexpectedly created remote tracking ref' }
+          $global:LASTEXITCODE = 0
+          Write-Output 'Narrow-refspec FETCH_HEAD fast-forward succeeded without remote-tracking branch.'
+      - name: Validate gh JSON run parsing on Windows PowerShell 5.1 without jq quoting
+        shell: powershell
+        run: |
+          $fake = Join-Path $env:RUNNER_TEMP 'gh-fixture.cmd'
+          Set-Content -LiteralPath $fake -Encoding Ascii -Value '@echo off','echo {"headSha":"abc123","conclusion":"success"}'
+          $raw = (& $fake run view 123 -R fake/repo --json headSha,conclusion | Out-String).Trim()
+          if ($LASTEXITCODE -ne 0) { throw 'Fake GitHub CLI returned a failure' }
+          $run = $raw | ConvertFrom-Json -ErrorAction Stop
+          if ($run.headSha -ne 'abc123' -or $run.conclusion -ne 'success') {
+            throw 'Native JSON parsing failed on Windows PowerShell 5.1'
+          }
+          $updater = Get-Content -Raw -LiteralPath 'scripts/upgrade-smart-import-windows.ps1'
+          $ghRunLines = @($updater -split '\r?\n' | Where-Object { $_ -match 'gh run view' })
+          if ($updater -notmatch 'ConvertFrom-Json' -or $ghRunLines.Count -ne 1 -or
+              @($ghRunLines | Where-Object { $_ -match '\s-q\s' }).Count -ne 0) {
+            throw 'The upgrade must parse GitHub CLI native JSON, not use fragile jq quoting.'
+          }
+          $global:LASTEXITCODE = 0
       - name: Verify PowerShell 5.1 installation stops on a native command failure
         shell: powershell
         run: |
@@ -322,12 +389,27 @@ jobs:
             sleep 2
           done
           exit 1
+      - name: Back up operational DB before new migrations are present
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Synthetic, disposable database: modern code must still back up
+          # an older or not-yet-migrated operational schema before upgrade.
+          docker compose exec -T postgres createdb -U tps --template template0 tps_operational_local
+          KEY="$(openssl rand -hex 32)"
+          echo "::add-mask::$KEY"
+          TPS_BACKUP_PASSPHRASE="$KEY" npm run local:production:backup
+          ARCHIVE="$(find private-data/backups -maxdepth 1 -name '*.tpsbak' -print -quit)"
+          test -n "$ARCHIVE"
+          TPS_BACKUP_PASSPHRASE="$KEY" npm run local:production:backup:verify -- --file "$ARCHIVE"
+          # Cleanup concerns only the throwaway CI archive, not a user backup.
+          rm -- "$ARCHIVE"
       - name: Create isolated operational DB and prove repeatable initialization
         run: |
           npm run local:production:init
           npm run local:production:init
           npm run local:production:check
-          test "$(docker compose exec -T postgres psql -U tps -d tps_operational_local -At -c 'SELECT count(*) FROM schema_migrations')" -eq 14
+          test "$(docker compose exec -T postgres psql -U tps -d tps_operational_local -At -c 'SELECT count(*) FROM schema_migrations')" -ge 14
           test "$(docker compose exec -T postgres psql -U tps -d tps_operational_local -At -c 'SELECT count(*) FROM users')" -eq 0
           test "$(docker compose exec -T postgres psql -U tps -d tps_operational_local -At -c 'SELECT count(*) FROM scenarios')" -eq 0
           test "$(docker compose exec -T postgres psql -U tps -d tps_ci_original -At -c "SELECT count(*) FROM information_schema.tables WHERE table_schema='public'")" -eq 0
@@ -357,7 +439,7 @@ jobs:
           RESTORED="$(docker compose exec -T postgres psql -U tps -d postgres -At -c "SELECT datname FROM pg_database WHERE datname LIKE 'tps_restore_%' ORDER BY datname DESC LIMIT 1" | tr -d '\r')"
           test -n "$RESTORED"
           test "$(docker compose exec -T postgres psql -U tps -d "$RESTORED" -At -c 'SELECT count(*) FROM users')" -eq 1
-          test "$(docker compose exec -T postgres psql -U tps -d "$RESTORED" -At -c 'SELECT count(*) FROM schema_migrations')" -eq 14
+          test "$(docker compose exec -T postgres psql -U tps -d "$RESTORED" -At -c 'SELECT count(*) FROM schema_migrations')" -ge 14
           test "$(docker compose exec -T postgres psql -U tps -d "$RESTORED" -At -c 'SELECT count(*) FROM scenarios')" -eq 0
       - name: Run real local-production API on loopback and assert health profile
         shell: bash

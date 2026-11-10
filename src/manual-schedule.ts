@@ -1,6 +1,7 @@
 import type {Day,PlanRequest,PlanResult,Room,Session} from './types.js';
 import {assessReadiness} from './api/readiness.js';
 import {trainerQualified,roomQualified} from './eligibility.js';
+import {minutes} from './lecture-periods.js';
 
 const bad=(message:string)=>Object.assign(new Error(message),{statusCode:409});
 export type ManualMove={sessionId:string;day:Day;start:number;roomId:string|null;instructorId:string};
@@ -27,13 +28,14 @@ export function moveScheduledSession(input:PlanRequest,original:PlanResult,move:
     throw bad('Selected instructor violates locked course, specialty or delivery qualification');
   const oldTeacher=section.instructorId;
   if(!oldTeacher)throw bad('Section has no current instructor');
-  const duration=target.end-target.start,end=number3(move.start+duration);
-  if(!Number.isFinite(move.start)||!Number.isInteger(move.start*2)||!Number.isInteger(end*2)||
+  const fixed=!!input.policy.lecturePeriods&&target.mode==='ONSITE';
+  const duration=target.end-target.start,end=fixed?(minutes(move.start)+minutes(duration))/60:number3(move.start+duration);
+  if(!Number.isFinite(move.start)||(!fixed&&(!Number.isInteger(move.start*2)||!Number.isInteger(end*2)))||
     move.start<0||end>24)throw bad('Start and end must be valid 30-minute time points');
   if(target.mode==='REMOTE'&&move.roomId!==null)throw bad('Remote session cannot use a physical room');
   if(target.mode==='ONSITE'){
     const room=input.rooms.find(r=>r.id===move.roomId);
-    if(!room||!roomQualified(room,course,target.component,section.students))throw bad('Room capacity or component compatibility is invalid');
+    if(!room||!roomQualified(room,course,target.component,section.students,input.policy.ignoreRoomCapacity===true))throw bad('Room capacity or component compatibility is invalid');
   }
   if(course.exclusiveInstructor && result.sections.some(s=>s.courseCode===course.code &&
     s.id!==section.id && s.state!=='UNASSIGNED' && s.instructorId!==trainer.id))
@@ -53,12 +55,13 @@ export function moveScheduledSession(input:PlanRequest,original:PlanResult,move:
     const contact=number3(owned.filter(s=>s.state==='SCHEDULED').reduce((n,s)=>n+s.contactHours,0));
     const exception=i.overload?.additionalHours??0;
     return {id:i.id,baseLimit:i.maxLoad,approvedException:exception,credited,contact,
+      ...(input.policy.lecturePeriods?{clockHours:result.sessions.filter(session=>session.instructorId===i.id).reduce((sum,s)=>sum+s.end-s.start,0)}:{}),
       remaining:number3(i.maxLoad+exception-credited)};
   });
   const readiness=assessReadiness(input,result,'COMPLETED');
   if(!readiness.technicalReady){
-    const signature=(x:{code:string;sectionId?:string;courseCode?:string})=>
-      x.code+'|'+(x.sectionId??'')+'|'+(x.courseCode??'');
+    const signature=(x:{code:string;sectionId?:string;courseCode?:string;instructorId?:string})=>
+      x.code+'|'+(x.sectionId??'')+'|'+(x.courseCode??'')+'|'+(x.instructorId??'');
     const previous=before.issues.filter(x=>x.severity==='BLOCKER');
     const next=readiness.issues.filter(x=>x.severity==='BLOCKER');
     const counts=new Map<string,number>();

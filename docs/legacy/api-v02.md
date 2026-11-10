@@ -41,4 +41,4 @@ Invalid data return `400 {"error":"..."}`. JSON bigger than `MAX_REQUEST_BYTES` 
 - Requires Python 3 and `openpyxl` on the **server**, invokes `scripts/import_xlsx.py` in a child process and removes its temporary copy.
 - Returns `400` for invalid workbook, `413` for excessive request size, `415` for wrong content type, `503` if Python/OpenPyXL is unavailable.
 - No personal learner fields, session storage or direct Rayat upload. **Not suitable for public deployment without auth/RBAC and file scan controls.**
-- `GET /templates/courses.xlsx` and `GET /templates/curriculum.csv` download filled example templates for term 144720.
+- `GET /templates/courses.xlsx` and `GET /templates/curriculum.csv` download filled example templates for an example term.

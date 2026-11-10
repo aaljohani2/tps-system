@@ -2,6 +2,6 @@ import {defineConfig} from '@playwright/test';
 export default defineConfig({
   testDir:'./e2e',
   timeout:60000,
-  use:{baseURL:process.env.TPS_E2E_MOCK==='1'?'http://127.0.0.1:5173':'http://127.0.0.1:8787',headless:true,trace:'retain-on-failure'},
+  use:{baseURL:process.env.TPS_E2E_BASE_URL??(process.env.TPS_E2E_MOCK==='1'?'http://127.0.0.1:5173':'http://127.0.0.1:8787'),headless:true,trace:'retain-on-failure'},
   reporter:'list'
 });

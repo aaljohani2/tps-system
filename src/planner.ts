@@ -1,6 +1,12 @@
 import type {Component, Course, Day, DeliveryMode, Gap, Instructor, PlanRequest, PlanResult, Room, Section, Session, TimeWindow, TimedMode} from './types.js';
 import {validateRequest} from './validation.js';
 import {trainerQualified,roomQualified} from './eligibility.js';
+import {hasSharedBlock} from './cohort-grouping.js';
+import {sectionCapacity} from './section-capacity.js';
+import {courseType,typePreference,instructorTotals,exceedsTeachingLimits} from './instructor-rules.js';
+import {courseClockHours} from './lecture-periods.js';
+import {makePeriodSessions} from './period-scheduler.js';
+import {reserveLoadTargets} from './load-targets.js';
 
 const round = (n: number) => Math.round((n + Number.EPSILON) * 1000) / 1000;
 const days: Day[] = ['SUN', 'MON', 'TUE', 'WED', 'THU'];
@@ -9,10 +15,7 @@ function inAvailability(windows: TimeWindow[] | undefined, day: Day, start: numb
   return !windows || windows.some(w => w.day === day && w.from <= start && w.to >= end);
 }
 function capacity(course: Course, input: PlanRequest): number | null {
-  if (course.mode === 'SELF_PACED') return null;
-  const cap = input.policy.capacities[course.mode];
-  if (course.theoryHours > 0 && course.practicalHours > 0) return Math.min(cap.theory!, cap.practical!);
-  return course.theoryHours > 0 ? cap.theory : cap.practical;
+  return sectionCapacity(course,input.policy);
 }
 function load(course: Course, input: PlanRequest): number {
   const p = input.policy;
@@ -44,6 +47,7 @@ function effectiveLimit(i: Instructor): number { return i.maxLoad + (i.overload?
 function findSchedule(
   s: Section, c: Course, instructor: Instructor, allSessions: Session[], rooms: Room[], input: PlanRequest
 ): Session[] | null {
+  if(input.policy.lecturePeriods&&c.mode==='ONSITE')return makePeriodSessions(c,s,instructor,input,jobs(c),allSessions);
   const proposed: Session[] = [];
   let serial = 1;
   const all = () => [...allSessions, ...proposed];
@@ -66,10 +70,10 @@ function findSchedule(
               if (!inAvailability(instructor.available, day, start, end)) continue;
               if (all().some(existing => existing.day === day && overlap({start, end}, existing) &&
                 (existing.instructorId === instructor.id ||
-                 (s.blockId !== null && existing.blockId === s.blockId) ||
+                 hasSharedBlock(existing,s) ||
                  existing.sectionId === s.id))) continue;
               const eligibleRooms = job.mode === 'REMOTE' ? [null] : rooms.filter(r =>
-                roomQualified(r,c,job.component,s.students) &&
+                roomQualified(r,c,job.component,s.students,input.policy.ignoreRoomCapacity===true) &&
                 inAvailability(r.available, day, start, end) &&
                 !all().some(x => x.roomId === r.id && x.day === day && overlap({start, end}, x))
               );
@@ -78,7 +82,8 @@ function findSchedule(
               proposed.push({
                 id: `${s.id}-${String(serial++).padStart(2, '0')}`, sectionId: s.id, courseCode: c.code,
                 component: job.component, mode: job.mode, day, start, end,
-                roomId: room?.id ?? null, instructorId: instructor.id, blockId: s.blockId
+                roomId: room?.id ?? null, instructorId: instructor.id, blockId: s.blockId,
+                ...(s.blockIds?{blockIds:s.blockIds}:{})
               });
               remaining -= duration;
               placed = true;
@@ -100,6 +105,7 @@ export function buildDraftPlan(input: PlanRequest): PlanResult {
   const sections: Section[] = [];
   const sessions: Session[] = [];
   const gaps: Gap[] = [];
+  const externalSections:NonNullable<PlanResult['externalSections']>=[];
   const notices: string[] = [];
   const instructorLoads = new Map(input.instructors.map(i => [i.id, {credited: 0, contact: 0}]));
   const required: Array<{s: Section; course: Course}> = [];
@@ -109,12 +115,21 @@ export function buildDraftPlan(input: PlanRequest): PlanResult {
     if (c.demand === 0) continue;
     const cap = capacity(c, input);
     const count = c.blockSizes?.length ?? (cap === null ? 1 : Math.ceil(c.demand / cap));
+    if(c.assignmentScope==='EXTERNAL'){
+      for(let n=0;n<count;n++)externalSections.push({id:`${c.code}-EXT-${String(n+1).padStart(3,'0')}`,
+        courseCode:c.code,title:c.title,level:c.level,students:c.blockSizes?.[n]??Math.min(cap!,c.demand-n*cap!),
+        capacity:cap!,contactHours:c.theoryHours+c.practicalHours,responsibleDepartment:c.responsibleDepartment??null,
+        blockIds:c.blockGroups?.[n]??(c.blocks?.[n]?[c.blocks[n]!]:[]),status:'PENDING_EXTERNAL_ASSIGNMENT'});
+      continue;
+    }
     for (let n = 0; n < count; n++) {
       const students = c.blockSizes?.[n] ?? (cap === null ? c.demand : Math.min(cap, c.demand - n * cap));
       const sec: Section = {
+        ...(input.policy.lecturePeriods?{clockHours:courseClockHours(c,input.policy)}:{}),
         id: `${c.code}-${String(n + 1).padStart(3, '0')}`,
         courseCode: c.code, level: c.level, index: n + 1, mode: c.mode,
         students, capacity: cap, blockId: c.blocks?.[n] ?? null,
+        ...(c.blockGroups?.[n]?.length?{blockIds:c.blockGroups[n]}:{}),
         paired: c.theoryHours > 0 && c.practicalHours > 0,
         instructorId: null,
         contactHours: c.mode === 'SELF_PACED' ? 0 : c.theoryHours + c.practicalHours,
@@ -125,10 +140,25 @@ export function buildDraftPlan(input: PlanRequest): PlanResult {
     }
   }
   const courseOwner = new Map<string, string>();
+  if(input.instructors.some(instructor=>instructor.teachingRules?.preferredCourseTypes?.includes('PRACTICAL')))
+    required.sort((a,b)=>Number(courseType(b.course)==='PRACTICAL')-Number(courseType(a.course)==='PRACTICAL'));
+  // A stable ordering preserves existing trainer preferences within each coverage class.
+  if(input.policy.priorityCourseCodes?.length){
+    const priority=new Set(input.policy.priorityCourseCodes);
+    required.sort((a,b)=>Number(priority.has(b.course.code))-Number(priority.has(a.course.code)));
+  }
+  const reserved=reserveLoadTargets(input,required);
+  if(reserved.size)required.sort((a,b)=>Number(reserved.has(b.s.id))-Number(reserved.has(a.s.id)));
   for (const {s, course: c} of required) {
+    // Reserved bundles avoid filling a 24-hour target to 22 with only 3/4-hour sections left.
     const allowed = input.instructors.filter(i => canTeach(i, c) &&
       (!c.exclusiveInstructor || !courseOwner.has(c.code) || courseOwner.get(c.code) === i.id));
     const ranked = allowed.sort((a, b) => {
+      const reservation=Number(reserved.get(s.id)===b.id)-Number(reserved.get(s.id)===a.id);if(reservation)return reservation;
+      const preference=(instructor:Instructor)=>typePreference(instructor,c)+
+        Math.max(0,(instructor.teachingRules?.preferredCreditedLoad??0)-(instructorLoads.get(instructor.id)?.credited??0))*100+
+        (instructorTotals(instructor.id,sections).sections<(instructor.teachingRules?.preferredSections??0)?40:0);
+      const priority=preference(b)-preference(a);if(priority)return priority;
       // Preserve a fixed course owner. Otherwise prioritize more remaining weighted capacity.
       const ra = effectiveLimit(a) - (instructorLoads.get(a.id)?.credited ?? 0);
       const rb = effectiveLimit(b) - (instructorLoads.get(b.id)?.credited ?? 0);
@@ -138,6 +168,8 @@ export function buildDraftPlan(input: PlanRequest): PlanResult {
     let committed = false;
     for (const inst of ranked) {
       const state = instructorLoads.get(inst.id)!;
+      const owned=instructorTotals(inst.id,sections);
+      if(exceedsTeachingLimits(inst,owned.sections+1,owned.contact+(s.clockHours??s.contactHours)))continue;
       if (state.credited + s.creditedLoad > effectiveLimit(inst) + 1e-8) continue;
       if (c.mode === 'SELF_PACED') {
         s.instructorId = inst.id;
@@ -170,14 +202,17 @@ export function buildDraftPlan(input: PlanRequest): PlanResult {
     notices.push('Optional training modes are local planning assumptions; confirm course eligibility and regulatory approval before publication.');
   }
   notices.push('Deterministic greedy draft; no optimality guarantee. No automatic publication to Rayat.');
+  if(externalSections.length)notices.push(`${externalSections.length} شعبة مقررات عامة بإسناد خارجي؛ لا تدخل في نصاب مدربي القسم أو عجزه، وما زالت بانتظار القسم المساند.`);
   const requiredHours = sections.reduce((sum, x) => sum + x.contactHours, 0);
   const assignedHours = sections.filter(s => s.state === 'SCHEDULED').reduce((sum, x) => sum + x.contactHours, 0);
   return {
     status: 'DRAFT', scenarioName: input.scenarioName, termId: input.termId, sections, sessions, gaps,
+    ...(externalSections.length?{externalSections}:{}),
     instructorLoads: input.instructors.map(i => {
       const state = instructorLoads.get(i.id)!;
       const exception = i.overload?.additionalHours ?? 0;
       return {id: i.id, baseLimit: i.maxLoad, approvedException: exception,
+        ...(input.policy.lecturePeriods?{clockHours:sessions.filter(session=>session.instructorId===i.id).reduce((sum,s)=>sum+s.end-s.start,0)}:{}),
         credited: round(state.credited), contact: state.contact,
         remaining: round(i.maxLoad + exception - state.credited)};
     }),

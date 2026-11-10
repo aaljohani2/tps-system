@@ -13,10 +13,17 @@ import SolverRunsPanel from './SolverRunsPanel';
 import WeeklyGrid,{type GridProposal} from './WeeklyGrid';
 import IssuePanel from './IssuePanel';
 import BulkImportsPage from './BulkImportsPage';
+import AutomaticPlanningPage from './AutomaticPlanningPage';
+import ScenarioProjectionSummary from './ScenarioProjectionSummary';
+import ExternalAssignmentsPanel from './ExternalAssignmentsPanel';
+import InstructorAssignmentSummary from './InstructorAssignmentSummary';
+import LecturePeriodsPanel from './LecturePeriodsPanel';
+import ScenarioReportsPanel from './ScenarioReportsPanel';
+import CourseCoveragePanel from './CourseCoveragePanel';
 
 const labels:Record<string,string>={ONSITE:'حضوري',REMOTE:'عن بُعد',SELF_PACED:'ذاتي',HYBRID:'مدمج'};
 const days:Record<string,string>={SUN:'الأحد',MON:'الإثنين',TUE:'الثلاثاء',WED:'الأربعاء',THU:'الخميس'};
-const clock=(n:number)=>String(Math.floor(n)).padStart(2,'0')+':'+(n%1===0.5?'30':'00');
+import {clock} from './time';
 type Message=(s:string)=>void;
 function useStore<T>(key:string,initial:T):[T,(v:T)=>void]{
   const [value,set]=useState<T>(()=>{try{return JSON.parse(localStorage.getItem(key)??'null')??initial;}catch{return initial;}});
@@ -111,6 +118,7 @@ function CourseRow({item,instructors,save,approve,lifecycle,canApprove,canEdit}:
   const [reason,setReason]=useState('');
   const [archiveReason,setArchiveReason]=useState('');
   const active=item.active!==false;
+  const [external,setExternal]=useState(item.assignmentScope==='EXTERNAL');
   const [specialties,setSpecialties]=useState((item.requiredSpecialties as string[]|undefined)?.join(',')??'');
   const [equipment,setEquipment]=useState((item.requiredEquipment as string[]|undefined)?.join(',')??'');
   const [assigned,setAssigned]=useState(String(item.assignedInstructorId??''));
@@ -132,10 +140,12 @@ function CourseRow({item,instructors,save,approve,lifecycle,canApprove,canEdit}:
         <label>مبرر اعتماد الأهلية<input value={reason} onChange={e=>setReason(e.target.value)}/></label>
         <button disabled={reason.trim().length<8} onClick={()=>approve({eligibleModes:eligibility,reason})}>حفظ الأهلية المعتمدة</button>
       </details>}</td>
-    <td><label>التخصصات المطلوبة للمقرر (رموز مفصولة بفواصل)<input value={specialties} onChange={e=>setSpecialties(e.target.value)}/></label>
+    <td><label style={{flexDirection:'row'}}><input type="checkbox" checked={external} onChange={e=>setExternal(e.target.checked)}/>
+      مقرر عام بإسناد خارجي — خارج نصاب القسم وعجزه، السعة 40</label>
+      <label>التخصصات المطلوبة للمقرر (رموز مفصولة بفواصل)<input value={specialties} onChange={e=>setSpecialties(e.target.value)}/></label>
       <label>التجهيزات المطلوبة للقاءات الحضورية<input value={equipment} onChange={e=>setEquipment(e.target.value)}/></label>
       <label>مدرب محدد
-      <select value={assigned} onChange={e=>setAssigned(e.target.value)}><option value="">إسناد آلي</option>
+      <select disabled={external} value={external?'':assigned} onChange={e=>setAssigned(e.target.value)}><option value="">{external?'إسناد من القسم الآخر':'إسناد آلي'}</option>
         {instructors.map(i=><option key={i.id} value={String(i.code)}>{String(i.name)} — {String(i.code)}</option>)}
       </select></label><label style={{flexDirection:'row',alignItems:'center',marginTop:8}}>
         <input type="checkbox" checked={exclusive} onChange={e=>setExclusive(e.target.checked)}/>
@@ -148,7 +158,8 @@ function CourseRow({item,instructors,save,approve,lifecycle,canApprove,canEdit}:
               onChange={e=>setHybrid(v=>({...v,[k]:Number(e.target.value)}))}/></label>)}
       </details>}</td>
     <td><button disabled={!active||!canEdit} onClick={()=>save({demand,blocks:blocks.split(',').map(x=>x.trim()).filter(Boolean),
-      mode,assignedInstructorId:assigned||null,exclusiveInstructor:exclusive,
+      mode,assignedInstructorId:external?null:assigned||null,exclusiveInstructor:exclusive,
+      assignmentScope:external?'EXTERNAL':'DEPARTMENT',externalSectionCapacity:40,
        requiredSpecialties:specialties.split(',').map(x=>x.trim()).filter(Boolean),
        requiredEquipment:equipment.split(',').map(x=>x.trim()).filter(Boolean),
       ...(mode==='HYBRID'?{hybridSplit:hybrid}:{hybridSplit:null})})}>حفظ</button>
@@ -187,7 +198,7 @@ function ResourcesPage({ctx,notify}:{ctx:Context;notify:Message}){
   </section>;
 }
 function Metrics({p}:{p:Plan}){
-  return <div className="metrics"><article><span>إجمالي الشعب</span><strong>{p.metrics.sectionCount}</strong></article>
+  return <div className="metrics"><article><span>{p.externalSections?.length?'شعب القسم':'إجمالي الشعب'}</span><strong>{p.metrics.sectionCount}</strong></article>
     <article><span>الساعات المطلوبة</span><strong>{p.metrics.requiredContactHours}</strong></article>
     <article><span>الساعات المغطاة</span><strong>{p.metrics.assignedContactHours}</strong></article>
     <article className={p.metrics.uncoveredSectionCount?'danger':''}><span>الشعب غير المغطاة</span><strong>{p.metrics.uncoveredSectionCount}</strong></article></div>;
@@ -211,7 +222,7 @@ function Timetable({p}:{p:Plan}){
 function ScenarioPage({ctx,notify,user}:{ctx:Context;notify:Message;user:Auth}){
   const qc=useQueryClient(),list=useQuery({queryKey:['scenarios',ctx.departmentId,ctx.termId],
     queryFn:()=>api<Scenario[]>('/scenarios?departmentId='+ctx.departmentId+'&termId='+ctx.termId),enabled:!!ctx.departmentId&&!!ctx.termId});
-  const [name,setName]=useState('السيناريو الحضوري'),[selected,setSelected]=useState(''),[working,setWorking]=useState(false),[second,setSecond]=useState('');
+  const [name,setName]=useState('السيناريو الحضوري'),[selected,setSelected]=useState(()=>new URLSearchParams(window.location.search).get('scenario')??''),[working,setWorking]=useState(false),[second,setSecond]=useState('');
   const [solverSeconds,setSolverSeconds]=useState(5),[candidateBreadth,setCandidateBreadth]=useState(6);
   const [gridProposal,setGridProposal]=useState<GridProposal|null>(null);
   const [focusSection,setFocusSection]=useState<string|null>(null);
@@ -267,6 +278,12 @@ function ScenarioPage({ctx,notify,user}:{ctx:Context;notify:Message;user:Auth}){
       <a href={'/api/v1/scenarios/'+selected+'/print'} target="_blank" rel="noreferrer">
         تقرير مختصر للطباعة أو الحفظ PDF</a></div>
       <Metrics p={p}/>
+      <ScenarioProjectionSummary input={current.input_snapshot} result={p}/>
+      <ExternalAssignmentsPanel scenario={current}/>
+      <InstructorAssignmentSummary input={current.input_snapshot} result={p}/>
+      <LecturePeriodsPanel input={current.input_snapshot}/>
+      <CourseCoveragePanel input={current.input_snapshot} result={p}/>
+      <ScenarioReportsPanel scenarioId={current.id}/>
       <h3>فحص جاهزية الاعتماد</h3>
       <div className={readiness.data?.technicalReady?'alert success':'alert'}>
         {readiness.data?.technicalReady?'اكتمل التحقق الفني من البيانات الأساسية، ويمكن طلب الاعتماد بحسب الصلاحيات.':
@@ -284,8 +301,8 @@ function ScenarioPage({ctx,notify,user}:{ctx:Context;notify:Message;user:Auth}){
       <ManualScheduleEditor scenario={current} notify={notify} proposal={gridProposal} canEdit={canEdit}/>
       <h3>كشف العجز</h3>{p.gaps.length?<div className="table-wrap"><table><thead><tr><th>الشعبة</th><th>المقرر</th><th>السبب</th><th>ساعات التدريب</th><th>النصاب المطلوب</th></tr></thead>
         <tbody>{p.gaps.map(g=><tr key={g.sectionId}><td>{g.sectionId}</td><td>{g.courseCode}</td><td>{g.reason}</td><td>{g.contactHours}</td><td>{g.equivalentLoad}</td></tr>)}</tbody></table></div>:<p className="success">لا يوجد عجز مسجل في النتيجة الحالية. يلزم التحقق من هوية البلوكات قبل اعتمادها.</p>}
-      <h3>أنصبة المدربين</h3><div className="table-wrap"><table><thead><tr><th>المدرب</th><th>الساعات الفعلية</th><th>النصاب المكافئ</th><th>المتبقي</th></tr></thead><tbody>
-        {p.instructorLoads.map(i=><tr key={i.id}><td>{i.id}</td><td>{i.contact}</td><td>{i.credited}</td><td>{i.remaining}</td></tr>)}</tbody></table></div>
+      <h3>أنصبة المدربين</h3><div className="table-wrap"><table><thead><tr><th>المدرب</th><th>الساعات التدريبية</th><th>الوقت الفعلي بالساعات</th><th>النصاب المكافئ</th><th>المتبقي</th></tr></thead><tbody>
+        {p.instructorLoads.map(i=><tr key={i.id}><td>{i.id}</td><td>{i.contact}</td><td>{Number((i.clockHours??i.contact).toFixed(2))}</td><td>{i.credited}</td><td>{i.remaining}</td></tr>)}</tbody></table></div>
       {p.notices.length>0&&<div className="alert">{p.notices.join(' | ')}</div>}
       <details><summary>إنشاء سيناريو بديل مستقل من هذا السيناريو</summary>
         <p className="hint">غيّر الطلب المتوقع أو البلوكات هنا دون تعديل المقررات الرئيسية أو السيناريو الأصلي. يجب إعادة تشغيل Timefold للبديل؛ ولا تعني هذه العملية اعتماد الجدول.</p>
@@ -320,7 +337,7 @@ function ScenarioPage({ctx,notify,user}:{ctx:Context;notify:Message;user:Auth}){
     </>}
   </section>;
 }
-const nav=[['/context','الكلية والقسم والفصل'],['/dashboard','لوحة المؤشرات'],['/courses','المقررات'],['/imports','الاستيراد الجماعي'],['/academic','البرامج والأفواج والبلوكات'],['/demand','تقدير الطلب'],['/resources','المدربون والقاعات'],['/policy','الأنماط والأنصبة'],['/scheduling','الشعب والجدولة والاعتماد'],['/users','المستخدمون والصلاحيات']];
+const nav=[['/context','الكلية والقسم والفصل'],['/automatic-planning','التخطيط الآلي من الملفات'],['/dashboard','لوحة المؤشرات'],['/courses','المقررات'],['/imports','الاستيراد الذكي والقوالب'],['/academic','البرامج والأفواج والبلوكات'],['/demand','تقدير الطلب'],['/resources','المدربون والقاعات'],['/policy','الأنماط والأنصبة'],['/scheduling','الشعب والجدولة والاعتماد'],['/users','المستخدمون والصلاحيات']];
 export default function App(){
   const qc=useQueryClient(),[user,setUser]=useState<Auth|null>(null),[initial,setInitial]=useState(true);
   const [ctx,setCtx]=useStore<Context>('tps-context',{collegeId:'',departmentId:'',termId:''});
@@ -338,6 +355,7 @@ export default function App(){
     {message&&<div className="toast" role="status" onClick={()=>notify('')}>{message} <button aria-label="إغلاق">×</button></div>}
     <Routes><Route path="/" element={<Navigate to="/context" replace/>}/>
     <Route path="/context" element={<ContextSetup context={ctx} setContext={setCtx} notify={notify}/>}/>
+    <Route path="/automatic-planning" element={ctx.departmentId&&ctx.termId?<AutomaticPlanningPage ctx={ctx} user={user} notify={notify}/>:<NeedContext/>}/>
     <Route path="/courses" element={ctx.departmentId?<CoursePage ctx={ctx} user={user} notify={notify}/>:<NeedContext/>}/>
     <Route path="/dashboard" element={ctx.departmentId&&ctx.termId?<DashboardPage ctx={ctx}/>:<NeedContext/>}/>
     <Route path="/imports" element={ctx.departmentId&&ctx.termId?

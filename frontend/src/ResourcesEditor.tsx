@@ -2,6 +2,8 @@ import {useState} from 'react';
 import {useQuery,useQueryClient} from '@tanstack/react-query';
 import {api,post,type Auth,type Context,type Entity} from './api';
 import LoadExceptionPanel from './LoadExceptionPanel';
+import RayatResourceImport from './RayatResourceImport';
+import InstructorRulesFields,{type TeachingRules} from './InstructorRulesFields';
 
 type Mode='ONSITE'|'REMOTE'|'SELF_PACED'|'HYBRID';
 const modes:Mode[]=['ONSITE','REMOTE','SELF_PACED','HYBRID'];
@@ -27,6 +29,7 @@ function TrainerRow({item,save,lifecycle,canEdit}:{item:Entity;save:(id:string,v
     [courses,setCourses]=useState((item.eligibleCourseCodes as string[]|null)?.join(',')??''),
     [specialties,setSpecialties]=useState((item.specialties as string[]|undefined)?.join(',')??''),
     [available,setAvailable]=useState<Window[]|undefined>((item.available as Window[]|null)??undefined),
+    [teachingRules,setTeachingRules]=useState<TeachingRules>((item.teachingRules as TeachingRules|undefined)??{}),
     [archiveReason,setArchiveReason]=useState('');
   const active=item.active!==false;
   return <details><summary>{String(item.code)} — {name} | النصاب {load} | {active?'نشط':'مؤرشف'}</summary>
@@ -37,32 +40,34 @@ function TrainerRow({item,save,lifecycle,canEdit}:{item:Entity;save:(id:string,v
     </div>
     <h3>أنماط المدرب المؤهل لها</h3><Modes value={allowed} change={setAllowed}/>
     <Windows value={available} change={setAvailable}/>
+    <InstructorRulesFields value={teachingRules} change={setTeachingRules}/>
     <button disabled={!canEdit||!active} onClick={()=>save(item.id,{name,maxLoad:load,allowedModes:allowed,
       eligibleCourseCodes:courses.trim()?courses.split(',').map(x=>x.trim()).filter(Boolean):null,
       specialties:specialties.split(',').map(x=>x.trim()).filter(Boolean),
-      available:available??null})}>حفظ بيانات المدرب</button>
+      available:available??null,teachingRules})}>حفظ بيانات المدرب</button>
     <label>مبرر الأرشفة أو الاستعادة<input value={archiveReason} onChange={e=>setArchiveReason(e.target.value)}/></label>
     <button disabled={!canEdit||archiveReason.trim().length<8} onClick={()=>lifecycle(item.id,!active,archiveReason)}>{active?'أرشفة المدرب':'استعادة المدرب'}</button>
   </details>;
 }
 function RoomRow({item,save,lifecycle,canManage}:{item:Entity;save:(id:string,v:unknown)=>Promise<void>;
   lifecycle:(id:string,active:boolean,reason:string)=>Promise<void>;canManage:boolean}){
-  const [name,setName]=useState(String(item.name??'')),[type,setType]=useState(String(item.type??'CLASSROOM')),
-    [capacity,setCapacity]=useState(Number(item.capacity??30)),[building,setBuilding]=useState(String(item.building??'')),
+  const [name,setName]=useState(String(item.name??'')),[type,setType]=useState(String(item.type??'')),
+    [capacity,setCapacity]=useState(String(item.capacity??'')),[building,setBuilding]=useState(String(item.building??'')),
     [equipment,setEquipment]=useState((item.equipmentCodes as string[]|undefined)?.join(',')??''),
     [available,setAvailable]=useState<Window[]|undefined>((item.available as Window[]|null)??undefined),
     [archiveReason,setArchiveReason]=useState('');
   const active=item.active!==false;
-  return <details><summary>{String(item.code)} — {name} | السعة {capacity} | {active?'نشطة':'مؤرشفة'}</summary>
+  return <details><summary>{String(item.code)} — {name} | السعة {capacity||'غير موثقة'} | {type?'':'النوع غير موثق | '}{active?'نشطة':'مؤرشفة'}</summary>
     <div className="form-grid"><label>اسم القاعة<input value={name} onChange={e=>setName(e.target.value)}/></label>
-      <label>السعة<input type="number" min="1" value={capacity} onChange={e=>setCapacity(+e.target.value)}/></label>
+      <label>السعة<input type="number" min="1" placeholder="غير موثقة" value={capacity} onChange={e=>setCapacity(e.target.value)}/></label>
       <label>المبنى<input value={building} onChange={e=>setBuilding(e.target.value)}/></label>
       <label>التجهيزات المتاحة (رموز مفصولة بفواصل)<input value={equipment} onChange={e=>setEquipment(e.target.value)}/></label>
       <label>نوع القاعة<select value={type} onChange={e=>setType(e.target.value)}>
+        <option value="">غير موثق — لا تدخل في الجدولة</option>
         <option value="CLASSROOM">نظرية</option><option value="LAB">معمل</option><option value="MULTI">متعددة</option>
       </select></label></div>
     <Windows value={available} change={setAvailable}/>
-    <button disabled={!canManage||!active} onClick={()=>save(item.id,{name,capacity,building,type,equipmentCodes:equipment.split(',').map(x=>x.trim()).filter(Boolean),available:available??null})}>حفظ بيانات القاعة</button>
+    <button disabled={!canManage||!active} onClick={()=>save(item.id,{name,capacity:capacity===''?null:Number(capacity),building,type:type||null,equipmentCodes:equipment.split(',').map(x=>x.trim()).filter(Boolean),available:available??null})}>حفظ بيانات القاعة</button>
     <label>مبرر الأرشفة أو الاستعادة<input value={archiveReason} onChange={e=>setArchiveReason(e.target.value)}/></label>
     <button disabled={!canManage||archiveReason.trim().length<8} onClick={()=>lifecycle(item.id,!active,archiveReason)}>{active?'أرشفة القاعة':'استعادة القاعة'}</button>
   </details>;
@@ -83,6 +88,7 @@ export default function ResourcesEditor({ctx,user,notify}:{ctx:Context;user:Auth
     await run(()=>api(base+'/'+id,{method:'PATCH',body:JSON.stringify(payload)}));
   }
   return <section className="panel"><h2>٣. المدربون والأنصبة والقاعات</h2>
+    <RayatResourceImport ctx={ctx} user={user} notify={notify}/>
     <div className="split"><section><h3>إضافة مدرب</h3><div className="form-grid">
       <label>الرمز<input value={trainer.code} onChange={e=>setTrainer({...trainer,code:e.target.value})}/></label>
       <label>الاسم<input value={trainer.name} onChange={e=>setTrainer({...trainer,name:e.target.value})}/></label>

@@ -11,7 +11,7 @@ You are Codex on the user's Windows computer. **Your only tasks are to install a
 - Do not send user or trainee data to tests. Use synthetic datasets.
 - Keep `Timefold Solver` as the only optimization engine; do not silently replace it with greedy.
 
-## Actions on `H:\\tps_system`
+## Actions on `<LOCAL_TPS_DIR>`
 
 1. Inspect current Git branch, uncommitted changes and `git status` before any remote fetch or checkout. If conflicts might overwrite changes, stop and report rather than destroying them.
 2. Confirm Node 22+, npm, Java 21, Maven, Python/openpyxl, Docker Desktop and free loopback ports. Check Docker volume/data state without deleting anything.
