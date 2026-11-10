@@ -1,0 +1,26 @@
+node_modules/
+dist/
+.env
+.env.*
+!.env.example
+*.log
+coverage/
+.DS_Store
+*.xlsx
+*.xls
+*.csv
+*.pdf
+private-data/
+
+solver/target/
+__pycache__/
+*.pyc
+.venv/
+
+frontend/playwright-report/
+frontend/test-results/
+
+# Local acceptance and encrypted backup artifacts must not be committed.
+test-reports/
+*.tpsbak
+*.partial

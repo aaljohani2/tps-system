@@ -1,0 +1,57 @@
+name: TPS production dependency security gate
+on:
+  push:
+    branches: [main, 'feat/**']
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  dependency-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Resolve both dependency trees without running package scripts
+        run: |
+          npm ci --ignore-scripts --no-audit
+          (cd frontend && npm ci --ignore-scripts --no-audit)
+      - name: Collect root and frontend advisories
+        run: |
+          npm audit --json > root-audit.json || true
+          (cd frontend && npm audit --json > ../frontend-audit.json) || true
+      - name: Enforce zero high or critical production release vulnerabilities
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          let blocked=false;
+          for(const [name,file] of [['root','root-audit.json'],['frontend','frontend-audit.json']]){
+            const report=JSON.parse(fs.readFileSync(file,'utf8'));
+            if(report.error){console.error(name,'registry/audit error:',report.error.code??'UNKNOWN');blocked=true;continue;}
+            const counts=report.metadata?.vulnerabilities;
+            if(!counts){console.error(name,'missing audit vulnerability metadata');blocked=true;continue;}
+            const high=(counts.high??0)+(counts.critical??0);
+            console.log(name,'vulnerabilities:',JSON.stringify(counts));
+            for(const [dependency,issue] of Object.entries(report.vulnerabilities??{})){
+              if(!['high','critical'].includes(issue.severity))continue;
+              console.error(name,dependency,issue.severity,JSON.stringify({
+                via:issue.via,range:issue.range,fixAvailable:issue.fixAvailable
+              }));
+            }
+            if(high>0)blocked=true;
+          }
+          if(blocked){console.error('RELEASE BLOCKED: audit unavailable or high/critical advisories remain.');process.exitCode=1;}
+          else console.log('Release dependency gate passed: no reported high/critical advisories.');
+          NODE
+      - name: Retain machine-readable security evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tps-dependency-audit
+          path: |
+            root-audit.json
+            frontend-audit.json
+          retention-days: 14

@@ -1,0 +1,96 @@
+# تدقيق الفجوات مقابل التكليف الشامل الأصلي — TPS System
+**تاريخ التدقيق:** 2026-11-06  
+**المرجع:** النص الأصلي «TPS SYSTEM — Full-Stack Application Implementation — Complete Development Mandate» (15 مرحلة، 20 صفحة تشغيلية، معايير قبول ختامية).  
+**مستودع:** `aaljohani2/tps-system`، الفرع `feat/full-stack-tps-v1`.  
+**الحكم:** لم يتحقق نطاق التكليف الشامل. ويُستخدم جدول P0 أدناه كتقييم متجدد؛ لا تُعد الفقرات التاريخية الأقدم الحالة النهائية بعد إضافات 0011. بنية V1 والاختبارات الاصطناعية لا تعني اكتمال المنتج. Codex مخصص للتثبيت والاختبارات المحلية **بعد استكمال التطوير المتفق عليه**.
+
+## إغلاق نطاق التطوير للمرحلتين العاشرة والحادية عشرة — 2026-11-06
+فُصلت معايير التكليف الأصلي §28–32 بندًا بندًا في `docs/PHASE_10_11_CLOSEOUT.md`: 
+- **المرحلة العاشرة:** خمسة قوالب Excel/CSV كاملة، معاينة وتحليل الأخطاء قبل اعتماد معاملة PostgreSQL، مقترحات أهلية المقرر منفصلة عن القرار الإداري، 10 أوراق Excel وتقارير مقارنة، وتقرير طباعة/حفظ PDF اختياري.
+- **المرحلة الحادية عشرة:** شبكة أسبوعية بأربع رؤى، تفاصيل الجلسات، تعديل الموعد والقاعة والمدرب بإذن، سحب/إفلات لا يحفظ تلقائيًا، تحذيرات عربية مرتبطة بالشعبة، وإصلاح التعارضات التي تقلل موانع الاعتماد دون تجاوز القيود.
+- **الاختبارات:** PostgreSQL/Node/Python/Java/React، وكذلك اختبارات Playwright لمحاكاة تفاعل الواجهة. أُجريت في بيئة GitHub الاصطناعية لا على Windows.
+- **حكم النطاق:** تطوير بنود §28–32 مكتمل في الشيفرة عند نجاح CI للـHEAD. قبول المستخدم على Windows ما زال **غير منفّذ**؛ ولا يجيز هذا إغلاق بقية مراحل التكليف العام أو دمج المسودة.
+
+## متابعة تنفيذ P0 — الاستيراد والتقارير
+أضيفت قوالب CSV/XLSX وتنفيذ مرحلتي المعاينة ثم الاعتماد للمدربين والقاعات والبلوكات وتقديرات الطلب، مع فحص الصفوف والروابط وصلاحيات الكلية والقسم، والتحقق من بصمة الملف وعدم قبول اعتماده مرتين. أضيف ترحيل 0009 لسجل المعاينات، والتصدير التفصيلي لجداول المدربين والقاعات والمستويات والبلوكات والتعارضات والمقارنة الاختيارية. تبقى قوالب الخطط الشاملة وبعض التقارير المتقدمة وواجهة الجدولة الأسبوعية التفاعلية خارج هذا الإنجاز، ولا تُعتبر المواصفات الشاملة منتهية.
+
+## التحديث الهندسي — عملية Timefold والسجلات
+أضيف سجل مستقل لمحاولات Timefold وحالاتها والمدة والدرجة، ونقطة API لعرضها، ومسار تعافٍ مشروط للمحاولات المهجورة بعد دقيقتين، دون إلغاء حل نشط. أضيف Seed اصطناعي مع قفل تفعيل صريح وحقن متكرر داخل CI. **الحدود الباقية:** الإلغاء الفوري، تقدم المحرك أثناء الحل، التشغيل الطويل خارج اتصال HTTP، واستيراد المدربين والقاعات بالجملة.
+
+## متابعة تنفيذ P0 — تغييرات 0005–0007
+أضيفت إعادة جدولة يدوية لجلسات السيناريو المكتمل مع قفل صلاحيات، تحقق كامل من القيود وإصدار تعديل وسجل قبل/بعد. أضيف مسار لطلب استثناء النصاب واعتماده من مختص قبل دخوله في السيناريو، وقواعد متطلبات سابقة بلا دورات وتنشيط إصدار خطة بعد فحص مستوياتها. أضيف تدقيق الدخول الفاشل وتصحيح أحجام بلوكات السيناريوهات البديلة. **هذه وظائف حقيقية في الشيفرة، لكنها لا تغلق شرط الجدولة التفاعلية الحرة، أو تحكم عمليات Timefold طويلة التنفيذ، أو استيراد الموارد الشامل.**
+
+## تحديث التنفيذ الجزئي — 2026-11-06
+أضيفت الآن كيانات البرامج والخطط والأفواج والبلوكات وتقديرات الطلب في ترحيل 0004، وربط سيناريو الجدولة بالبلوكات الفعلية مع رفض اختلاف مجموعها عن الطلب. أضيفت شاشتا إدارة الهيكل والطلب ولوحة مؤشرات من PostgreSQL، وإسناد المدرب يدويًا، وتوزيع ساعات المدمج، ودقة نصف الساعة في Timefold/Java، وإدارة حسابات أولية. **لا يغلق هذا جميع البنود P0**: يبقى تنشيط الخطط والمتطلبات السابقة، وقواعد الإسناد والتكليف الرسمية، وإعادة الجدولة التفاعلية، وإدارة وظائف المحرك طويلة التشغيل، وقوالب استيراد الموارد والتقارير والاختبارات الشاملة.
+
+## تعريف الحالات
+- **مكتمل في الشيفرة**: متصل بقاعدة PostgreSQL وأفعال حقيقية واختبارات مناسبة.
+- **جزئي**: توجد نقطة بداية تعمل، لكنها لا تستوفي بنود التكليف جميعًا.
+- **غير منفذ**: لا توجد وظيفة تشغيلية مُثبتة، حتى لو ورد اسمها في README أو النماذج.
+- **لم يُختبر محليًا**: لا يُستدل بنجاح Linux CI على عمل الجهاز `<LOCAL_TPS_DIR>`.
+
+## فجوات الأولوية P0 — أساسية قبل الإقرار باكتمال النظام
+| الرمز | المعيار في الأمر الشامل | الموجود في الشيفرة | الحد الأدنى لإغلاق الفجوة |
+|---|---|---|---|
+| P0-01 | الهيكل: Programs, CurriculumPlans, levels, prerequisites, CourseComponents, Offerings | أضيفت جداول البرامج والخطط وربط المقررات بالمستويات؛ المتطلبات السابقة ومكونات العرض والتفعيل الرسمي ناقصة | جداول علائقية حقيقية، واجهة CRUD وخطط قابلة للاستيراد وربط مقرر-مستوى-برنامج-فصل |
+| P0-02 | الطلب: تقدير مع إعادة 5%، المصدر والموثوقية، دون مضاعفة نظري/عملي | أضيفت تقديرات المصدر/الموثوقية ونسبة الإعادة إلى المستوى الحسابي؛ تفاصيل الانتقال والإعادة المؤسسية غير مكتملة | نموذج الطلب مع مصدر وسجل تقدير وتبعية المقرر/الفوج وتقارير تحقق |
+| P0-03 | Cohorts, StudentBlocks, BlockCourseAssignments | أضيفت الجداول العلائقية وربطها بالسيناريو؛ ما زالت واجهة إدارة الأفواج وخيارات نقلها وإصداراتها أولية | جداول مستقلة للأفواج والبلوكات والحجم والمستوى وعلاقات المقررات؛ كشف نقص الروابط قبل الاعتماد |
+| P0-04 | مكونات النظري والعملي زوج 1:1 واضح في البيانات والواجهة | `sections.paired:boolean` وجلسات تحمل مكون `component`؛ لا SectionComponents/SectionPairs محفوظة كصفوف | تعيين زوج حقيقي وروابط مكونات القسم/الشعبة مع تحقق حاسم |
+| P0-05 | إسناد المدربين يدويًا، تثبيت/استبعاد، أنصبة عادية ومخفضة/خاصة مع استثناء معتمد | `assigned_instructor_id` في Course؛ واجهة تعديل المقرر لا تتيح تثبيته؛ الاستثناء حقل JSON بلا مسار اعتماد مستقل | إدارة التثبيت والاستبعاد وأهلية المدرب؛ اعتماد الاستثناءات وربطها بالمدة والمسوغ |
+| P0-06 | الجدولة التفاعلية: شبكة أسبوعية وتعديل الوقت والقاعة والمدرب في Backend | **مكتمل تطويرًا ضمن المرحلة 11**: `WeeklyGrid.tsx` وأربع رؤى، `ManualScheduleEditor`, `manual-routes` مع صلاحيات وسجل وتحكّم في التعارضات | اختبارات Playwright وPostgreSQL ناجحة؛ قبول Windows المحلي معلّق |
+| P0-07 | Timefold: candidate breadth, half-hours, status/cancel/progress and real-scale scheduling | 0012 adds persisted truthful stages and an HTTP-independent **in-process** async endpoint returning 202; valid cancellation and audit, bounded candidates, 25/25 and 50/50 synthetic coverage. Integration run 42263941126 passed. | Durable queue across restarts, multi-process global limit, live percent/score, wider constraints, adversarial/Windows acceptance remain open. |
+| P0-08 | صلاحيات مستخدمين وأدوار/نطاقات عبر واجهة تشغيل | أضيفت إدارة حسابات محلية وتفعيل وتعطيل وتغيير النطاق وكلمات المرور؛ المصفوفة الإدارية المتقدمة والموافقات غير مكتملة | Users CRUD آمن، تعيين أدوار/صلاحيات ونطاق، تعطيل واستعادة حساب، تدقيق المحاولات الفاشلة |
+| P0-09 | إدارة أربع طبقات بأهلية مستقلة موثقة للمقرر والمدرب والتقسيم المدمج | سياسة فصل معتمدة؛ المقرر نمط+أهلية JSON؛ `hybridSplit` في DB/المحرك بلا محرر مستقل؛ بعد مراجعة ظهر منح أهلية تلقائي عند تغيير النمط وتم فصله بمسار اعتماد مستقل | واجهة تقسيم ساعات المدمج، أهلية المدرّب والمقرر المبررة، تحقق الوضع الفعلي عبر السيناريو |
+| P0-10 | لوحة تحكم رئيسية وربط جميع الوظائف المطلوبة | أضيفت لوحة مؤشرات مقيّدة بالنطاق من PostgreSQL، وشاشات البرامج والطلب والمستخدمين؛ تظل وظائف أخرى دون صفحات مكتملة | dashboard حقيقي من PostgreSQL وملاحة لجميع الوظائف دون صفحات وهمية |
+| P0-11 | Five CSV/XLSX templates with preview/commit, secure validation and transactions | Engineering closeout: five source kinds, SHA-256 preview token, single transaction upsert, scoped permissions and CI tests. | Local Windows acceptance pending; retain regression coverage. |
+| P0-12 | Detailed RTL Excel schedule/load/gap/conflict/comparison exports | Engineering closeout: saved-scenario RTL Excel worksheets, print-to-PDF browser view and corresponding CI tests. | Local Windows and real-data acceptance pending. |
+| P0-13 | Unified API: Pagination, Soft delete, Validation, Search/filter, audit | Core RBAC/Zod/audit exist; scenario list now supports bounded limit 1–100, offset 0–10000, name search and scoped SQL with HTTP 400/403 tests; run 42265498369 all 7 jobs passed. | Complete same behavior for catalog/users/academic lists, safe archiving (not destructive deletion), unified errors and API contract tests. |
+| P0-14 | Unmocked 20-step browser journey + realistic and impossible-workload benchmarks | Real-JAR 25/50-course feasible benchmarks passed; 8-course/1-room/2h impossible case schedules 1 and reports 7 gaps. New unmocked Chromium/React/Fastify/PostgreSQL/Java CI job exists; its HEAD-matching result must be checked. | Expand browser test to exact 20-step matrix, multi-role/auth negatives, restart/Windows and institutional scale before closure. |
+| P0-15 | Required architecture, database, API, user/admin, rules and security documents | All seven exact-named documents added and grounded in implemented local V1, with known gaps explicitly stated; existing implementation/acceptance ledgers updated. | Review against final HEAD, consistency of legacy lowercase prototype docs, practical Windows verification and final signoff. |
+| P0-16 | CLI db:seed, Vitest or documented alternative, sufficient unit/integration coverage | Opt-in idempotent synthetic db:seed exists and is exercised twice in CI; project uses Node's built-in test runner rather than Vitest. | Document test-runner deviation/decision and complete the mandated functional/security/scale coverage; never mark skipped local tests green. |
+
+## بنود متقدمة P1 بعد استكمال P0
+- توسيع القيود التفضيلية: تقليل فجوات المدرب والبلوك، استغلال القاعات، تنويع الأيام وأوزان تفضيل قابلة للتعديل.
+- دقة إظهار التعارض مع البيانات المسببة والبديل المقترح وعدد المدربين المؤهلين وقيد العجز.
+- وضع مراجعات متعددة وقرارات APPROVED/REJECTED/ARCHIVED في سجل منفصل؛ ومقارنة السيناريوهات على السعات والتوزيع حسب النمط والقاعة والتعارض.
+- تجهيزات وقيود القاعة والتخصصات والقيود الإدارية وربطها بقواعد إسناد صريحة.
+- أنماط التأهيل والتغيير على مستوى المقرر منفصلة عن مجرد تفعيل نمط على مستوى الفصل.
+- التصدير PDF المختصر اختياري وفق التكليف بعد اكتمال تقارير Excel.
+
+## بنود P2: تحسينات لا ينبغي أن تعوق بناء P0
+- تخصيصات UI ومتطلبات الوصول وشريط Breadcrumb وEmpty/Error States وحوارات تأكيد متكاملة.
+- تهيئة نسخة تجريبية ببيانات اصطناعية تشمل جميع المسارات، وتقارير أداء مفصلة.
+- توسيع إمكانات العرض والتخصيص الإداري والجداول التفاعلية المتقدمة بعد تحقق القيود.
+
+## أدلة تقنية محددة
+- `src/types.ts`: `TimeWindow.from/to` رقمي؛ `src/validation.ts` يشترط `Number.isInteger`، فلا توجد دقة نصف ساعة الآن.
+- `src/optimizer.ts`: `maxChoicesPerInstructor=6` و`seconds=5`؛ الاختيارات `AtomicCandidate` مُولّدة مسبقًا، لا بحث مرن شامل.
+- `src/planner.ts`: معرف البلوك يأتي من `c.blocks?.[n]`، وليس جدول ربط بين الفوج والمقرر.
+- `db/migrations/0001_foundation.sql`–`0003_scenario_lineage.sql`: نموذج قاعدة البيانات أولي، غير شامل قوائم الكيانات المذكورة في التكليف.
+- `frontend/src/App.tsx`: الشاشات الخمس المشار إليها.
+- `frontend/e2e/login.spec.ts`: لا ينفذ رحلة الـ20 خطوة.
+- `scripts/export_scenario.py`: تصدير متعدد الأوراق محدود.
+- `src/api/scenarios.ts`: المراجعة والاعتماد الأساسي، دون إدارة عمليات حل مؤسسية.
+
+## ترتيب التنفيذ المقترح قبل تسليم Codex للاختبارات النهائية
+1. إكمال **الكيانات العلائقية**: البرامج/الخطط/المكونات/البلوكات والطلب.
+2. استكمال **الإدخال والإسناد**: المدرب/القاعة/المقرر/التخصص/التكليف/النمط/المدمج.
+3. توسيع **Timefold**: نصف ساعة، مرونة البدائل، عمليات الحل وإلغاؤها، قواعد متقاطعة.
+4. استكمال **واجهة التشغيل**: لوحة التحكم، البلوكات، الطلب، الإسناد اليدوي، شبكة أسبوعية متصلة بالـAPI.
+5. استكمال **الاستيراد والتصدير والصلاحيات والتقارير**.
+6. إجراء **اختبارات التطوير الآلية والقبول الاصطناعي** على GitHub ثم مراجعة الوثائق.
+7. تكليف **Codex بالتثبيت والاختبارات المحلية فقط** على `<LOCAL_TPS_DIR>` بعد تحديد نطاق قبول قابل للتحقق.
+
+## قرار الاستعداد
+- **جاهز لتجربة فنية محدودة على جهاز محلي:** نعم، بعد فصل قاعدة اختبار.
+- **جاهز لاختبار قبول نهائي للأمر الشامل:** **لا**.
+- **جاهز للإنتاج أو للاعتماد المؤسسي:** **لا**.
+- نجاح CI الحالي يثبت فقط الاختبارات الموجودة، لا الميزات غير المكتوبة.
+
+## P0 increment: specialty and equipment enforcement (migration 0013)
+
+Source code and tests now model mandatory `requiredSpecialties`, `requiredEquipment`, instructor `specialties` and room `equipmentCodes`; all four scheduling/approval checks share a single rule. Await HEAD-matching CI before closure. Institutional credential verification, detailed inventory management, full CRUD/archive and Windows acceptance remain open.
+
+## Verified resource archival increment — 0014
+
+Source commit `dc8d477d5f3e3353ecd80638a4be23c6b46ce91f`, GitHub Actions `42272336053`: **7/7 successful**. Courses/instructors/rooms now have reversible audited archive/restore, role/scope and CSRF checks, default active lists, historical snapshots preserved, 409 for inactive locked trainer and for activation/archiving inconsistent with active curriculum plans. This closes resource lifecycle for these **three** entities only. Universal pagination/search and archival for additional academic entities, institutional qualifications approvals, security review and Windows acceptance remain open.

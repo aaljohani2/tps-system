@@ -1,0 +1,375 @@
+name: TPS checks
+on:
+  pull_request:
+  push:
+    branches: [main, 'feat/**']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  node-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install openpyxl==3.1.5
+      - run: npm ci --ignore-scripts --no-audit
+      - run: npm test
+  xlsx-import-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install openpyxl==3.1.5
+      - run: PYTHONPATH=scripts python -m unittest discover -s scripts -p 'test_*.py' -v
+  java-timefold:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+          cache-dependency-path: solver/pom.xml
+      - run: mvn -B -ntp -f solver/pom.xml clean verify package
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tps-timefold-jar
+          path: solver/target/tps-timefold-0.2.0-jar-with-dependencies.jar
+          retention-days: 7
+
+  web-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: cd frontend && npm ci --ignore-scripts --no-audit
+      - run: npm run web:build
+  api-postgres-integration:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: tps
+          POSTGRES_DB: tps_ci
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U tps -d tps_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgres://tps@127.0.0.1:5432/tps_ci
+      TPS_DB_INTEGRATION: '1'
+      HOST: 127.0.0.1
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+          cache-dependency-path: solver/pom.xml
+      - run: npm ci --ignore-scripts --no-audit
+      - run: npm run build
+      - run: python -m pip install openpyxl==3.1.5
+      - run: node dist/src/api/migrate.js
+      - run: node dist/src/api/migrate.js
+      - run: node dist/src/api/check.js
+      - run: TPS_ALLOW_SYNTHETIC_SEED=1 node dist/src/api/seed.js
+      - run: TPS_ALLOW_SYNTHETIC_SEED=1 node dist/src/api/seed.js
+      - run: mvn -B -ntp -f solver/pom.xml clean package
+      - run: node --test dist/tests/api-postgres.test.js
+      - run: node --test dist/tests/solver-cancel.test.js
+      - run: node --test dist/tests/scenario-scale.test.js
+
+  web-e2e-phase10-11:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: cd frontend && npm ci --ignore-scripts --no-audit
+      - run: cd frontend && npx playwright install --with-deps chromium
+      - run: npm run web:build
+      - run: nohup npm run dev --prefix frontend -- --port 5173 > /tmp/tps-vite.log 2>&1 &
+      - run: |
+          for i in {1..40}; do
+            curl -fsS http://127.0.0.1:5173/ >/dev/null && exit 0
+            sleep 1
+          done
+          cat /tmp/tps-vite.log
+          exit 1
+      - run: TPS_E2E_MOCK=1 npm run e2e --prefix frontend -- phase10-11.spec.ts
+
+  web-e2e-real:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: tps
+          POSTGRES_DB: tps_e2e
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U tps -d tps_e2e"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgres://tps@127.0.0.1:5432/tps_e2e
+      TPS_DB_INTEGRATION: '1'
+      HOST: 127.0.0.1
+      PORT: '8787'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+          cache-dependency-path: solver/pom.xml
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: npm ci --ignore-scripts --no-audit
+      - run: cd frontend && npm ci --ignore-scripts --no-audit
+      - run: python -m pip install openpyxl==3.1.5
+      - run: cd frontend && npx playwright install --with-deps chromium
+      - run: npm run build && npm run web:build && npm run solver:build
+      - run: node dist/src/api/migrate.js && node dist/src/api/check.js
+      - run: TPS_ALLOW_SYNTHETIC_SEED=1 node dist/src/api/seed.js
+      - name: Generate isolated test-only browser credentials
+        run: |
+          echo "TPS_TEST_USERNAME=tps_ci_synthetic" >> "$GITHUB_ENV"
+          PASS="$(openssl rand -hex 24)"
+          echo "::add-mask::$PASS"
+          echo "TPS_TEST_PASSWORD=$PASS" >> "$GITHUB_ENV"
+      - run: TPS_E2E_SYNTHETIC=1 node scripts/ci-e2e-user.mjs
+      - name: Start loopback-only real Fastify/React API
+        run: nohup node dist/src/api/server.js > /tmp/tps-e2e-real.log 2>&1 &
+      - name: Verify real backend and frontend are ready
+        run: |
+          for i in {1..60}; do
+            curl -fsS http://127.0.0.1:8787/health >/dev/null && exit 0
+            sleep 1
+          done
+          tail -n 70 /tmp/tps-e2e-real.log
+          exit 1
+      - run: npm run e2e --prefix frontend -- real-api-journey.spec.ts login.spec.ts
+
+  windows-regressions:
+    runs-on: windows-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install openpyxl==3.1.5
+      - run: npm ci --ignore-scripts --no-audit
+      - run: npm run build
+      - name: Decode Arabic bulk XLSX with simulated legacy Windows code page
+        run: node --test dist/tests/bulk-xlsx-unicode.test.js
+      - name: Python XLSX reader direct on Windows without PYTHONUTF8 workaround
+        run: python -m unittest discover -s scripts -p test_bulk_xlsx.py -v
+      - name: Verify PowerShell 5.1 installation stops on a native command failure
+        shell: powershell
+        run: |
+          $sandbox = Join-Path $env:RUNNER_TEMP "tps-failfast-synthetic"
+          New-Item -ItemType Directory -Force -Path (Join-Path $sandbox "scripts") | Out-Null
+          Copy-Item "scripts/local.ps1" (Join-Path $sandbox "scripts/local.ps1")
+          Set-Content (Join-Path $sandbox ".env") "CI_SYNTHETIC_ONLY=1"
+          Set-Content (Join-Path $sandbox "docker.cmd") "@echo off`r`nexit /b 37"
+          $oldPath = $env:PATH
+          try {
+            $env:PATH = "$sandbox;$oldPath"
+            & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $sandbox "scripts/local.ps1") start
+            if ($LASTEXITCODE -eq 0) { throw "local.ps1 hid a failing docker exit code" }
+            Write-Output "PowerShell 5.1 correctly propagated failed docker exit code"
+          } finally {
+            $env:PATH = $oldPath
+          }
+          # A deliberately failed child process is expected. A native exit
+          # code can otherwise leak through the GitHub Windows PowerShell step.
+          $global:LASTEXITCODE = 0
+
+  backup-restore-drill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm ci --ignore-scripts --no-audit
+      - name: Create disposable local PostgreSQL settings and encryption key
+        shell: bash
+        run: |
+          set -euo pipefail
+          DBPASS="$(openssl rand -hex 24)"
+          KEY="$(openssl rand -hex 32)"
+          echo "::add-mask::$DBPASS"
+          echo "::add-mask::$KEY"
+          echo "TPS_BACKUP_PASSPHRASE=$KEY" >> "$GITHUB_ENV"
+          printf 'TPS_DB_USER=tps\nTPS_DB_NAME=tps_backup_ci\nTPS_DB_PASSWORD=%s\nTPS_DB_PORT=54329\nDATABASE_URL=postgres://tps:%s@127.0.0.1:54329/tps_backup_ci\n' "$DBPASS" "$DBPASS" > .env
+      - name: Start synthetic isolated PostgreSQL 17
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker compose up -d postgres
+          for i in {1..45}; do
+            if docker compose exec -T postgres pg_isready -U tps -d tps_backup_ci; then exit 0; fi
+            sleep 2
+          done
+          docker compose ps
+          exit 1
+      - name: Migrate, seed synthetic data and snapshot encrypted archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run db:migrate
+          TPS_ALLOW_SYNTHETIC_SEED=1 npm run db:seed
+          TPS_ALLOW_SYNTHETIC_SEED=1 node --env-file=.env scripts/ci-backup-drill-fixture.mjs
+          npm run db:backup
+          test "$(find private-data/backups -maxdepth 1 -type f -name '*.tpsbak' | wc -l)" -eq 1
+          test "$(find private-data/backups -maxdepth 1 -type f -name '*.partial' | wc -l)" -eq 0
+      - name: Verify integrity and restore to NEW isolated database
+        shell: bash
+        run: |
+          set -euo pipefail
+          ARCHIVE="$(find private-data/backups -maxdepth 1 -type f -name '*.tpsbak' -print -quit)"
+          npm run db:backup:verify -- --file "$ARCHIVE"
+          npm run db:restore:test -- --file "$ARCHIVE"
+          RESTORED="$(docker compose exec -T postgres psql -U tps -d postgres -At -c "SELECT datname FROM pg_database WHERE datname LIKE 'tps_restore_%' ORDER BY datname DESC LIMIT 1" | tr -d '\r')"
+          test -n "$RESTORED"
+          test "$(docker compose exec -T postgres psql -U tps -d "$RESTORED" -At -c "SELECT count(*) FROM scenarios WHERE state='APPROVED'")" -eq 1
+          test "$(docker compose exec -T postgres psql -U tps -d "$RESTORED" -At -c "SELECT count(*) FROM solver_runs WHERE status='COMPLETED'")" -eq 1
+          test "$(docker compose exec -T postgres psql -U tps -d "$RESTORED" -At -c "SELECT count(*) FROM audit_logs WHERE action='CI_BACKUP_DRILL'")" -eq 1
+          test "$(docker compose exec -T postgres psql -U tps -d tps_backup_ci -At -c 'SELECT count(*) FROM schema_migrations')" -ge 14
+          git diff --exit-code
+      - name: Reject altered encrypted backup without writing production data
+        shell: bash
+        run: |
+          set -euo pipefail
+          ARCHIVE="$(find private-data/backups -maxdepth 1 -type f -name '*.tpsbak' -print -quit)"
+          TAMPER="${ARCHIVE%.tpsbak}_tampered.tpsbak"
+          cp "$ARCHIVE" "$TAMPER"
+          node --input-type=module -e 'import fs from "node:fs"; const p=process.argv[1];const b=fs.readFileSync(p);b[40]^=0xff;fs.writeFileSync(p,b)' "$TAMPER"
+          if npm run db:backup:verify -- --file "$TAMPER"; then
+            echo "Integrity failure: modified ciphertext was accepted"
+            exit 1
+          fi
+          echo "Authenticated archive correctly rejected tampering"
+      - name: Leave synthetic CI Docker container (no persistent real data)
+        if: always()
+        run: docker compose down || true
+
+  local-production-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+          cache-dependency-path: solver/pom.xml
+      - run: npm ci --ignore-scripts --no-audit
+      - run: cd frontend && npm ci --ignore-scripts --no-audit
+      - run: npm run build && npm run web:build && npm run solver:build
+      - name: Configure isolated synthetic source DB (not the operational DB)
+        shell: bash
+        run: |
+          set -euo pipefail
+          PASS="$(openssl rand -hex 24)"
+          echo "::add-mask::$PASS"
+          printf 'TPS_DB_USER=tps\nTPS_DB_NAME=tps_ci_original\nTPS_DB_PASSWORD=%s\nTPS_DB_PORT=54329\nDATABASE_URL=postgres://tps:%s@127.0.0.1:54329/tps_ci_original\nHOST=127.0.0.1\nPORT=8787\n' "$PASS" "$PASS" > .env
+          docker compose up -d postgres
+          for i in {1..40}; do
+            if docker compose exec -T postgres pg_isready -U tps -d tps_ci_original; then exit 0; fi
+            sleep 2
+          done
+          exit 1
+      - name: Create isolated operational DB and prove repeatable initialization
+        run: |
+          npm run local:production:init
+          npm run local:production:init
+          npm run local:production:check
+          test "$(docker compose exec -T postgres psql -U tps -d tps_operational_local -At -c 'SELECT count(*) FROM schema_migrations')" -eq 14
+          test "$(docker compose exec -T postgres psql -U tps -d tps_operational_local -At -c 'SELECT count(*) FROM users')" -eq 0
+          test "$(docker compose exec -T postgres psql -U tps -d tps_operational_local -At -c 'SELECT count(*) FROM scenarios')" -eq 0
+          test "$(docker compose exec -T postgres psql -U tps -d tps_ci_original -At -c "SELECT count(*) FROM information_schema.tables WHERE table_schema='public'")" -eq 0
+      - name: Bootstrap local operational admin only on empty DB
+        shell: bash
+        run: |
+          set -euo pipefail
+          PASS="$(openssl rand -hex 24)"
+          echo "::add-mask::$PASS"
+          TPS_BOOTSTRAP_USERNAME=tps_ci_operational TPS_BOOTSTRAP_PASSWORD="$PASS" npm run local:production:bootstrap
+          test "$(docker compose exec -T postgres psql -U tps -d tps_operational_local -At -c 'SELECT count(*) FROM users')" -eq 1
+          if TPS_BOOTSTRAP_USERNAME=tps_ci_second TPS_BOOTSTRAP_PASSWORD="$PASS" npm run local:production:bootstrap; then
+            echo "Unsafe bootstrap: accepted a second initial admin"
+            exit 1
+          fi
+      - name: Verify operational backup specifically targets operational DB
+        shell: bash
+        run: |
+          set -euo pipefail
+          PASS="$(openssl rand -hex 32)"
+          echo "::add-mask::$PASS"
+          TPS_BACKUP_PASSPHRASE="$PASS" npm run local:production:backup
+          ARCHIVE="$(find private-data/backups -maxdepth 1 -name '*.tpsbak' -print -quit)"
+          test -n "$ARCHIVE"
+          TPS_BACKUP_PASSPHRASE="$PASS" npm run local:production:backup:verify -- --file "$ARCHIVE"
+          TPS_BACKUP_PASSPHRASE="$PASS" npm run local:production:restore:test -- --file "$ARCHIVE"
+          RESTORED="$(docker compose exec -T postgres psql -U tps -d postgres -At -c "SELECT datname FROM pg_database WHERE datname LIKE 'tps_restore_%' ORDER BY datname DESC LIMIT 1" | tr -d '\r')"
+          test -n "$RESTORED"
+          test "$(docker compose exec -T postgres psql -U tps -d "$RESTORED" -At -c 'SELECT count(*) FROM users')" -eq 1
+          test "$(docker compose exec -T postgres psql -U tps -d "$RESTORED" -At -c 'SELECT count(*) FROM schema_migrations')" -eq 14
+          test "$(docker compose exec -T postgres psql -U tps -d "$RESTORED" -At -c 'SELECT count(*) FROM scenarios')" -eq 0
+      - name: Run real local-production API on loopback and assert health profile
+        shell: bash
+        run: |
+          set -euo pipefail
+          nohup npm run local:production:start >/tmp/tps-local-production.log 2>&1 &
+          for i in {1..50}; do
+            if curl -fsS http://127.0.0.1:8787/health >/tmp/tps-local-prod-health.json; then break; fi
+            sleep 1
+          done
+          node -e "const fs=require('node:fs');const r=JSON.parse(fs.readFileSync('/tmp/tps-local-prod-health.json','utf8'));if(r.mode!=='local-production'||r.database!=='ok')process.exit(1); console.log('Verified isolated local-production health')"
+          test "$(docker compose exec -T postgres psql -U tps -d tps_operational_local -At -c 'SELECT count(*) FROM users')" -eq 1
+          git diff --exit-code
+      - if: always()
+        run: docker compose down || true
