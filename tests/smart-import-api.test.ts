@@ -20,14 +20,14 @@ test('smart import previews localized files, requires capacity decisions and con
         assert.equal(r.statusCode,200,r.body);return r.json();
       };
       const institution=await post('/institutions',{name:'Synthetic smart import '+suffix});
-      const college=await post('/colleges',{institutionId:institution.id,name:'الكلية التقنية برجال ألمع'});
+      const college=await post('/colleges',{institutionId:institution.id,name:'الكلية التقنية بمدينة المثال'});
       const department=await post('/departments',{collegeId:college.id,name:'قسم اختبار الاستيراد'});
       const term=await post('/terms',{collegeId:college.id,code:'T-'+suffix,label:'فصل اصطناعي',startsOn:'2027-01-01',endsOn:'2027-06-30'});
       const scope='?departmentId='+department.id+'&collegeId='+college.id;
       const malformed=await app.inject({method:'POST',url:'/api/v1/raiyat-resources/preview'+scope,
         headers:{...headers,'content-type':'text/csv'},payload:Buffer.from('a,b\n"broken')});
       assert.equal(malformed.statusCode,400,'Invalid files return a useful validation error');
-      const bytes=Buffer.from('الوحدة التدريبية;رمز القاعة;وصف القاعة;السعة\nكلية رجال ألمع;0001;قاعة تجريبية;40\nكلية رجال ألمع;0001;قاعة تجريبية;50');
+      const bytes=Buffer.from('الوحدة التدريبية;رمز القاعة;وصف القاعة;السعة\nكلية مدينة المثال;0001;قاعة تجريبية;40\nكلية مدينة المثال;0001;قاعة تجريبية;50');
       const preview=await app.inject({method:'POST',url:'/api/v1/raiyat-resources/preview'+scope,
         headers:{...headers,'content-type':'text/csv'},payload:bytes});
       assert.equal(preview.statusCode,200,preview.body);
@@ -41,7 +41,7 @@ test('smart import previews localized files, requires capacity decisions and con
       const accepted=await post('/raiyat-resources/commit',{...roomPayload,roomDecisions:{'0001':{capacity:40,type:'CLASSROOM'}}});
       assert.equal(accepted.importedRooms,1);
       assert.equal((await post('/raiyat-resources/commit',{...roomPayload,roomDecisions:{'0001':{capacity:40,type:'CLASSROOM'}}})).importedRooms,0);
-      const traineeText='الوحدة التدريبية;القسم;الرقم التدريبي;المقرر\nكلية رجال ألمع;قسم اختبار الاستيراد;0001;C-101\nكلية رجال ألمع;قسم اختبار الاستيراد;0001;C-101\nكلية رجال ألمع;قسم اختبار الاستيراد;1;C-101';
+      const traineeText='الوحدة التدريبية;القسم;الرقم التدريبي;المقرر\nكلية مدينة المثال;قسم اختبار الاستيراد;0001;C-101\nكلية مدينة المثال;قسم اختبار الاستيراد;0001;C-101\nكلية مدينة المثال;قسم اختبار الاستيراد;1;C-101';
       const traineeBytes=Buffer.concat([Buffer.from([0xff,0xfe]),Buffer.from(traineeText,'utf16le')]);
       const history=await app.inject({method:'POST',url:'/api/v1/automatic-planning/history/preview?departmentId='+department.id+
         '&courseLevels='+encodeURIComponent(JSON.stringify({'C-101':1})),headers:{...headers,'content-type':'text/csv'},payload:traineeBytes});
