@@ -2,7 +2,7 @@
 
 ## Scope and deployment
 
-TPS is a **local-only modular monolith**, not a hosted institutional service and not connected to Rayat. Main code lives in `aaljohani2/tps-system`, development branch `feat/full-stack-tps-v1`, Draft PR #8. The intended Windows workspace is `H:\\tps_system`; the app is served on `127.0.0.1:8787` with a separate loopback PostgreSQL port by default.
+TPS is a **local-only modular monolith**, not a hosted institutional service and not connected to Rayat. Main code lives in `aaljohani2/tps-system`, development branch `feat/full-stack-tps-v1`, Draft PR #8. The intended Windows workspace is `<LOCAL_TPS_DIR>`; the app is served on `127.0.0.1:8787` with a separate loopback PostgreSQL port by default.
 
 ## Runtime components
 
