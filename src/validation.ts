@@ -125,7 +125,7 @@ export function validateRequest(input: PlanRequest): void {
     if (!i.id || !i.name || !Number.isFinite(i.maxLoad) || i.maxLoad < 0) errors.push(`Invalid instructor: ${i.id}`);
     const rules=i.teachingRules;
     if(rules){
-      if(rules.preferredCreditedLoad!==undefined&&(!Number.isFinite(rules.preferredCreditedLoad)||rules.preferredCreditedLoad<0||rules.preferredCreditedLoad>168||rules.preferredCreditedLoad>i.maxLoad))errors.push(`Invalid instructor credited-load target: ${i.id}`);
+      if(rules.preferredCreditedLoad!==undefined&&(!Number.isFinite(rules.preferredCreditedLoad)||rules.preferredCreditedLoad<0||rules.preferredCreditedLoad>168||rules.preferredCreditedLoad>i.maxLoad+(i.overload?.additionalHours??0)))errors.push(`Invalid instructor credited-load target: ${i.id}`);
       if(rules.maxContactHours!==undefined&&(!Number.isFinite(rules.maxContactHours)||rules.maxContactHours<0||rules.maxContactHours>168))errors.push(`Invalid instructor contact limit: ${i.id}`);
       for(const key of ['maxSections','preferredSections'] as const)
         if(rules[key]!==undefined&&(!Number.isInteger(rules[key])||rules[key]!<0||rules[key]!>250))errors.push(`Invalid instructor section limit: ${i.id}`);
