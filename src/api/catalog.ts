@@ -15,7 +15,9 @@ const codes=z.array(z.string().trim().regex(/^[A-Za-z0-9][A-Za-z0-9_.-]{0,59}$/)
   .refine(v=>new Set(v).size===v.length,'Duplicate qualification/equipment codes');
 const windows=z.array(z.object({day:z.enum(['SUN','MON','TUE','WED','THU']),
   from:z.number().multipleOf(0.5).min(0).max(23.5),to:z.number().multipleOf(0.5).min(0.5).max(24)})
-  .refine(w=>w.to>w.from && (w.day!=='THU'||w.to<=10),'Invalid availability time')).max(30).optional();
+  // Availability is master data; the selected scenario policy enforces legacy Thursday limits.
+  // Fixed lecture-period scenarios may legitimately train until 14:30 on Thursday.
+  .refine(w=>w.to>w.from,'Invalid availability time')).max(30).optional();
 const courseBase=z.object({
  departmentId:uuid,code,title:name,level:z.number().int().min(1).max(12),theoryHours:z.number().int().min(0),
  assignmentScope:z.enum(['DEPARTMENT','EXTERNAL']).default('DEPARTMENT'),externalSectionCapacity:z.number().int().min(1).max(5000).default(40),
@@ -69,18 +71,22 @@ function requireCollegeEditor(req:FastifyRequest){
   if(req.principal!.departmentId&&req.principal!.role!=='SYSTEM_ADMIN')forbidden();
 }
 async function assertLockedTrainerQualified(departmentId:string,courseCode:string,
-  deliveryMode:string,requiredSpecialties:string[],trainerCode:string|null|undefined){
+  deliveryMode:string,requiredSpecialties:string[],trainerCode:string|null|undefined,
+  theoryHours:number,practicalHours:number){
   if(!trainerCode)return;
-  const trainer=await pool.query<{allowed_modes:string[];eligible_course_codes:string[]|null;specialties:string[]}>(`
-    SELECT allowed_modes,eligible_course_codes,specialties FROM instructors
+  const trainer=await pool.query<{allowed_modes:string[];eligible_course_codes:string[]|null;specialties:string[];
+    teaching_rules:{allowedCourseTypes?:Array<'THEORY'|'PRACTICAL'|'MIXED'>}|null}>(`
+    SELECT allowed_modes,eligible_course_codes,specialties,teaching_rules FROM instructors
     WHERE department_id=$1 AND code=$2 AND is_active=true`,[departmentId,trainerCode]);
   const found=trainer.rows[0];
   if(!found)throw Object.assign(new Error('Assigned instructor not found in department'),{statusCode:409});
-  if(!found.allowed_modes.includes(deliveryMode) ||
+  const kind=theoryHours>0&&practicalHours>0?'MIXED':theoryHours>0?'THEORY':'PRACTICAL';
+  if((found.teaching_rules?.allowedCourseTypes&&!found.teaching_rules.allowedCourseTypes.includes(kind)) ||
+    !found.allowed_modes.includes(deliveryMode) ||
     (deliveryMode==='HYBRID'&&(!found.allowed_modes.includes('ONSITE')||!found.allowed_modes.includes('REMOTE'))) ||
     (found.eligible_course_codes&&!found.eligible_course_codes.includes(courseCode)) ||
     requiredSpecialties.some(x=>!found.specialties.includes(x)))
-    throw Object.assign(new Error('Assigned instructor does not meet course mode, eligibility or specialty requirements'),{statusCode:409});
+    throw Object.assign(new Error('Assigned instructor does not meet course type, mode, eligibility or specialty requirements'),{statusCode:409});
 }
 export async function registerCatalog(app:FastifyInstance){
   app.get('/api/v1/institutions',async(req)=>{
@@ -136,7 +142,8 @@ export async function registerCatalog(app:FastifyInstance){
   });
   app.post('/api/v1/courses',async(req)=>{
     requireEditor(req);const v=parse(course,req.body);await assertDepartment(req,v.departmentId);
-    await assertLockedTrainerQualified(v.departmentId,v.code,v.mode,v.requiredSpecialties,v.assignedInstructorId);
+    await assertLockedTrainerQualified(v.departmentId,v.code,v.mode,v.requiredSpecialties,v.assignedInstructorId,
+      v.theoryHours,v.practicalHours);
     const rows=await db.insert(courses).values({...v,hybridSplit:v.hybridSplit??null,assignedInstructorId:v.assignedInstructorId??null}).returning();
     await audit(req.principal!.id,'CREATE','COURSE',rows[0]!.id);return rows[0];
   });
@@ -154,12 +161,14 @@ export async function registerCatalog(app:FastifyInstance){
     if(!Object.keys(v).length)throw Object.assign(new Error('No changes supplied'),{statusCode:400});
     if(v.mode && !old.rows[0].eligible_modes.includes(v.mode))
       throw Object.assign(new Error('Delivery mode is not approved for this course'),{statusCode:409});
-    const currentLocked=await pool.query<{code:string;mode:string;assigned_instructor_id:string|null;required_specialties:string[]}>(`
-      SELECT code,mode,assigned_instructor_id,required_specialties FROM courses WHERE id=$1`,[id]);
+    const currentLocked=await pool.query<{code:string;mode:string;assigned_instructor_id:string|null;required_specialties:string[];
+      theory_hours:number;practical_hours:number}>(`
+      SELECT code,mode,assigned_instructor_id,required_specialties,theory_hours,practical_hours FROM courses WHERE id=$1`,[id]);
     const existingLock=currentLocked.rows[0]!;
     await assertLockedTrainerQualified(old.rows[0].department_id,existingLock.code,
       v.mode??existingLock.mode,v.requiredSpecialties??existingLock.required_specialties,
-      v.assignedInstructorId===undefined?existingLock.assigned_instructor_id:v.assignedInstructorId);
+      v.assignedInstructorId===undefined?existingLock.assigned_instructor_id:v.assignedInstructorId,
+      v.theoryHours??existingLock.theory_hours,v.practicalHours??existingLock.practical_hours);
     const existing=await pool.query<{mode:string;theory_hours:number;practical_hours:number;hybrid_split:unknown}>(
       'SELECT mode,theory_hours,practical_hours,hybrid_split FROM courses WHERE id=$1',[id]);
     const effectiveMode=v.mode??existing.rows[0]!.mode;
@@ -222,8 +231,14 @@ export async function registerCatalog(app:FastifyInstance){
       available:windows.nullable()
     }).strict(),req.body),req.body);
     if(!Object.keys(v).length)throw Object.assign(new Error('No changes supplied'),{statusCode:400});
-    const values={...v,maxLoad:v.maxLoad===undefined?undefined:String(v.maxLoad)};
-    checkLoadTarget(v.teachingRules??found.rows[0].teaching_rules,Number(v.maxLoad??found.rows[0].max_load));
+    // PATCH of a single teaching rule must never erase existing eligibility restrictions.
+    const existingRules=found.rows[0].teaching_rules??{};
+    const effectiveRules=v.teachingRules===undefined?existingRules:
+      parse(instructor.shape.teachingRules,{...existingRules,...v.teachingRules});
+    const values={...v,
+      ...(v.teachingRules===undefined?{}:{teachingRules:effectiveRules}),
+      maxLoad:v.maxLoad===undefined?undefined:String(v.maxLoad)};
+    checkLoadTarget(effectiveRules,Number(v.maxLoad??found.rows[0].max_load));
     const updated=await db.update(instructors).set(values).where(eq(instructors.id,id)).returning();
     await audit(req.principal!.id,'UPDATE','INSTRUCTOR',id,{fields:Object.keys(v)});
     return updated[0];
